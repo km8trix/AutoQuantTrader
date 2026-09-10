@@ -700,7 +700,7 @@ export interface components {
       "transition_id": string;
     };
     "OperationalControlView": {
-      "actions_available": boolean;
+      "actions_available": false;
       "blocking_event_count": number;
       "detail": string;
       "history": Array<components["schemas"]["OperationalControlReceiptView"]>;
@@ -780,11 +780,11 @@ export interface components {
       "ledger": components["schemas"]["LedgerIntegrityView"];
       "orders": Array<components["schemas"]["OperationalOrderView"]>;
       "positions": Array<components["schemas"]["OperationalPositionView"]>;
-      "read_only": boolean;
+      "read_only": true;
       "reconciliation": components["schemas"]["OperationalReconciliationView"];
       "reservations": Array<components["schemas"]["RiskReservationView"]>;
       "risk_decisions": Array<components["schemas"]["OperationalRiskDecisionView"]>;
-      "schema_version": string;
+      "schema_version": "phase5-operations-dashboard-v1";
     };
     "OperationsEnvironmentView": {
       "account_id": string;
@@ -838,6 +838,345 @@ export interface components {
       "symbol": string;
     };
     "PersistenceMode": "ephemeral" | "durable" | "unavailable";
+    "PersonalAttemptView": {
+      "attempt_id": string;
+      "attempt_number": number;
+      "ended_at": (string) | (null);
+      "reasons": Array<string>;
+      "started_at": string;
+      "status": "running" | "completed" | "incomplete" | "failed" | "cancelled" | "abandoned";
+    };
+    "PersonalCapability": {
+      "enabled": boolean;
+      "reasons": Array<string>;
+    };
+    "PersonalComparison": {
+      "comparable": boolean;
+      "comparison_sha256": components["schemas"]["Sha256Text"];
+      "differences": Array<components["schemas"]["PersonalNamedValue"]>;
+      "reasons": Array<string>;
+      "runs": Array<components["schemas"]["PersonalComparisonItem"]>;
+    };
+    "PersonalComparisonItem": {
+      "assumptions": Array<string>;
+      "benchmark_metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "configuration": components["schemas"]["PersonalConfiguration"];
+      "cost_scenario_id": string;
+      "data_class": string;
+      "dataset_id": string;
+      "interval": components["schemas"]["PersonalReportInterval"];
+      "job_id": string;
+      "limitations": Array<string>;
+      "metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "report_sha256": components["schemas"]["Sha256Text"];
+      "run_id": string;
+      "strategy_id": string;
+    };
+    "PersonalComparisonRequest": {
+      "job_ids": Array<components["schemas"]["PersonalText"]>;
+    };
+    "PersonalConfiguration": {
+      "allocation": components["schemas"]["PersonalDecimalInput"];
+      "kind": "buy_hold" | "trend_sma";
+      "lookback": number;
+      "rebalance_sessions": (number) | (null);
+    };
+    "PersonalCostScenario": {
+      "assumptions": Array<string>;
+      "display_name": string;
+      "fee_per_share": string;
+      "scenario_id": string;
+      "slippage_bps": string;
+    };
+    "PersonalCoverageExclusion": {
+      "reasons": Array<string>;
+      "row_id": string;
+    };
+    "PersonalDatasetView": {
+      "availability_policy": string;
+      "data_class": string;
+      "dataset_id": string;
+      "display_name": string;
+      "end_session": string;
+      "limitations": Array<string>;
+      "manifest_sha256": components["schemas"]["Sha256Text"];
+      "prior_access": "known_accessed" | "unknown";
+      "session_count": number;
+      "start_session": string;
+      "symbols": Array<string>;
+    };
+    "PersonalDecimalInput": string;
+    "PersonalEquityRow": {
+      "benchmark_nav": (string) | (null);
+      "benchmark_reasons": Array<string>;
+      "benchmark_wealth": (string) | (null);
+      "cash_nav": (string) | (null);
+      "cash_reasons": Array<string>;
+      "cash_wealth": (string) | (null);
+      "drawdown": (string) | (null);
+      "economic_at": string;
+      "flow_id": (string) | (null);
+      "kind": "equity";
+      "knowledge_at": string;
+      "last_known_at": (string) | (null);
+      "last_known_nav": (string) | (null);
+      "nav": (string) | (null);
+      "paired_row_id": (string) | (null);
+      "reasons": Array<string>;
+      "roles": Array<string>;
+      "row_id": string;
+      "sequence": number;
+      "session": string;
+      "signed_flow": string;
+      "wealth": (string) | (null);
+    };
+    "PersonalExecutionRow": {
+      "execution_id": string;
+      "fee": string;
+      "intent_id": string;
+      "kind": "executions";
+      "occurred_at": string;
+      "order_id": string;
+      "price": string;
+      "quantity": string;
+      "revision": number;
+      "side": string;
+      "source_row_ids": Array<string>;
+      "symbol": string;
+    };
+    "PersonalExperimentCandidate": {
+      "candidate_id": components["schemas"]["PersonalText"];
+      "configuration": components["schemas"]["PersonalConfiguration"];
+    };
+    "PersonalExperimentFold": {
+      "fold_id": components["schemas"]["PersonalText"];
+      "test_end": string;
+      "test_start": string;
+      "train_end": string;
+      "train_start": string;
+      "validation_end": string;
+      "validation_start": string;
+    };
+    "PersonalExperimentList": {
+      "as_of": string;
+      "experiments": Array<components["schemas"]["PersonalExperimentView"]>;
+      "truncated": boolean;
+    };
+    "PersonalExperimentRequest": {
+      "candidates": Array<components["schemas"]["PersonalExperimentCandidate"]>;
+      "dataset_id": components["schemas"]["PersonalText"];
+      "folds": Array<components["schemas"]["PersonalExperimentFold"]>;
+      "hypothesis": string;
+      "name": components["schemas"]["PersonalText"];
+      "prior_access": components["schemas"]["PersonalPriorAccess"];
+      "warmup_sessions": number;
+    };
+    "PersonalExperimentTrial": {
+      "benchmark_metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "candidate_id": string;
+      "cost_scenario_id": string;
+      "fold_id": string;
+      "job_id": (string) | (null);
+      "metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "reasons": Array<string>;
+      "report_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "status": components["schemas"]["PersonalRunStatus"];
+      "trial_id": string;
+      "window": "train" | "validation" | "test";
+    };
+    "PersonalExperimentView": {
+      "cost_scenarios": Array<components["schemas"]["PersonalCostScenario"]>;
+      "evaluation_mode": "descriptive_only";
+      "experiment_id": string;
+      "export_url": (string) | (null);
+      "limitations": Array<string>;
+      "planned_trial_count": number;
+      "protocol_sha256": components["schemas"]["Sha256Text"];
+      "provenance": Array<components["schemas"]["PersonalNamedValue"]>;
+      "reasons": Array<string>;
+      "request": components["schemas"]["PersonalExperimentRequest"];
+      "requested_at": string;
+      "status": components["schemas"]["PersonalRunStatus"];
+      "suitability": "not_assessed";
+      "trials": Array<components["schemas"]["PersonalExperimentTrial"]>;
+      "updated_at": string;
+    };
+    "PersonalFifoRow": {
+      "buy_fees": string;
+      "closing_order_id": string;
+      "completed": boolean;
+      "execution_ids": Array<string>;
+      "gross_pnl": string;
+      "kind": "fifo";
+      "match_ids": Array<string>;
+      "net_pnl": string;
+      "quantity": string;
+      "sell_fees": string;
+      "split_ids": Array<string>;
+      "symbol": string;
+    };
+    "PersonalJournalRow": {
+      "amounts": Array<components["schemas"]["PersonalNamedValue"]>;
+      "description": string;
+      "entry_id": string;
+      "event_type": string;
+      "kind": "journal";
+      "occurred_at": string;
+      "sequence": number;
+      "source_row_ids": Array<string>;
+    };
+    "PersonalMetric": {
+      "assumptions": Array<string>;
+      "conventions_sha256": components["schemas"]["Sha256Text"];
+      "coverage": components["schemas"]["PersonalMetricCoverage"];
+      "name": string;
+      "reasons": Array<string>;
+      "status": "defined" | "undefined" | "approximate";
+      "unit": string;
+      "value": (string) | (null);
+    };
+    "PersonalMetricCoverage": {
+      "contributing_row_ids": Array<string>;
+      "excluded": Array<components["schemas"]["PersonalCoverageExclusion"]>;
+      "expected_sessions": number;
+      "input_sha256": components["schemas"]["Sha256Text"];
+      "interval_id": string;
+      "lineage_truncated": boolean;
+      "observed_sessions": number;
+      "sample_count": number;
+      "valid_returns": number;
+      "valid_sessions": number;
+    };
+    "PersonalNamedValue": {
+      "name": string;
+      "value": string;
+    };
+    "PersonalPositionRow": {
+      "cost_basis": string;
+      "kind": "positions";
+      "mark": (string) | (null);
+      "mark_at": (string) | (null);
+      "market_value": (string) | (null);
+      "quantity": string;
+      "reasons": Array<string>;
+      "symbol": string;
+      "unrealized_pnl": (string) | (null);
+    };
+    "PersonalPriorAccess": {
+      "description": string;
+      "status": "known_accessed" | "unknown";
+    };
+    "PersonalReportInterval": {
+      "baseline_valuation_id": string;
+      "expected_sessions": number;
+      "fold_id": string;
+      "interval_id": string;
+      "reset_mode": string;
+      "scored_end": (string) | (null);
+      "scored_start": (string) | (null);
+      "terminal_valuation_id": string;
+      "warmup_end": (string) | (null);
+      "warmup_start": (string) | (null);
+    };
+    "PersonalReportRow": (components["schemas"]["PersonalEquityRow"]) | (components["schemas"]["PersonalExecutionRow"]) | (components["schemas"]["PersonalFifoRow"]) | (components["schemas"]["PersonalJournalRow"]) | (components["schemas"]["PersonalPositionRow"]);
+    "PersonalResearchCatalog": {
+      "as_of": string;
+      "cancel": components["schemas"]["PersonalCapability"];
+      "cost_scenarios": Array<components["schemas"]["PersonalCostScenario"]>;
+      "datasets": Array<components["schemas"]["PersonalDatasetView"]>;
+      "experiments": components["schemas"]["PersonalCapability"];
+      "launch": components["schemas"]["PersonalCapability"];
+      "limitations": Array<string>;
+      "strategies": Array<components["schemas"]["PersonalStrategyView"]>;
+    };
+    "PersonalRowsKind": "equity" | "executions" | "fifo" | "journal" | "positions";
+    "PersonalRunList": {
+      "as_of": string;
+      "jobs": Array<components["schemas"]["PersonalRunView"]>;
+      "truncated": boolean;
+    };
+    "PersonalRunReport": {
+      "artifact_sha256": components["schemas"]["Sha256Text"];
+      "assumptions": Array<string>;
+      "attempt_id": string;
+      "benchmark_metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "benchmark_name": string;
+      "cash_metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "conventions": Array<components["schemas"]["PersonalNamedValue"]>;
+      "currency": string;
+      "data_class": string;
+      "dataset_id": string;
+      "export_url": (string) | (null);
+      "generated_at": string;
+      "interval": components["schemas"]["PersonalReportInterval"];
+      "job_id": string;
+      "limitations": Array<string>;
+      "metrics": Array<components["schemas"]["PersonalMetric"]>;
+      "provenance": Array<components["schemas"]["PersonalNamedValue"]>;
+      "reasons": Array<string>;
+      "report_sha256": components["schemas"]["Sha256Text"];
+      "result_sha256": components["schemas"]["Sha256Text"];
+      "run_id": string;
+      "status": "completed" | "incomplete";
+    };
+    "PersonalRunRequest": {
+      "configuration": components["schemas"]["PersonalConfiguration"];
+      "cost_scenario_id": components["schemas"]["PersonalText"];
+      "dataset_id": components["schemas"]["PersonalText"];
+      "dataset_manifest_sha256": components["schemas"]["Sha256Text"];
+      "initial_cash": components["schemas"]["PersonalDecimalInput"];
+      "scored_end": (string) | (null);
+      "scored_start": (string) | (null);
+      "strategy_id": components["schemas"]["PersonalText"];
+      "strategy_version": components["schemas"]["PersonalText"];
+      "warmup_sessions": number;
+    };
+    "PersonalRunRows": {
+      "job_id": string;
+      "kind": components["schemas"]["PersonalRowsKind"];
+      "limit": number;
+      "offset": number;
+      "report_sha256": components["schemas"]["Sha256Text"];
+      "rows": Array<components["schemas"]["PersonalReportRow"]>;
+      "total": number;
+    };
+    "PersonalRunStatus": "queued" | "running" | "completed" | "incomplete" | "failed" | "cancelled";
+    "PersonalRunView": {
+      "attempts": Array<components["schemas"]["PersonalAttemptView"]>;
+      "cancel_requested": boolean;
+      "configuration": components["schemas"]["PersonalConfiguration"];
+      "cost_scenario_id": string;
+      "data_class": string;
+      "dataset_id": string;
+      "dataset_manifest_sha256": components["schemas"]["Sha256Text"];
+      "job_id": string;
+      "limitations": Array<string>;
+      "progress_completed": (number) | (null);
+      "progress_total": (number) | (null);
+      "progress_unit": (string) | (null);
+      "reasons": Array<string>;
+      "report_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "requested_at": string;
+      "result_sha256": (components["schemas"]["Sha256Text"]) | (null);
+      "run_id": string;
+      "spec_sha256": components["schemas"]["Sha256Text"];
+      "status": components["schemas"]["PersonalRunStatus"];
+      "strategy_id": string;
+      "strategy_version": string;
+      "updated_at": string;
+    };
+    "PersonalStrategyView": {
+      "default_configuration": components["schemas"]["PersonalConfiguration"];
+      "default_warmup_sessions": number;
+      "description": string;
+      "display_name": string;
+      "limitations": Array<string>;
+      "maximum_lookback": number;
+      "minimum_lookback": number;
+      "strategy_id": string;
+      "version": string;
+    };
+    "PersonalText": string;
     "PositionTargetView": {
       "instrument_id": string;
       "quantity": string;
@@ -1325,6 +1664,181 @@ export interface paths {
         "503": {
           content: {
             "application/json": components["schemas"]["ApiErrorResponse"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/catalog": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalResearchCatalog"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/comparison": {
+    post: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalComparison"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/experiments": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalExperimentList"];
+          }
+        }
+      }
+    }
+    post: {
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["PersonalExperimentView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/experiments/{experiment_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalExperimentView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunList"];
+          }
+        }
+      }
+    }
+    post: {
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs/{job_id}": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs/{job_id}/cancel": {
+    post: {
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunView"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs/{job_id}/export": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": {
+              [key: string]: unknown;
+            };
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs/{job_id}/report": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunReport"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
+          }
+        }
+      }
+    }
+  }
+  "/api/v1/research/personal/runs/{job_id}/rows": {
+    get: {
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PersonalRunRows"];
+          }
+        }
+        "422": {
+          content: {
+            "application/json": components["schemas"]["HTTPValidationError"];
           }
         }
       }

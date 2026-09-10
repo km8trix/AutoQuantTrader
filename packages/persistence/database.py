@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterator
+from collections import defaultdict
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Literal
+from types import MappingProxyType
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, Engine, create_engine, make_url
@@ -17,6 +19,7 @@ from packages.domain.replay_manifest import (
     ReplayManifestDecodeError,
     ReplayRunManifest,
 )
+from packages.domain.research_job_contracts import ObjectRef, ResearchRecordCodec
 from packages.domain.risk import RiskAuthorizationError
 from packages.persistence.immutable import ImmutableFactConflict, as_aware_utc
 from packages.persistence.postgres_tls import pinned_verify_full_connect_args
@@ -156,9 +159,13 @@ from packages.persistence.schema import (
     universe_memberships,
     universe_versions,
 )
-from packages.persistence.sqlite_config import enforce_sqlite_foreign_keys
+from packages.persistence.sqlite_config import (
+    configure_research_sqlite,
+    enforce_sqlite_foreign_keys,
+)
 
-EXPECTED_SCHEMA_REVISION = "0038_phase4_etrade_oauth"
+EXPECTED_SCHEMA_REVISION = "0039_personal_research"
+_TABLE_PROBE_BATCH_SIZE = 64
 
 
 class DatabaseSchemaNotReady(RuntimeError):
@@ -1239,7 +1246,7 @@ def _verify_phase2_research_integrity(connection: Connection) -> None:
             raise DatabaseSchemaNotReady("Phase 2 durable research integrity verification failed")
 
 
-def create_database_engine(database_url: str) -> Engine:
+def create_database_engine(database_url: str, *, research_sqlite_wal: bool = False) -> Engine:
     url = make_url(database_url)
     if url.get_backend_name() == "sqlite" and (url.database is None or url.database == ":memory:"):
         engine = create_engine(
@@ -1253,7 +1260,10 @@ def create_database_engine(database_url: str) -> Engine:
             connect_args=pinned_verify_full_connect_args(database_url, required=False),
             pool_pre_ping=True,
         )
-    return enforce_sqlite_foreign_keys(engine)
+    enforce_sqlite_foreign_keys(engine)
+    if research_sqlite_wal:
+        configure_research_sqlite(engine)
+    return engine
 
 
 def persistence_mode(engine: Engine) -> Literal["ephemeral", "durable"]:
@@ -1281,21 +1291,317 @@ def _repeatable_read_transaction(engine: Engine) -> Iterator[Connection]:
             connection.rollback()
 
 
+def _probe_required_tables(connection: Connection, tables: tuple[sa.Table, ...]) -> None:
+    """Resolve every required column without rows, using bounded SQL round trips."""
+    for offset in range(0, len(tables), _TABLE_PROBE_BATCH_SIZE):
+        probes = (
+            sa.select(table).where(sa.false()).exists().label(f"required_table_{offset + index}")
+            for index, table in enumerate(tables[offset : offset + _TABLE_PROBE_BATCH_SIZE])
+        )
+        connection.execute(sa.select(*probes)).one()
+
+
+def _capture_personal_research_validation(
+    connection: Connection, *, codec: ResearchRecordCodec | None
+) -> Callable[[], None] | None:
+    """Copy one SQL snapshot, then validate its typed records after releasing it.
+
+    Digests detect inconsistent retained bindings; they are not authentication
+    against an actor able to replace every database fact and its digest.
+    """
+    from packages.persistence.research_catalog import SqlResearchCatalog
+    from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
+    from packages.persistence.research_schema_v2 import (
+        RESEARCH_TABLES_V2,
+        research_job_events_v2,
+        research_job_heads_v2,
+        research_jobs_v2,
+        research_objects_v2,
+        research_publications_v2,
+    )
+    from packages.persistence.research_workflow_v2 import ResearchJobSnapshot, SqlResearchWorkflow
+
+    tables = (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+    if not any(
+        connection.execute(sa.select(table).limit(1)).first() is not None for table in tables
+    ):
+        return None
+    if codec is None:
+        raise DatabaseSchemaNotReady("nonempty personal research history requires a record codec")
+    try:
+        # Check every declared foreign key, including orphan children for which
+        # there is no parent row to initiate typed reconstruction.
+        for table in tables:
+            for constraint in table.foreign_key_constraints:
+                target = constraint.referred_table
+                matches = sa.and_(
+                    *(element.parent == element.column for element in constraint.elements)
+                )
+                missing = connection.execute(
+                    sa.select(sa.literal(1))
+                    .select_from(table.outerjoin(target, matches))
+                    .where(next(iter(target.primary_key.columns)).is_(None))
+                    .limit(1)
+                ).first()
+                if missing is not None:
+                    raise ValueError("research history contains an orphan reference")
+        workflow = SqlResearchWorkflow(connection.engine, codec=codec)
+        catalog = SqlResearchCatalog(connection.engine, codec=codec, workflow=workflow)
+        # Read each workflow table once; no typed decoding or per-job table scan
+        # occurs while this coherent schema-wide snapshot holds a shared lock.
+        raw = MappingProxyType(
+            {
+                table.name: tuple(
+                    MappingProxyType(dict(row))
+                    for row in connection.execute(
+                        sa.select(table).order_by(*table.primary_key.columns)
+                    ).mappings()
+                )
+                for table in RESEARCH_TABLES_V2
+            }
+        )
+        catalog_rows = catalog.read_catalog_rows(connection)
+    except (ValueError, TypeError, KeyError, ImmutableFactConflict) as error:
+        raise DatabaseSchemaNotReady(
+            "personal research SQL integrity verification failed"
+        ) from error
+
+    def validate() -> None:
+        try:
+            object_rows = {row["object_sha256"]: row for row in raw[research_objects_v2.name]}
+            for row in object_rows.values():
+                ObjectRef(row["object_sha256"], row["byte_count"], row["codec_version"])
+            heads = {row["job_id"]: row for row in raw[research_job_heads_v2.name]}
+            publications = {row["job_id"]: row for row in raw[research_publications_v2.name]}
+            events: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+            for row in raw[research_job_events_v2.name]:
+                events[row["job_id"]].append(row)
+            requests = {}
+            for row in raw[research_jobs_v2.name]:
+                discovered = workflow.decode_request_row(row)
+                request = discovered.request
+                publication = publications.get(request.job_id)
+                identifiers = {
+                    reference.object_sha256
+                    for reference in (
+                        request.inputs,
+                        request.dataset_archive,
+                        request.settlement_calendar,
+                    )
+                    if reference is not None
+                }
+                if publication is not None:
+                    identifiers.add(publication["object_sha256"])
+                snapshot = ResearchJobSnapshot(
+                    discovered,
+                    heads[request.job_id],
+                    tuple(events[request.job_id]),
+                    publication,
+                    tuple(object_rows[identifier] for identifier in sorted(identifiers)),
+                )
+                state = workflow.replay_job_snapshot(snapshot)
+                requests[row["job_id"]] = state.request
+            catalog.replay_catalog_rows(catalog_rows, requests)
+        except (ValueError, TypeError, KeyError, ImmutableFactConflict) as error:
+            raise DatabaseSchemaNotReady(
+                "personal research SQL integrity verification failed"
+            ) from error
+
+    return validate
+
+
 def verify_operational_schema(
     engine: Engine,
     *,
     require_phase_zero_facts: bool = True,
     expected_revision: str = EXPECTED_SCHEMA_REVISION,
+    research_codec: ResearchRecordCodec | None = None,
 ) -> None:
     """Fail closed unless migrations and every Phase 0 operational table are readable."""
 
+    validate_research = _verify_operational_schema_snapshot(
+        engine,
+        require_phase_zero_facts=require_phase_zero_facts,
+        expected_revision=expected_revision,
+        research_codec=research_codec,
+    )
+    if validate_research is not None:
+        validate_research()
+
+
+def _load_nested_integrity_dependencies() -> None:
+    """Load the nested verifiers' explicit dependencies before acquiring a snapshot.
+
+    These imports deliberately initialize modules only. Their validators still
+    run on every readiness call, against that call's coherent database snapshot.
+    """
+    import packages.domain.account_coordinator
+    import packages.domain.batch_risk
+    import packages.domain.ledger_reducer
+    import packages.domain.order_reducer
+    import packages.domain.reservation_lifecycle
+    import packages.domain.submission_attempt
+    import packages.persistence.account_coordinator
+    import packages.persistence.backtest_workflow
+    import packages.persistence.batch_risk
+    import packages.persistence.phase2_ledger
+    import packages.persistence.replay
+    import packages.persistence.reservation_lifecycle
+    import packages.persistence.simulation_horizon
+    import packages.persistence.submission_attempt  # noqa: F401
+
+
+def _verify_operational_schema_snapshot(
+    engine: Engine,
+    *,
+    require_phase_zero_facts: bool,
+    expected_revision: str,
+    research_codec: ResearchRecordCodec | None,
+) -> Callable[[], None] | None:
+    """Run existing SQL checks and return detached W3 validation, never readiness."""
+
+    validate_research = None
     if expected_revision not in {
         "0035_phase6_time_uncertainty",
         "0036_phase6_time_anchors",
         "0037_phase3_fixture_worker",
+        "0038_phase4_etrade_oauth",
         EXPECTED_SCHEMA_REVISION,
     }:
         raise DatabaseSchemaNotReady("requested database revision is not supported")
+    if expected_revision == EXPECTED_SCHEMA_REVISION:
+        from packages.persistence.research_catalog import SqlResearchCatalog  # noqa: F401
+        from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
+        from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
+        from packages.persistence.research_workflow_v2 import SqlResearchWorkflow  # noqa: F401
+
+    from packages.adapters.broker.alpaca_paper_account_activity_runtime import (
+        AlpacaPaperAccountActivityRuntimeError,
+    )
+    from packages.adapters.broker.alpaca_paper_account_runtime import (
+        AlpacaPaperAccountRuntimeError,
+    )
+    from packages.adapters.broker.alpaca_paper_asset_runtime import (
+        AlpacaPaperAssetRuntimeError,
+    )
+    from packages.adapters.broker.alpaca_paper_lookup_runtime import (
+        AlpacaPaperLookupRuntimeError,
+    )
+    from packages.adapters.broker.alpaca_paper_order_snapshot_runtime import (
+        AlpacaPaperOrderSnapshotRuntimeError,
+    )
+    from packages.domain.broker_ingress import BrokerIngressError
+    from packages.domain.broker_request_budget import BrokerRequestBudgetError
+    from packages.domain.critical_alert import CriticalAlertError
+    from packages.domain.operational_control import OperationalControlError
+    from packages.persistence.advanced_batch_risk import (
+        AdvancedBatchRiskPersistenceError,
+        _verify_advanced_batch_risk_integrity,
+    )
+    from packages.persistence.alpaca_paper_account_activity import (
+        _verify_alpaca_paper_account_activity_integrity,
+    )
+    from packages.persistence.alpaca_paper_account_activity_comparison import (
+        AlpacaPaperAccountActivityComparisonPersistenceError,
+        _verify_alpaca_paper_account_activity_comparison_integrity,
+    )
+    from packages.persistence.alpaca_paper_account_binding import (
+        _verify_alpaca_paper_account_binding_integrity,
+    )
+    from packages.persistence.alpaca_paper_asset_binding import (
+        _verify_alpaca_paper_asset_binding_integrity,
+    )
+    from packages.persistence.alpaca_paper_lookup_observation import (
+        _verify_alpaca_paper_lookup_observation_integrity,
+    )
+    from packages.persistence.alpaca_paper_order_snapshot import (
+        _verify_alpaca_paper_order_snapshot_integrity,
+    )
+    from packages.persistence.alpaca_paper_order_view_comparison import (
+        AlpacaPaperOrderViewComparisonPersistenceError,
+        _verify_alpaca_paper_order_view_comparison_integrity,
+    )
+    from packages.persistence.alpaca_paper_order_view_transition import (
+        AlpacaPaperOrderViewTransitionPersistenceError,
+        _verify_alpaca_paper_order_view_transition_integrity,
+    )
+    from packages.persistence.alpaca_paper_position_snapshot import (
+        AlpacaPaperPositionSnapshotPersistenceError,
+        _verify_alpaca_paper_position_snapshot_integrity,
+    )
+    from packages.persistence.alpaca_paper_position_view_comparison import (
+        AlpacaPaperPositionViewComparisonPersistenceError,
+        _verify_alpaca_paper_position_view_comparison_integrity,
+    )
+    from packages.persistence.alpaca_paper_position_view_transition import (
+        AlpacaPaperPositionViewTransitionPersistenceError,
+        _verify_alpaca_paper_position_view_transition_integrity,
+    )
+    from packages.persistence.broker_inbox import (
+        BrokerInboxPersistenceError,
+        _verify_broker_inbox_integrity,
+    )
+    from packages.persistence.broker_ingress import (
+        _verify_broker_ingress_integrity,
+    )
+    from packages.persistence.broker_reconciliation import (
+        BrokerReconciliationPersistenceError,
+        _verify_broker_reconciliation_integrity,
+    )
+    from packages.persistence.broker_request_budget import (
+        _verify_broker_request_budget_integrity,
+    )
+    from packages.persistence.critical_alert import (
+        _verify_critical_alert_integrity,
+    )
+    from packages.persistence.critical_alert_failure_control import (
+        CriticalAlertFailureControlPersistenceError,
+        _verify_critical_alert_failure_control_integrity,
+    )
+    from packages.persistence.experiment_governance import (
+        ExperimentGovernanceError,
+        _verify_experiment_governance_integrity,
+    )
+    from packages.persistence.operational_control import (
+        _verify_operational_control_integrity,
+    )
+    from packages.persistence.strategy_invocation_lifecycle import (
+        StrategyInvocationLifecyclePersistenceError,
+        _verify_strategy_invocation_lifecycle_integrity,
+    )
+    from packages.persistence.strategy_supervision import (
+        StrategySupervisionPersistenceError,
+        _verify_strategy_supervision_integrity,
+    )
+    from packages.persistence.trusted_time import (
+        TrustedTimePersistenceError,
+        _verify_global_integrity,
+    )
+    from packages.persistence.unknown_submission_recovery import (
+        UnknownSubmissionRecoveryPersistenceError,
+        _verify_unknown_submission_recovery_integrity,
+    )
+
+    if expected_revision in {
+        "0037_phase3_fixture_worker",
+        "0038_phase4_etrade_oauth",
+        EXPECTED_SCHEMA_REVISION,
+    }:
+        from packages.persistence.fixture_segment_worker import (
+            FixtureSegmentPersistenceError,
+            _verify_fixture_segment_integrity,
+        )
+
+    if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
+        from packages.persistence.etrade_oauth_coordinator import (
+            EtradeOAuthCoordinatorError,
+            _verify_etrade_oauth_coordinator_integrity,
+        )
+
+    if require_phase_zero_facts:
+        from packages.persistence.risk import decision_from_row
+
+    _load_nested_integrity_dependencies()
     try:
         with _repeatable_read_transaction(engine) as connection:
             revision = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
@@ -1434,30 +1740,32 @@ def verify_operational_schema(
             if expected_revision in {
                 "0036_phase6_time_anchors",
                 "0037_phase3_fixture_worker",
+                "0038_phase4_etrade_oauth",
                 EXPECTED_SCHEMA_REVISION,
             }:
                 required_tables += (
                     phase6_trusted_time_head_anchor_intents,
                     phase6_trusted_time_head_anchor_receipts,
                 )
-            if expected_revision in {"0037_phase3_fixture_worker", EXPECTED_SCHEMA_REVISION}:
+            if expected_revision in {
+                "0037_phase3_fixture_worker",
+                "0038_phase4_etrade_oauth",
+                EXPECTED_SCHEMA_REVISION,
+            }:
                 required_tables += (
                     phase3_fixture_segment_transcript_artifacts,
                     phase3_fixture_segment_jobs,
                     phase3_fixture_segment_job_events,
                     phase3_fixture_segment_job_heads,
                 )
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
+            if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
                 required_tables += (
                     phase4_etrade_oauth_session_events,
                     phase4_etrade_oauth_session_heads,
                 )
-            for table in required_tables:
-                connection.execute(sa.select(table).limit(0))
-            from packages.persistence.advanced_batch_risk import (
-                AdvancedBatchRiskPersistenceError,
-                _verify_advanced_batch_risk_integrity,
-            )
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                required_tables += (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+            _probe_required_tables(connection, required_tables)
 
             try:
                 _verify_advanced_batch_risk_integrity(connection)
@@ -1465,10 +1773,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 advanced-risk outcome integrity verification failed"
                 ) from error
-            from packages.domain.operational_control import OperationalControlError
-            from packages.persistence.operational_control import (
-                _verify_operational_control_integrity,
-            )
 
             try:
                 _verify_operational_control_integrity(connection)
@@ -1476,10 +1780,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 operational-control integrity verification failed"
                 ) from error
-            from packages.domain.critical_alert import CriticalAlertError
-            from packages.persistence.critical_alert import (
-                _verify_critical_alert_integrity,
-            )
 
             try:
                 _verify_critical_alert_integrity(connection)
@@ -1487,10 +1787,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 critical-alert integrity verification failed"
                 ) from error
-            from packages.persistence.critical_alert_failure_control import (
-                CriticalAlertFailureControlPersistenceError,
-                _verify_critical_alert_failure_control_integrity,
-            )
 
             try:
                 _verify_critical_alert_failure_control_integrity(connection)
@@ -1498,10 +1794,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 critical-alert failure-control integrity verification failed"
                 ) from error
-            from packages.persistence.strategy_supervision import (
-                StrategySupervisionPersistenceError,
-                _verify_strategy_supervision_integrity,
-            )
 
             try:
                 _verify_strategy_supervision_integrity(connection)
@@ -1509,10 +1801,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 strategy-supervision integrity verification failed"
                 ) from error
-            from packages.persistence.strategy_invocation_lifecycle import (
-                StrategyInvocationLifecyclePersistenceError,
-                _verify_strategy_invocation_lifecycle_integrity,
-            )
 
             try:
                 _verify_strategy_invocation_lifecycle_integrity(connection)
@@ -1520,10 +1808,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 5 strategy-invocation lifecycle integrity verification failed"
                 ) from error
-            from packages.domain.broker_ingress import BrokerIngressError
-            from packages.persistence.broker_ingress import (
-                _verify_broker_ingress_integrity,
-            )
 
             try:
                 _verify_broker_ingress_integrity(connection)
@@ -1531,10 +1815,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-ingress integrity verification failed"
                 ) from error
-            from packages.domain.broker_request_budget import BrokerRequestBudgetError
-            from packages.persistence.broker_request_budget import (
-                _verify_broker_request_budget_integrity,
-            )
 
             try:
                 _verify_broker_request_budget_integrity(connection)
@@ -1542,12 +1822,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-request budget integrity verification failed"
                 ) from error
-            from packages.adapters.broker.alpaca_paper_account_runtime import (
-                AlpacaPaperAccountRuntimeError,
-            )
-            from packages.persistence.alpaca_paper_account_binding import (
-                _verify_alpaca_paper_account_binding_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_account_binding_integrity(connection)
@@ -1555,12 +1829,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper account-binding integrity verification failed"
                 ) from error
-            from packages.adapters.broker.alpaca_paper_asset_runtime import (
-                AlpacaPaperAssetRuntimeError,
-            )
-            from packages.persistence.alpaca_paper_asset_binding import (
-                _verify_alpaca_paper_asset_binding_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_asset_binding_integrity(connection)
@@ -1568,12 +1836,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper asset-binding integrity verification failed"
                 ) from error
-            from packages.adapters.broker.alpaca_paper_lookup_runtime import (
-                AlpacaPaperLookupRuntimeError,
-            )
-            from packages.persistence.alpaca_paper_lookup_observation import (
-                _verify_alpaca_paper_lookup_observation_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_lookup_observation_integrity(connection)
@@ -1581,12 +1843,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper lookup-observation integrity verification failed"
                 ) from error
-            from packages.adapters.broker.alpaca_paper_order_snapshot_runtime import (
-                AlpacaPaperOrderSnapshotRuntimeError,
-            )
-            from packages.persistence.alpaca_paper_order_snapshot import (
-                _verify_alpaca_paper_order_snapshot_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_order_snapshot_integrity(connection)
@@ -1594,12 +1850,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper order-snapshot integrity verification failed"
                 ) from error
-            from packages.adapters.broker.alpaca_paper_account_activity_runtime import (
-                AlpacaPaperAccountActivityRuntimeError,
-            )
-            from packages.persistence.alpaca_paper_account_activity import (
-                _verify_alpaca_paper_account_activity_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_account_activity_integrity(connection)
@@ -1607,10 +1857,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper account-activity integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_account_activity_comparison import (
-                AlpacaPaperAccountActivityComparisonPersistenceError,
-                _verify_alpaca_paper_account_activity_comparison_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_account_activity_comparison_integrity(connection)
@@ -1618,10 +1864,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper account-activity comparison integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_order_view_transition import (
-                AlpacaPaperOrderViewTransitionPersistenceError,
-                _verify_alpaca_paper_order_view_transition_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_order_view_transition_integrity(connection)
@@ -1629,10 +1871,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper order-transition integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_order_view_comparison import (
-                AlpacaPaperOrderViewComparisonPersistenceError,
-                _verify_alpaca_paper_order_view_comparison_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_order_view_comparison_integrity(connection)
@@ -1640,10 +1878,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper order-view comparison integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_position_snapshot import (
-                AlpacaPaperPositionSnapshotPersistenceError,
-                _verify_alpaca_paper_position_snapshot_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_position_snapshot_integrity(connection)
@@ -1651,10 +1885,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper position-snapshot integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_position_view_transition import (
-                AlpacaPaperPositionViewTransitionPersistenceError,
-                _verify_alpaca_paper_position_view_transition_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_position_view_transition_integrity(connection)
@@ -1662,10 +1892,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper position-transition integrity verification failed"
                 ) from error
-            from packages.persistence.alpaca_paper_position_view_comparison import (
-                AlpacaPaperPositionViewComparisonPersistenceError,
-                _verify_alpaca_paper_position_view_comparison_integrity,
-            )
 
             try:
                 _verify_alpaca_paper_position_view_comparison_integrity(connection)
@@ -1673,10 +1899,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 Alpaca paper position-view comparison integrity verification failed"
                 ) from error
-            from packages.persistence.unknown_submission_recovery import (
-                UnknownSubmissionRecoveryPersistenceError,
-                _verify_unknown_submission_recovery_integrity,
-            )
 
             try:
                 _verify_unknown_submission_recovery_integrity(connection)
@@ -1684,10 +1906,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 UNKNOWN lookup-schedule integrity verification failed"
                 ) from error
-            from packages.persistence.broker_reconciliation import (
-                BrokerReconciliationPersistenceError,
-                _verify_broker_reconciliation_integrity,
-            )
 
             try:
                 _verify_broker_reconciliation_integrity(connection)
@@ -1695,10 +1913,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-reconciliation integrity verification failed"
                 ) from error
-            from packages.persistence.broker_inbox import (
-                BrokerInboxPersistenceError,
-                _verify_broker_inbox_integrity,
-            )
 
             try:
                 _verify_broker_inbox_integrity(connection)
@@ -1706,10 +1920,6 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 4 broker-inbox integrity verification failed"
                 ) from error
-            from packages.persistence.trusted_time import (
-                TrustedTimePersistenceError,
-                _verify_global_integrity,
-            )
 
             try:
                 _verify_global_integrity(connection)
@@ -1719,10 +1929,6 @@ def verify_operational_schema(
                 ) from error
             _verify_phase2_durability_integrity(connection)
             _verify_phase2_research_integrity(connection)
-            from packages.persistence.experiment_governance import (
-                ExperimentGovernanceError,
-                _verify_experiment_governance_integrity,
-            )
 
             try:
                 _verify_experiment_governance_integrity(connection)
@@ -1730,34 +1936,31 @@ def verify_operational_schema(
                 raise DatabaseSchemaNotReady(
                     "Phase 3 experiment-governance integrity verification failed"
                 ) from error
-            if expected_revision in {"0037_phase3_fixture_worker", EXPECTED_SCHEMA_REVISION}:
-                from packages.persistence.fixture_segment_worker import (
-                    FixtureSegmentPersistenceError,
-                    _verify_fixture_segment_integrity,
-                )
-
+            if expected_revision in {
+                "0037_phase3_fixture_worker",
+                "0038_phase4_etrade_oauth",
+                EXPECTED_SCHEMA_REVISION,
+            }:
                 try:
                     _verify_fixture_segment_integrity(connection)
                 except FixtureSegmentPersistenceError as error:
                     raise DatabaseSchemaNotReady(
                         "Phase 3 fixture-segment integrity verification failed"
                     ) from error
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
-                from packages.persistence.etrade_oauth_coordinator import (
-                    EtradeOAuthCoordinatorError,
-                    _verify_etrade_oauth_coordinator_integrity,
-                )
-
+            if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
                 try:
                     _verify_etrade_oauth_coordinator_integrity(connection)
                 except EtradeOAuthCoordinatorError as error:
                     raise DatabaseSchemaNotReady(
                         "Phase 4 E*TRADE OAuth coordinator integrity verification failed"
                     ) from error
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                validate_research = _capture_personal_research_validation(
+                    connection, codec=research_codec
+                )
             if not require_phase_zero_facts:
                 _verify_data_plane_integrity(connection)
-                return
-            from packages.persistence.risk import decision_from_row
+                return validate_research
 
             try:
                 for row in connection.execute(sa.select(risk_decisions)).mappings():
@@ -1928,3 +2131,4 @@ def verify_operational_schema(
         raise
     except SQLAlchemyError as error:
         raise DatabaseSchemaNotReady("operational database schema is unavailable") from error
+    return validate_research

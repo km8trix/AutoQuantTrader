@@ -98,7 +98,7 @@ function ConfigurationCard({
           endIcon={<ArrowForwardRoundedIcon />}
           fullWidth
           sx={{ mt: 1.5 }}
-          to={`/research/backtests?${search.toString()}`}
+          to={`/research/history/backtests?${search.toString()}`}
           variant="outlined"
         >
           Use in fixture backtest
@@ -190,9 +190,9 @@ export function StrategiesPage() {
     <>
       <PageHeader
         actions={<RefreshButton isFetching={strategiesQuery.isFetching} onRefresh={refresh} />}
-        description="Inspect exact code versions, parameter schemas, and validated configurations before selecting immutable inputs for a reproducible run."
-        eyebrow="Phase 2 · Research"
-        title="Strategies"
+        description="Inspect retained fixture strategy versions and immutable configurations used by the historical diagnostic workflow."
+        eyebrow="Historical diagnostics"
+        title="Historical strategy diagnostics"
       />
       <Alert icon={<ShieldOutlinedIcon />} severity="info" sx={{ mb: 2 }} variant="outlined">
         <strong>Research-only catalog.</strong> Strategy versions and configurations are immutable;

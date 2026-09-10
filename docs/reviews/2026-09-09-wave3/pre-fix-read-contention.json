@@ -1,0 +1,45 @@
+{
+  "boundary": "disposable local stack; read-only queries",
+  "raw_parameters_or_payloads_retained": false,
+  "sequential_api_gets": [
+    {
+      "route": "list",
+      "seconds": 10.934,
+      "status": 200
+    },
+    {
+      "route": "detail",
+      "seconds": 10.643,
+      "status": 200
+    }
+  ],
+  "sequential_proxy_gets": [
+    {
+      "route": "list",
+      "seconds": 16.102,
+      "status": 200
+    },
+    {
+      "route": "detail",
+      "seconds": 13.334,
+      "status": 200
+    }
+  ],
+  "simultaneous_service_reads": [
+    {
+      "allowlisted_cause": "database is locked",
+      "exception_type": "OperationalError",
+      "route": "list",
+      "seconds": 8.56,
+      "sqlite_errorname": "SQLITE_BUSY"
+    },
+    {
+      "allowlisted_cause": "database is locked",
+      "exception_type": "OperationalError",
+      "route": "detail",
+      "seconds": 7.478,
+      "sqlite_errorname": "SQLITE_BUSY"
+    }
+  ],
+  "source_edits": false
+}

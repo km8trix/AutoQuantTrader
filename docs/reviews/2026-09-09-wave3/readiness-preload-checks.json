@@ -1,0 +1,53 @@
+{
+  "checks": {
+    "architecture": {
+      "exit_code": 0
+    },
+    "legacy_validator_call_inventory": {
+      "current": 31,
+      "identical": true,
+      "retained": 31
+    },
+    "migration_readiness_module": {
+      "exit_code": 0,
+      "passed": 46,
+      "seconds": 41.64
+    },
+    "mypy": {
+      "exit_code": 0,
+      "source_files": 1
+    },
+    "ruff_check": {
+      "exit_code": 0
+    },
+    "ruff_format_check": {
+      "exit_code": 0
+    }
+  },
+  "files": [
+    {
+      "path": "packages/persistence/database.py",
+      "sha256": "fcf0127f5e779dfdb67f97a01dc814691711d8774b9018d4162b22fcf481d308"
+    },
+    {
+      "path": "tests/integration/test_personal_research_migration.py",
+      "sha256": "281851cf9b5cd1d8242dc82ec2909bd540b5188d2b71c6bcee79c9b914f9284d"
+    }
+  ],
+  "limitations": [
+    "Local tests establish import ordering, not a bound on contention latency. A owns the next preserved-fixture concurrent workload measurement.",
+    "All legacy integrity checks still execute; no empty-history shortcut, WAL change, or timeout/lease change."
+  ],
+  "new_regressions": {
+    "cases": 10,
+    "phase_zero_modes": [
+      false,
+      true
+    ],
+    "requires_dependency_imports_and_nested_loading_before_begin": true,
+    "supported_revisions": 5
+  },
+  "original_handoff_sha256": "b2ef23eb4948198d0063d01848779f8fbcdc9604e316a2cd517efebedfc28fb8",
+  "recorded_at": "2026-09-10T05:08:05.303093+00:00",
+  "scope": "Explicit readiness dependency loading before transaction; existing batched readability and detached W3 validation preserved"
+}

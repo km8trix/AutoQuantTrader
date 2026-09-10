@@ -72,7 +72,7 @@ describe('StrategiesPage', () => {
     expect(screen.getByText('Pinned version')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Use in fixture backtest' })).toHaveAttribute(
       'href',
-      `/research/backtests?strategy_version=${digest('1')}&configuration=${digest('2')}`,
+      `/research/history/backtests?strategy_version=${digest('1')}&configuration=${digest('2')}`,
     )
   })
 

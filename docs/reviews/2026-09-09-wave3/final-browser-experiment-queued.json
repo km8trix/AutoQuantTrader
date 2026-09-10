@@ -1,0 +1,181 @@
+{
+  "boundary": "retained browser registration before actual CLI worker",
+  "contains_raw_market_data": false,
+  "elapsed_seconds": 14.211,
+  "evaluation_mode": "descriptive_only",
+  "experiment_id": "61a38aef9e22727e5a39f4869214899b53a9b1b4cbd4b74c032e5d3c669dc7de",
+  "fit_count": 1,
+  "fit_kind": "identity-no-fit/1",
+  "independent_numeric_basis": "exact Fraction arithmetic and separate Decimal precision 80 annual checks",
+  "learned_parameters": false,
+  "mode": "queued",
+  "preserved_prior_records": {
+    "nonselected_job_count": 40,
+    "operating_mode": [
+      "wal",
+      2,
+      1,
+      5000,
+      1000
+    ],
+    "prior_publication_count": 3,
+    "registry_count": 4,
+    "retained_sha256": "7183106aaaccec70f00bd50183d18d5582814900e66b29fd9c4f31043d691121"
+  },
+  "prior_access": "known_accessed",
+  "protocol_sha256": "b4542db5d4ab1171205e218933b5d49371c6f9e61254bcdcc7677c13f96b5a00",
+  "publication_count": 0,
+  "source_evidence_sha256": "8275d0b6a24c9c8960c9cccae1f012b9e9cb83f066a5d33765c222b2e1d07936",
+  "status_counts": {
+    "queued": 12
+  },
+  "suitability": "not_assessed",
+  "trial_count": 12,
+  "trials": [
+    {
+      "cost": "base_1x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "456d398aecee8ccf73f68625b1c83b1992f422307df12fe02eda37894d7691cc",
+      "job_id": "8b5732e350703318de603a35a34fe73b380750b63e930b575ed9bc9cecd34852",
+      "scored_session_count": 12,
+      "spec_sha256": "fa925658555cc537de27faffff2543c43eb2dd4010933637fef2684ef5e86164",
+      "status": "queued",
+      "trial_id": "trial-072a22bb86755909f475eb024e6e275739373e6f5579cd22f4a5b7a2faffbf9e",
+      "window": "train"
+    },
+    {
+      "cost": "base_2x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "0c1868bf9a1443742a181ec7f76c9ee23d58ac48c8403e798bfb5698b08d6297",
+      "job_id": "3a0593e88accd7ad532c261132633d566298aeb45f134dad50158597bffaee20",
+      "scored_session_count": 12,
+      "spec_sha256": "a2332cb3114da067db9bbd1116aba42f383942d067ca5c0b8b70a1ed4c2b9a08",
+      "status": "queued",
+      "trial_id": "trial-d1d82323a299501699e3ea5986d9e7ab6dc8221d733279b3f7ece4fa21f4c8fa",
+      "window": "train"
+    },
+    {
+      "cost": "base_3x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "7cc99070445268ea9669bb1193cfe95646a930e97eec4b5a4a256eb3350603c8",
+      "job_id": "d9467a4f6fc532939d52261e9058a09bf0bf87adc7b6d15181cab032c3f43557",
+      "scored_session_count": 12,
+      "spec_sha256": "1570eb4fa82b136493ebfce23e1653798cbca59aae363c712f50ceacad778263",
+      "status": "queued",
+      "trial_id": "trial-f4490f222eee9f667bcbe10950679cb21a76a96f70d61df54d9573850b314e3b",
+      "window": "train"
+    },
+    {
+      "cost": "adverse",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "e2bed60b1058a7658f5cb30ee7e8e86357c45450c47f7bc257d130784331b703",
+      "job_id": "3a13bbffe524a5ddb14981f22b7a19320184466480bcb8f49f43ea155705c17d",
+      "scored_session_count": 12,
+      "spec_sha256": "366ce5a0fe5022ec477f5c7103ad51acd539aaa73e3a6678465865afa5a84799",
+      "status": "queued",
+      "trial_id": "trial-3a6303f02684d6b1c9a4105a202054d1a08811b22ff4658e4a6ee7f79cb8cb6c",
+      "window": "train"
+    },
+    {
+      "cost": "base_1x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "9d7d3e12078b9bf27a532a030344d0cd69f24c3acc53574b1c35632c1344c328",
+      "job_id": "56425f2dc83a284f8e9af46e74953f9f07d8f339c5d21f63bdc8be966dc06ae8",
+      "scored_session_count": 15,
+      "spec_sha256": "8caeaedbb714c4c2bef133cc6513f354a6ae22e2669fe3e18a0f096c5d2cdadf",
+      "status": "queued",
+      "trial_id": "trial-31ab60fa1e768d54372aa5cbb731ae9ec8aa0d65ba48840593a56d1303886c86",
+      "window": "validation"
+    },
+    {
+      "cost": "base_2x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "671ad666bb0456c44b1d7ccc102b8b67a98c37c903b4806abb1e23ff9ce6a363",
+      "job_id": "7a2f6732beef3af056be229cef49c350d518099d583d16aebabd9bc104def66b",
+      "scored_session_count": 15,
+      "spec_sha256": "d0021b4a8b1935f8c0de1be7678bc4cb759f07065bbc8bb45eff832ace34c5a8",
+      "status": "queued",
+      "trial_id": "trial-867fcabd4c0bf9313605f1bdb308a1a9c3b77b03542e0cb7d95854e8126e68b2",
+      "window": "validation"
+    },
+    {
+      "cost": "base_3x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "3b1b2b8a827c8363b010530a3470ef63717c9123102e2c0c59e223b4c2a3602d",
+      "job_id": "c3f247484948694b45f6a0d34d04582575cf7d511230a4630efad4cca3ee69b6",
+      "scored_session_count": 15,
+      "spec_sha256": "56cc4e6cb11ea4b9cefdc9d619b581a82a27f7ea729fa578f75ba7bc1108a078",
+      "status": "queued",
+      "trial_id": "trial-d20c7650cc7319a77a56d897278c545fda7785250bd624b00ec16747ad2396ec",
+      "window": "validation"
+    },
+    {
+      "cost": "adverse",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "26e5b61f097d0ca65a108ed793acc47f55531a283f5c0f8753b25d84aa78e05b",
+      "job_id": "14aafecc5d4b91ba80c6366389d9821e6ffd276d7877b1291139cfb29d18b845",
+      "scored_session_count": 15,
+      "spec_sha256": "a254f705098b168c3884cf60e4aeeace73c778e6f9858ed00082d83af920c891",
+      "status": "queued",
+      "trial_id": "trial-36e9cf995920877e0b6ea5a4596533265b67b1510a84951630a073fe1a2ac266",
+      "window": "validation"
+    },
+    {
+      "cost": "base_1x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "15d192648efa3fcc3c908b6561c2130b08ec5395e76d8c9be7bcf196c9e4bc59",
+      "job_id": "31671db7e219fed392fd42eed9487266da6d6c9e13aeaff9075845a4537dcf92",
+      "scored_session_count": 15,
+      "spec_sha256": "e068299f596580c0e2d7c0c46aa838d49382016adb6cfc9f4bd72df399a23dc7",
+      "status": "queued",
+      "trial_id": "trial-468a7e2992d68f2253e2c779e105f7e4fd107ac89933388b1952b1d1ad6bb221",
+      "window": "test"
+    },
+    {
+      "cost": "base_2x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "4e8449194ea5727e4fd6f0049da72f7677c3a3e9cd9d5219682eb2a2587c3d79",
+      "job_id": "05a3cc1f26156565d3ede84fc716a7932db74d174ed8ec0a81ba7f6491c77660",
+      "scored_session_count": 15,
+      "spec_sha256": "d381c6a8fea75f2df20c0f75fa97dc05c380b7c86efa39a7fa144586e3d46a7d",
+      "status": "queued",
+      "trial_id": "trial-a77352f2a3dc177484326215a55646beaaf094711bb55fe449fc0cee1dad1ac8",
+      "window": "test"
+    },
+    {
+      "cost": "base_3x",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "f1f406af5917167da46ca16352bd393c15044b67f468c5ee856d01c012f42fa0",
+      "job_id": "434095d2ae22db1e624c3f43c61a550ac6f33cf0b788483528d8a510ed8f019e",
+      "scored_session_count": 15,
+      "spec_sha256": "1a16b0fbbcd3a9aae528c8290800eb9ab61650ef535a426afa0b826563ddc961",
+      "status": "queued",
+      "trial_id": "trial-d7c7e5c36ad32e474dd98b9c48a29502ae1e57f38b467c576f98fa0cc5f8cded",
+      "window": "test"
+    },
+    {
+      "cost": "adverse",
+      "current_build_pins": true,
+      "fresh_empty_account": true,
+      "input_sha256": "e08bacd2acf13b518161434247143106bf0234b8cb2674ca8ef66a225e347ba8",
+      "job_id": "101e4f341a6b7bdb54424e67fd4c3f39510a68f552be18dd5ddee74e57b25466",
+      "scored_session_count": 15,
+      "spec_sha256": "ee24aa64fb8e81a040047d32f7035df45a80cb4f277c96dfe27860833ba28f90",
+      "status": "queued",
+      "trial_id": "trial-cfb6cdb9da1577aea5941e45694a3519a72fe402c7ddcf9878c72b717be084da",
+      "window": "test"
+    }
+  ],
+  "winner_selected": false
+}

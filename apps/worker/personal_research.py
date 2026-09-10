@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import resource
@@ -13,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import fields, is_dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -22,15 +24,23 @@ from types import FrameType
 from uuid import uuid4
 
 from packages.adapters.personal_build import current_build_pins
+from packages.application.personal_codec import decode_record, encode_record
 from packages.application.personal_inputs import research_engine_inputs, synthetic_engine_inputs
 from packages.application.personal_runtime import DuplicateRuntimeError, LocalInstanceGuard
 from packages.application.reference_strategy import ReferenceStrategy
 from packages.application.research_dataset import research_dataset_from_json_bytes
 from packages.domain.accounting_contracts import SettlementCalendar
 from packages.domain.daily_reference import ReferenceConfiguration
-from packages.domain.engine_contracts import EngineInputs, EvaluationSpec
+from packages.domain.engine_contracts import EngineInputs, EvaluationSpec, RunSpec
 from packages.domain.personal_contracts import content_digest
-from packages.domain.report_contracts import ReportConventions
+from packages.domain.report_contracts import ReportArtifact, ReportConventions
+from packages.domain.research_job_contracts import (
+    MAX_EXECUTION_METADATA_BYTES,
+    MAX_PUBLICATION_BYTES,
+    ObjectRef,
+    ResearchPublication,
+    RetainedResearchExecutionRequest,
+)
 
 _MAX_ARCHIVE = 64 * 1024 * 1024
 
@@ -42,6 +52,13 @@ def _parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--dataset", type=Path, help="previously imported personal research archive"
     )
+    source.add_argument("--_inputs", type=Path, help=argparse.SUPPRESS)
+    source.add_argument("--_request", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_artifact-root", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_publication", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_progress", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_conventions", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_attempt-id", help=argparse.SUPPRESS)
     parser.add_argument(
         "--settlement-calendar",
         type=Path,
@@ -107,6 +124,10 @@ def _calendar(path: Path) -> SettlementCalendar:
 
 
 def _make_inputs(args: argparse.Namespace) -> EngineInputs:
+    if args._inputs is not None:
+        inputs = decode_record(_bounded_read(args._inputs, 32 * 1024 * 1024), EngineInputs)
+        _check_retained_limits(args, inputs.spec)
+        return inputs
     allocation = args.allocation if args.allocation is not None else Decimal("0.25")
     configuration = ReferenceConfiguration(
         args.strategy, args.lookback, allocation, args.rebalance_sessions
@@ -225,6 +246,91 @@ def _write_report(path: Path, value: object, limit: int) -> None:
         raise
 
 
+def _write_record(path: Path, value: object, limit: int) -> None:
+    payload = encode_record(value)
+    _write_payload(path, payload, limit)
+
+
+def _write_payload(path: Path, payload: bytes, limit: int) -> None:
+    if len(payload) > limit:
+        raise ValueError("typed artifact exceeds output ceiling")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _matches_spec_build(spec: RunSpec) -> bool:
+    expected = current_build_pins()
+    selected = {pin.name: pin for pin in spec.pins}
+    return all(selected.get(pin.name) == pin for pin in expected)
+
+
+def _matches_build(inputs: EngineInputs) -> bool:
+    return _matches_spec_build(inputs.spec)
+
+
+def _check_retained_limits(args: argparse.Namespace, spec: RunSpec) -> None:
+    if (
+        spec.max_events != args.max_events
+        or spec.max_wall_seconds != args.max_seconds
+        or spec.max_memory_bytes != args.max_memory_mib * 1024 * 1024
+        or spec.max_output_bytes != args.max_output_mib * 1024 * 1024
+        or spec.max_output_bytes > 64 * 1024 * 1024
+        or spec.max_cpu_cores != 1
+    ):
+        raise ValueError("supervised limits differ from immutable inputs")
+
+
+def _child_progress(args: argparse.Namespace, stage: str) -> None:
+    if args._progress is None:
+        return
+    temporary = args._progress.with_name(".progress-" + uuid4().hex)
+    try:
+        _write_payload(temporary, stage.encode("ascii"), 64)
+        os.replace(temporary, args._progress)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _resolve_retained(
+    args: argparse.Namespace,
+) -> tuple[RetainedResearchExecutionRequest, EngineInputs]:
+    from packages.adapters.research_artifacts_v2 import LocalResearchArtifactStore
+    from packages.application.research_catalog import StoredResearchInputResolver
+
+    if args._artifact_root is None or args._publication is None or args._progress is None:
+        raise ValueError("retained execution requires its private artifacts and observation files")
+    execution = decode_record(
+        _bounded_read(args._request, MAX_EXECUTION_METADATA_BYTES),
+        RetainedResearchExecutionRequest,
+    )
+    _check_retained_limits(args, execution.request.spec)
+    if args._attempt_id != execution.claim.attempt_id or not _matches_spec_build(
+        execution.request.spec
+    ):
+        raise ValueError("retained execution differs from its attempt or current build")
+    inputs = StoredResearchInputResolver(LocalResearchArtifactStore(args._artifact_root)).resolve(
+        execution.request
+    )
+    return execution, inputs
+
+
+def _validated_artifact_payload(artifact: ReportArtifact, limit: int) -> bytes:
+    """Validate the actual report graph inside the supervised memory/wall boundary."""
+    payload = encode_record(artifact)
+    if len(payload) > limit:
+        raise ValueError("typed artifact exceeds output ceiling")
+    if decode_record(payload, ReportArtifact) != artifact:
+        raise ValueError("actual report codec round-trip differs")
+    return payload
+
+
 def _child(args: argparse.Namespace) -> int:
     # This is a bounded process for reviewed reference code, not a hostile-code sandbox.
     if args._lock_fd is None or args._parent_pid is None:
@@ -254,8 +360,13 @@ def _child(args: argparse.Namespace) -> int:
         or content_digest(current_build_pins()) != args._expected_build_sha
     ):
         raise ValueError("implementation differs from the supervised source snapshot")
-    inputs = _make_inputs(args)
-    if content_digest(inputs.spec.pins) != args._expected_build_sha:
+    _child_progress(args, "loading")
+    retained = None
+    if args._request is not None:
+        retained, inputs = _resolve_retained(args)
+    else:
+        inputs = _make_inputs(args)
+    if not _matches_build(inputs):
         raise ValueError("implementation changed while constructing historical inputs")
     # Imports remain explicit; none reaches a provider, account configuration or database.
     from packages.application.causal_engine import run_causal_engine
@@ -266,19 +377,51 @@ def _child(args: argparse.Namespace) -> int:
         reserve_fraction=inputs.spec.risk_policy.adverse_reserve_fraction,
         fee_per_share=inputs.spec.execution_policy.fee_per_share,
     )
+    _child_progress(args, "running")
     result = run_causal_engine(
         inputs, accounting=PersonalAccounting(), strategy=strategy, stop_requested=stop_requested
     )
-    if current_build_pins() != inputs.spec.pins:
+    if not _matches_build(inputs):
         raise ValueError("implementation changed during the historical run")
-    report = build_run_report(result, ReportConventions())
+    _child_progress(args, "validating")
+    conventions = (
+        retained.request.conventions
+        if retained is not None
+        else (
+            ReportConventions()
+            if args._conventions is None
+            else decode_record(_bounded_read(args._conventions, 1024 * 1024), ReportConventions)
+        )
+    )
+    report = build_run_report(result, conventions)
     artifact = build_report_artifact(
-        report, attempt_id="attempt-" + uuid4().hex, generated_at=datetime.now(UTC)
+        report,
+        attempt_id=args._attempt_id or "attempt-" + uuid4().hex,
+        generated_at=datetime.now(UTC),
     )
     if stop_requested():
         return 3
     _check_peak_memory(args.max_memory_mib * 1024 * 1024)
-    _write_report(args.output, artifact, inputs.spec.max_output_bytes)
+    publication = None
+    if retained is not None:
+        payload = _validated_artifact_payload(artifact, inputs.spec.max_output_bytes)
+        if not _matches_build(inputs):
+            raise ValueError("implementation changed during report validation")
+        publication = ResearchPublication(
+            retained.request.job_id,
+            retained.request.run_id,
+            retained.claim.attempt_id,
+            report.status,
+            result.semantic_sha256,
+            report.semantic_sha256,
+            artifact.semantic_sha256,
+            ObjectRef(hashlib.sha256(payload).hexdigest(), len(payload)),
+        )
+        _child_progress(args, "publishing")
+        _write_payload(args.output, payload, inputs.spec.max_output_bytes)
+    else:
+        writer = _write_record if args._inputs is not None else _write_report
+        writer(args.output, artifact, inputs.spec.max_output_bytes)
     try:
         _check_peak_memory(args.max_memory_mib * 1024 * 1024)
     except MemoryError:
@@ -287,6 +430,8 @@ def _child(args: argparse.Namespace) -> int:
     if stop_requested():
         args.output.unlink(missing_ok=True)
         return 3
+    if publication is not None:
+        _write_record(args._publication, publication, MAX_PUBLICATION_BYTES)
     return 0 if result.status == "completed" else 3
 
 
@@ -358,10 +503,29 @@ def _child_arguments(args: argparse.Namespace, output: Path) -> list[str]:
                     str(value.absolute() if isinstance(value, Path) else value),
                 ]
             )
+    for name, flag in (
+        ("_inputs", "--_inputs"),
+        ("_request", "--_request"),
+        ("_artifact_root", "--_artifact-root"),
+        ("_publication", "--_publication"),
+        ("_progress", "--_progress"),
+        ("_conventions", "--_conventions"),
+        ("_attempt_id", "--_attempt-id"),
+    ):
+        value = getattr(args, name)
+        if value is not None:
+            result.extend([flag, str(value.absolute() if isinstance(value, Path) else value)])
     return result
 
 
-def _supervise(args: argparse.Namespace, *, lock_descriptor: int | None = None) -> int:
+def _supervise(
+    args: argparse.Namespace,
+    *,
+    lock_descriptor: int | None = None,
+    control: Callable[[], bool] | None = None,
+    on_signal: Callable[[], None] | None = None,
+    emit_status: bool = True,
+) -> int:
     output = args.output.absolute()
     if output.exists() or output.is_symlink():
         raise ValueError("output already exists")
@@ -379,6 +543,8 @@ def _supervise(args: argparse.Namespace, *, lock_descriptor: int | None = None) 
     def cancel(_signum: int, _frame: FrameType | None) -> None:
         nonlocal cancel_requested
         cancel_requested = True
+        if on_signal is not None:
+            on_signal()
 
     old_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
     for sig in old_handlers:
@@ -416,6 +582,13 @@ def _supervise(args: argparse.Namespace, *, lock_descriptor: int | None = None) 
             ) as child:
                 while child.poll() is None:
                     now = time.monotonic()
+                    if control is not None:
+                        try:
+                            cancel_requested = control() or cancel_requested
+                        except Exception:
+                            # Loss of control authority stops computation. The durable
+                            # caller retains its claim failure; no late result escapes.
+                            cancel_requested = True
                     try:
                         resident = _resident_bytes(child.pid)
                     except (ValueError, OSError, subprocess.TimeoutExpired):
@@ -437,6 +610,11 @@ def _supervise(args: argparse.Namespace, *, lock_descriptor: int | None = None) 
                     except subprocess.TimeoutExpired:
                         continue
                 status = child.returncode
+            if control is not None:
+                try:
+                    cancel_requested = control() or cancel_requested
+                except Exception:
+                    cancel_requested = True
             if (
                 status in (0, 3)
                 and not cancel_requested
@@ -448,28 +626,30 @@ def _supervise(args: argparse.Namespace, *, lock_descriptor: int | None = None) 
             ):
                 # Same directory filesystem: atomic no-clobber publication.
                 os.link(staged, output)
+                if emit_status:
+                    print(
+                        json.dumps(
+                            {
+                                "status": "completed" if status == 0 else "incomplete",
+                                "artifact_written": True,
+                                "trading_authorized": False,
+                            },
+                            sort_keys=True,
+                        )
+                    )
+                return status
+            if emit_status:
                 print(
                     json.dumps(
                         {
-                            "status": "completed" if status == 0 else "incomplete",
-                            "artifact_written": True,
+                            "status": "cancelled" if cancel_requested else "failed",
+                            "artifact_written": False,
+                            "reason": "bounded-run-failed-or-resource-limit",
                             "trading_authorized": False,
                         },
                         sort_keys=True,
                     )
                 )
-                return status
-            print(
-                json.dumps(
-                    {
-                        "status": "cancelled" if cancel_requested else "failed",
-                        "artifact_written": False,
-                        "reason": "bounded-run-failed-or-resource-limit",
-                        "trading_authorized": False,
-                    },
-                    sort_keys=True,
-                )
-            )
             return 3
     finally:
         for sig, handler in old_handlers.items():

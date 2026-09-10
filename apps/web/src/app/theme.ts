@@ -77,12 +77,12 @@ export const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         html: {
-          minWidth: 1280,
+          minWidth: 0,
           minHeight: 720,
           backgroundColor: palette.canvas,
         },
         body: {
-          minWidth: 1280,
+          minWidth: 0,
           minHeight: 720,
           margin: 0,
           backgroundColor: palette.canvas,
@@ -92,7 +92,7 @@ export const theme = createTheme({
           )}, transparent 38%)`,
         },
         '#root': {
-          minWidth: 1280,
+          minWidth: 0,
           minHeight: 720,
         },
         '*': {

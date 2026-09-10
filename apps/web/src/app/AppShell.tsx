@@ -35,21 +35,22 @@ interface AppShellProps {
   children: ReactNode
 }
 
-function Sidebar() {
+function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
   return (
     <Box
       component="aside"
+      id="workspace-navigation"
       sx={{
         bgcolor: 'background.paper',
         borderRight: 1,
         borderColor: 'divider',
-        bottom: 0,
-        display: 'flex',
+        bottom: { md: 0 },
+        display: { xs: open ? 'flex' : 'none', md: 'flex' },
         flexDirection: 'column',
         left: 0,
-        position: 'fixed',
-        top: ENVIRONMENT_BANNER_HEIGHT,
-        width: SIDEBAR_WIDTH,
+        position: { xs: 'relative', md: 'fixed' },
+        top: { xs: 0, md: ENVIRONMENT_BANNER_HEIGHT },
+        width: { xs: '100%', md: SIDEBAR_WIDTH },
         zIndex: (theme) => theme.zIndex.appBar,
       }}
     >
@@ -104,6 +105,7 @@ function Sidebar() {
                   component={NavLink}
                   key={item.path}
                   to={item.path}
+                  onClick={onNavigate}
                   sx={{
                     borderLeft: '3px solid transparent',
                     borderRadius: '0 7px 7px 0',
@@ -134,10 +136,10 @@ function Sidebar() {
       </Box>
       <Box sx={{ borderTop: 1, borderColor: 'divider', px: 2.25, py: 1.75 }}>
         <Typography color="text.secondary" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>
-          Phase 2 · Research
+          Personal research
         </Typography>
         <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4 }}>
-          Durable fixture backtests
+          Retained runs and reports
         </Typography>
       </Box>
     </Box>
@@ -178,14 +180,15 @@ function WorkspaceHeader({
         bgcolor: 'rgba(7, 17, 31, 0.88)',
         borderBottom: 1,
         borderColor: 'divider',
-        left: SIDEBAR_WIDTH,
+        position: { xs: 'relative', md: 'fixed' },
+        left: { xs: 0, md: SIDEBAR_WIDTH },
         right: 0,
-        top: ENVIRONMENT_BANNER_HEIGHT,
+        top: { xs: 0, md: ENVIRONMENT_BANNER_HEIGHT },
         width: 'auto',
       }}
     >
-      <Toolbar disableGutters sx={{ height: HEADER_HEIGHT, minHeight: `${HEADER_HEIGHT}px !important`, px: 3 }}>
-        <Box sx={{ alignItems: 'center', display: 'flex', gap: 1.25 }}>
+      <Toolbar disableGutters sx={{ height: { xs: 'auto', md: HEADER_HEIGHT }, minHeight: `${HEADER_HEIGHT}px !important`, flexWrap: { xs: 'wrap', md: 'nowrap' }, gap: 1, py: { xs: 1, md: 0 }, px: { xs: 2, md: 3 } }}>
+        <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 1.25 }}>
           <AccessTimeRoundedIcon aria-hidden="true" color="primary" sx={{ fontSize: 19 }} />
           <Box>
             <Typography color="text.secondary" sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -201,7 +204,7 @@ function WorkspaceHeader({
           />
         </Box>
         <Box sx={{ flex: 1 }} />
-        <Box sx={{ alignItems: 'center', display: 'flex', gap: 1.5 }}>
+        <Box sx={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
           <EventStreamIndicator state={eventStreamState} />
           <StatusChip
             label={
@@ -243,8 +246,9 @@ export function AppShell({
   eventStreamState = disabledEventStreamState,
   children,
 }: AppShellProps) {
+  const [navigationOpen, setNavigationOpen] = useState(false)
   return (
-    <Box sx={{ minHeight: 720, minWidth: 1280 }}>
+    <Box sx={{ minHeight: 720, minWidth: 0, pt: 0 }}>
       <Box
         component="a"
         href="#main-content"
@@ -264,19 +268,23 @@ export function AppShell({
         Skip to main content
       </Box>
       <EnvironmentBanner environment={bootstrap?.environment} unavailable={bootstrapUnavailable} />
-      <Sidebar />
+      <Box component="button" aria-expanded={navigationOpen} aria-controls="workspace-navigation" onClick={() => setNavigationOpen((open) => !open)} sx={{ display: { xs: 'block', md: 'none' }, bgcolor: 'background.paper', color: 'text.primary', border: 0, borderBottom: 1, borderColor: 'divider', p: 2, width: '100%', textAlign: 'left', font: 'inherit', cursor: 'pointer' }}>
+        {navigationOpen ? 'Hide navigation' : 'Show navigation'}
+      </Box>
+      <Sidebar open={navigationOpen} onNavigate={() => setNavigationOpen(false)} />
       <WorkspaceHeader bootstrap={bootstrap} eventStreamState={eventStreamState} />
       <Box
         component="main"
         id="main-content"
         sx={{
-          ml: `${SIDEBAR_WIDTH}px`,
+          ml: { xs: 0, md: `${SIDEBAR_WIDTH}px` },
+          minWidth: 0,
           minHeight: 720,
-          pt: `${ENVIRONMENT_BANNER_HEIGHT + HEADER_HEIGHT}px`,
+          pt: { xs: 0, md: `${ENVIRONMENT_BANNER_HEIGHT + HEADER_HEIGHT}px` },
         }}
         tabIndex={-1}
       >
-        <Box sx={{ mx: 'auto', maxWidth: 1680, p: 3 }}>{children}</Box>
+        <Box sx={{ mx: 'auto', maxWidth: 1680, p: { xs: 2, md: 3 } }}>{children}</Box>
       </Box>
     </Box>
   )

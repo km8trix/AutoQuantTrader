@@ -33,6 +33,8 @@ def current_build_pins() -> tuple[VersionPin, ...]:
         "apps/worker/__init__.py",
         "apps/worker/personal_research.py",
         "apps/worker/main.py",
+        "apps/worker/research_runner.py",
+        "apps/worker/research_jobs.py",
     ):
         source = root / relative
         if source.exists():

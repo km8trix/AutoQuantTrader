@@ -55,7 +55,7 @@ interface RequestJsonOptions {
   body?: unknown
 }
 
-async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
+export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
   const { body, headers = {}, method = 'GET', signal } = options
   const response = await fetch(`${API_ROOT}${path}`, {
     credentials: 'same-origin',

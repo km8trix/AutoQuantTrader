@@ -35,6 +35,21 @@ const ExperimentsPage = lazy(() =>
     default: module.ExperimentsPage,
   })),
 )
+const ResearchStrategiesPage = lazy(() =>
+  import('../features/research/ResearchStrategiesPage').then((module) => ({
+    default: module.ResearchStrategiesPage,
+  })),
+)
+const ResearchRunsPage = lazy(() =>
+  import('../features/research/ResearchRunsPage').then((module) => ({
+    default: module.ResearchRunsPage,
+  })),
+)
+const ResearchExperimentsPage = lazy(() =>
+  import('../features/research/ResearchExperimentsPage').then((module) => ({
+    default: module.ResearchExperimentsPage,
+  })),
+)
 const OperationsDashboardPage = lazy(() =>
   import('../features/operations/OperationsDashboardPage').then((module) => ({
     default: module.OperationsDashboardPage,
@@ -103,9 +118,12 @@ export function AppRoutes({ bootstrap }: AppRoutesProps) {
         <Route element={<OverviewPage bootstrap={bootstrap} />} path="/overview" />
         <Route element={<DataCatalogPage />} path="/data/datasets" />
         <Route element={<DataQualityPage />} path="/data/quality" />
-        <Route element={<StrategiesPage />} path="/research/strategies" />
-        <Route element={<BacktestsPage bootstrap={bootstrap} />} path="/research/backtests" />
-        <Route element={<ExperimentsPage />} path="/research/experiments" />
+        <Route element={<ResearchStrategiesPage />} path="/research/strategies" />
+        <Route element={<ResearchRunsPage bootstrap={bootstrap} />} path="/research/backtests" />
+        <Route element={<ResearchExperimentsPage bootstrap={bootstrap} />} path="/research/experiments" />
+        <Route element={<StrategiesPage />} path="/research/history/strategies" />
+        <Route element={<BacktestsPage bootstrap={bootstrap} />} path="/research/history/backtests" />
+        <Route element={<ExperimentsPage />} path="/research/history/experiments" />
         <Route
           element={<OperationsDashboardPage bootstrap={bootstrap} />}
           path="/operations/dashboard"

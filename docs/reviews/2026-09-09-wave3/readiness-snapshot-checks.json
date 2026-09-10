@@ -1,0 +1,74 @@
+{
+  "checks": {
+    "architecture": {
+      "exit_code": 0,
+      "script": "scripts/check_personal_architecture.py"
+    },
+    "mypy": {
+      "exit_code": 0,
+      "files": [
+        "packages/persistence/database.py"
+      ]
+    },
+    "pytest": {
+      "cache_disabled": true,
+      "exit_code": 0,
+      "failed": 0,
+      "module": "tests/integration/test_personal_research_migration.py",
+      "passed": 25,
+      "plugin_autoload_disabled": true,
+      "seconds": 21.58
+    },
+    "ruff_check": {
+      "exit_code": 0,
+      "files": [
+        "packages/persistence/database.py",
+        "tests/integration/test_personal_research_migration.py"
+      ]
+    },
+    "ruff_format_check": {
+      "exit_code": 0,
+      "files": [
+        "packages/persistence/database.py",
+        "tests/integration/test_personal_research_migration.py"
+      ]
+    }
+  },
+  "dependencies": [
+    "A ResearchJobSnapshot/decode_request_row/replay_job_snapshot",
+    "B ResearchCatalogRows/read_catalog_rows/replay_catalog_rows"
+  ],
+  "files": [
+    {
+      "bytes": 93398,
+      "path": "packages/persistence/database.py",
+      "sha256": "d1a9d3f6ca158a15efb014087dc05755275c896cba7b8520a59fb25aed920e60"
+    },
+    {
+      "bytes": 15027,
+      "path": "tests/integration/test_personal_research_migration.py",
+      "sha256": "88f53f06826896df931ee72470b8961cc1e02d2044be4c3ffa0d6fd6eeaa6d29"
+    }
+  ],
+  "limitations": [
+    "Raw schema rows are copied in one transaction; historical SQL/financial checks remain in that transaction.",
+    "No readiness result caching; no provider, credential or licensed artifact access."
+  ],
+  "original_manifest_sha256": "07bbcf5d0778df1483df7cc5a1cbf2dfc2f893d1830223ba7480641b39ea8867",
+  "recorded_at": "2026-09-10T04:31:46.137516+00:00",
+  "regressions": {
+    "concurrent_claim_commits_before_validation_release": true,
+    "fresh_corruption_rechecked": true,
+    "paused_record_types": [
+      "ResearchRunRequest",
+      "ResearchJobEvent",
+      "ResearchCatalogEntry"
+    ],
+    "require_phase_zero_facts": [
+      false,
+      true
+    ],
+    "sqlite_journal": "delete"
+  },
+  "scope": "W3 deferred schema-readiness integrity validation; two delegated files only"
+}

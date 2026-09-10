@@ -24,6 +24,10 @@ def verify(directory: Path) -> str:
             "apps/worker/personal_research.py",
             "apps/worker/main.py",
             "apps/worker/legacy_golden.py",
+            "apps/worker/research_jobs.py",
+            "apps/worker/research_runner.py",
+            "migrations/env.py",
+            "migrations/versions/0039_personal_research_workflow.py",
             "packages/application/causal_engine.py",
             "packages/application/run_report.py",
             "packages/backtest/personal_accounting.py",
@@ -58,6 +62,11 @@ def verify(directory: Path) -> str:
             != "apps.worker.personal_research:main"
         ):
             raise ValueError("general historical research console script is not installed")
+        if (
+            scripts["console_scripts"].get("autoquant-research-jobs")
+            != "apps.worker.research_jobs:main"
+        ):
+            raise ValueError("durable research CLI is not installed")
         if scripts["console_scripts"].get("autoquant-worker") != "apps.worker.main:main":
             raise ValueError("general research worker is not the default worker")
         if (

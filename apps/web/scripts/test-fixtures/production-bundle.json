@@ -13,7 +13,10 @@
       "src/routes/Route08.tsx",
       "src/routes/Route09.tsx",
       "src/routes/Route10.tsx",
-      "src/routes/Route11.tsx"
+      "src/routes/Route11.tsx",
+      "src/features/research/ResearchStrategiesPage.tsx",
+      "src/features/research/ResearchRunsPage.tsx",
+      "src/features/research/ResearchExperimentsPage.tsx"
     ],
     "required_shared_partitions": [
       "react-runtime",
@@ -73,7 +76,10 @@
         "src/routes/Route08.tsx",
         "src/routes/Route09.tsx",
         "src/routes/Route10.tsx",
-        "src/routes/Route11.tsx"
+        "src/routes/Route11.tsx",
+        "src/features/research/ResearchStrategiesPage.tsx",
+        "src/features/research/ResearchRunsPage.tsx",
+        "src/features/research/ResearchExperimentsPage.tsx"
       ]
     },
     "src/routes/Route01.tsx": {
@@ -152,6 +158,27 @@
       "name": "Route11",
       "isDynamicEntry": true,
       "imports": ["index.html"]
+    },
+    "src/features/research/ResearchStrategiesPage.tsx": {
+      "file": "assets/research-strategies.js",
+      "src": "src/features/research/ResearchStrategiesPage.tsx",
+      "name": "ResearchStrategiesPage",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/features/research/ResearchRunsPage.tsx": {
+      "file": "assets/research-runs.js",
+      "src": "src/features/research/ResearchRunsPage.tsx",
+      "name": "ResearchRunsPage",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
+    },
+    "src/features/research/ResearchExperimentsPage.tsx": {
+      "file": "assets/research-experiments.js",
+      "src": "src/features/research/ResearchExperimentsPage.tsx",
+      "name": "ResearchExperimentsPage",
+      "isDynamicEntry": true,
+      "imports": ["index.html"]
     }
   },
   "asset_sizes": {
@@ -170,6 +197,9 @@
     "assets/route-08.js": 5,
     "assets/route-09.js": 5,
     "assets/route-10.js": 5,
-    "assets/route-11.js": 5
+    "assets/route-11.js": 5,
+    "assets/research-strategies.js": 5,
+    "assets/research-runs.js": 5,
+    "assets/research-experiments.js": 5
   }
 }

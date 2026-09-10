@@ -1,0 +1,158 @@
+{
+  "boundary": "explicit owner cancellation through durable workflow",
+  "cancelled_count": 24,
+  "cancelled_jobs": [
+    {
+      "attempt_count": 0,
+      "job_id": "9fc0228cc96f3a3de7cd4ffdc7b1bea9976678b31c2c233aae71ca4d22c32375",
+      "last_event_sha256": "bdff26d0d42f8d40a01fa84adb907c066f8d2a7031713bd7426f02a577fdb05f",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "dcb03cbc536307418f4e066401e1ef96c553cdcf70c90cfdc423d4e1060a5663",
+      "last_event_sha256": "10da02dc83ea27114ebcf5aa3ead9ddc02fa6ecc1862f2b85a42d1cef10041f7",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "12d8c0ca0bbd67900be5c7c35b619763d40c87048cd981238a25009c69bfb5e3",
+      "last_event_sha256": "9fe87d4149276c41477bbfb27fd5cea04d02cb8f66a31b65c670103dd6df6f74",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "011ccb4ee37b963e9f05cb57e95df6d910c105f910663badcfb86aac08fcba47",
+      "last_event_sha256": "e6ea61acd3de3a4c5dc1b63ff3a3b8cd5c4d7d5298fd5f3cfd0ae20665a91003",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "62b0338c65b4920a9e7a2f02c27fe998d4d1d4a155728244b2d21bad614acdd4",
+      "last_event_sha256": "dacb53cac3ac595f63de324bcf88d8cf0062ed5fa19f9fcd4aa7f0dff30c43dd",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "8d56f1e24f131aec7d9b17ce12fda5f01c8a7536958810b4b034e820cef17069",
+      "last_event_sha256": "55bd734d2e62894bb717c7e1bd01f1b983736efbb67b03e3a6d2eed5eaca8a57",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "d0e9c4fa82badcd3d22f818926a0ebef19d6b1eaaa97f5edcb47e3d891d7b525",
+      "last_event_sha256": "656c8a06b61dac20c6ff2427db6b5e1f2f39a77b8f3cd14602e2b4b7d2eee69a",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "9c382b82be0a7f243e86b51c287481b137eb999bac48191b958f255fc34f1a0b",
+      "last_event_sha256": "2122048c95ae2abb02bcee784417b464ebb2356e4a2ccecd9ae06add49b50061",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "309c9085736b7cd9f67051bbba48c5376d000025221495e9ae380a8da1a4ca03",
+      "last_event_sha256": "0c8037d7fe11131e410f399b8506e49c70078764038d946bfbfd6493dede3379",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "87ea774db5fe56b8e79a3bead08df714c36e22909692c4c286271c7847d74939",
+      "last_event_sha256": "bd315521e582ac19d66f15a102c0e0adec7f212ad93916dffa21bfcce3ceb7cc",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "2d9b1e3483d7ba12c442fef889510a934f3dd897224fd25ec8612a9070c6ca90",
+      "last_event_sha256": "9c8db6e1ab6986a2741066c3dd80edb2b3e99bd13327d59d893c9b03ad9ba02f",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "a3598d958123be627a61f0a8c0ff8a57a79a1b3c6a7cc4e36c0756220224c120",
+      "last_event_sha256": "3e7b2b24553b925929f3d9fc523bc8afdecb953b49cb34c297a190c303a53371",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "82b2018e3029c9f4b64ff98adc2de0ea5b49298cfcc0383e89539af139fdf180",
+      "last_event_sha256": "9cdadf1ef327f43fa56e191112a680295751fb4110c0c339ee7bcef88723ef42",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "52753f0f3355930b5d386318296e1ae60e898f918d34a2ddcbcd0bb9947ff9e9",
+      "last_event_sha256": "cf8ca955203af494d1ad40338a002a3ca95d799263fbf189dab630c97a021db0",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "7404066ce411a7f3dc0e48e7e37a1e319d485c91a3f46869697b8099dd45c056",
+      "last_event_sha256": "6cf48f0fa8bdbc3c2d21f564189cfd544d56331cb96aedfd14f107669607f9d2",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "06c9bd1236e6cbf2f780cf65352268e532d79526c2b198231a0741472d5acf23",
+      "last_event_sha256": "350380cc8aaff780b7826fe7530b07177bd93988eacb004072450a1cbfe3861e",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "3988539efa0280bd0e6cd896be2aaefa1e7720c1237da401b4859dc31b5558d1",
+      "last_event_sha256": "d3112e4c0ee29729931dfde52d6b32d080ecff01280b312be200babf9b989ed4",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "2ea5b606d71ffb1af2b95466997c7ab228fae6388549f12fcf3f322dae74da4b",
+      "last_event_sha256": "47cb8b787e04d5218bc45547c978c3f9d1bdecf79daafb916aa27563d8831a0d",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "b14e48619bbe60089d8af7d0d0311b9d6b273e99687d437b78fd389b8d8262aa",
+      "last_event_sha256": "2671e6ddcae8069f49cd206067720531903baffe99a0655c460fbf2ecdf75a1e",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "5307f2236610a10e52d80a153bca3bce5eb197d8ebea0388a969fd139b3990dd",
+      "last_event_sha256": "59fbd05aca666d3b03e0fa5deaab13ccba06df4f901f1dcf95d295c36fb3335a",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "0220c7ccb9be12cd18693cb8cc2a45750985428ef3d5e45f8eebf50c8509aee1",
+      "last_event_sha256": "c79ad109e4b7bda037e70ece0abff4fd0ed43d9e7306ac3c8473a796c8c124a5",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "25508781629666a453e2cc27f45998fbc1a06f3b289e29669a64b131c0262136",
+      "last_event_sha256": "911c5bc26b68a0edb2f156a4b956ef4961ff240d140ca521244495910bd48c8f",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "06a2ef88dbc7786d0abbb017e3a45b303edbcd34927a7a32048bfc4953b20ebb",
+      "last_event_sha256": "d9b5c91c7702500fb3469b359e52ef242bc9dd2a3bc6a507c6b9fb5b3e913295",
+      "status": "cancelled"
+    },
+    {
+      "attempt_count": 0,
+      "job_id": "b8e751739ebfaf5be37ddcd4d1942c5d7f173007896e70989cf1b7bacf27de4d",
+      "last_event_sha256": "6446ee570cebd9548036838e0b6ddccffb36820c27bbfe7461aaac2ff0ee035a",
+      "status": "cancelled"
+    }
+  ],
+  "experiment_ids": [
+    "c3e2d14a205b6ea93d3d7a4c6b6f59f4ca65d8b4f47f5c16594f534e83bd8d98",
+    "003ea6256977bf0ab8fb2422e5643876d835d63caf9cadf5b30487b351aacdb8"
+  ],
+  "prior_completed_reports_unchanged": 3,
+  "reason": "disposable pre-acceptance build replacement after confirmed SQLite getter contention; no accepted specs rewritten",
+  "registrations_preserved": true,
+  "worker_started": false
+}

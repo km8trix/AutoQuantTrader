@@ -1,6 +1,6 @@
 # AutoQuantTrader implementation plan
 
-Status: sole authoritative delivery plan. Waves 0 and 1 closed through [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52), merged as `ec63ca793ed4fe8a68397dc752000e102741da59` after all PR checks passed. Wave 2 local exit gates passed: one engine/account/report path, four independently checked 520-session runs, 1,633 Python tests and source/installed process recovery. GitHub CI and merge verification remain open. Broker connected-execution qualification remains blocked; trading and deployment stay disabled.
+Status: sole authoritative delivery plan. Waves 0/1 closed through [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52); Wave 2 closed through [PR #53](https://github.com/km8trix/AutoQuantTrader/pull/53), merged as `6ea218addaa38d1c36c69b6a7ffbe564d701f834` with successful PR and post-merge checks. Wave 3 local exit gates passed; GitHub PR/CI/merge verification remains open. Broker connected-execution qualification remains blocked; trading and deployment stay disabled.
 
 Implement the [architecture](ARCHITECTURE.md) using the evidence-backed priorities in the [design review](reviews/2026-09-08-design-review.md). The new waves replace the previous Phase 0–8/subphase/Wave 1–7 roadmaps. Existing local passes remain historical evidence; they do not mark any new wave passed.
 
@@ -135,7 +135,7 @@ No new independent general engine is permitted in this wave. Real provider data 
 | Lane | Work and ownership | Deliverable |
 |---|---|---|
 | A — research jobs and artifacts | Run registration/claims, cancellation/recovery and result publication; orchestrator owns shared migration/API contracts | General durable jobs linked to real dataset/strategy/configuration manifests |
-| B — evaluation protocol | Chronological splits, training-only fitting, trial registry, cost/parameter stress and benchmark comparisons | Reproducible evaluation with untouched holdout and recorded attempted configurations |
+| B — evaluation protocol | Chronological splits, training-only fitting, trial registry, cost/parameter stress and benchmark comparisons | Reproducible descriptive evaluation with recorded prior access and attempted configurations; untouched holdout claims require separate evidence |
 | C — research UI | Dataset/run/experiment views and comparison screens using frozen generated contracts | Select dataset/strategy/configuration, launch/cancel, inspect equity/trade/ledger/provenance and compare runs |
 
 Prefer minimal transparent strategies and an interpretable report over large feature/optimizer libraries. The owner records criteria before looking at holdout results. Store exploratory history limitations and forward-data start dates alongside every result. Unavailable historical vintages do not prevent exploratory economics, but do prevent unsupported PIT claims.
@@ -251,8 +251,8 @@ The orchestrator updates this compact table as work occurs; detailed results bel
 |---|---|---|---|
 | W0 | **Complete — contract/baseline only** | Code `107fa791`; [pack](contracts/personal-v1/README.md), [baseline](reviews/2026-09-08-wave0/baseline.md), [artifact manifest](reviews/2026-09-08-wave0/final-artifact-manifest.json) | None for W0; recorded checker failures/environment gaps remain later gates |
 | W1 | **Complete within bounded foundation/read-feasibility scope** | [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52), merged `ec63ca793ed4fe8a68397dc752000e102741da59`; CI passed 1,271 Python tests including PostgreSQL, browser regressions, migrations and packaging; merged tree and 140 artifact hashes verified; post-merge CI passed | [Closeout verification](reviews/2026-09-09-wave2/wave1-merged-verification.json); financing, quotes, quotas, recovery and reconciliation remain connected-execution blockers under the [acceptance rationale](reviews/2026-09-08-wave1/wave1-acceptance.md) |
-| W2 | **Local gates passed — GitHub closeout pending** | Base `ec63ca793ed4fe8a68397dc752000e102741da59`; [integrated evidence](reviews/2026-09-09-wave2/README.md); 1,633 tests, four 520-session independent runs, two reproducible wheels and nine source and nine installed process cases each | Required PostgreSQL/browser/packaging CI, PR merge and exact merged-revision verification |
-| W3 | Not started | None | W2 |
+| W2 | **Complete — canonical offline economics** | [PR #53](https://github.com/km8trix/AutoQuantTrader/pull/53), merged `6ea218addaa38d1c36c69b6a7ffbe564d701f834`; PR CI passed 1,640 Python tests including PostgreSQL, browser/migrations/installed packaging; post-merge CI passed | [Merged verification](reviews/2026-09-09-wave3/wave2-merged-verification.json); 83 bound artifacts and exact tested/merged tree verified |
+| W3 | **Local gates passed — GitHub closeout pending** | Base `6ea218addaa38d1c36c69b6a7ffbe564d701f834`; actual browser/worker/recovery/evaluation, 1,974 Python tests, 139 browser unit cases, installed package; [evidence index](reviews/2026-09-09-wave3/README.md) | PR CI including eight PostgreSQL cases, review, merge and exact merged-tree verification |
 | W4 | Not started | None | W1 broker/runtime + W2 |
 | W5 | Not started | None | W4 |
 | W6 | Not started | None | W3 + W5; candidate and external qualification scope |
@@ -299,10 +299,28 @@ USD, settled-cash/liability/restriction semantics, quotes, actual provider quota
 
 See [integrated evidence](reviews/2026-09-08-wave1/README.md), the [foundation runbook](runbooks/personal-v1-foundations.md) and [read-only runbook](runbooks/personal-v1-etrade-readonly.md). Preview/Place/Cancel, trading and deployment remain outside the owner-authorized read scope.
 
-## 17. Current Wave 2 handoff
+## 17. Wave 2 handoff (historical local-gate snapshot)
 
 The same orchestration task completed local W2 acceptance from merged W1 revision `ec63ca793ed4fe8a68397dc752000e102741da59`, on `codex/personal-v1-w2-integration`. The [shared interfaces](contracts/personal-v1/wave2-interfaces.md) are implemented; the [current evidence index](reviews/2026-09-09-wave2/README.md) records local exit acceptance and remaining GitHub closeout. The [preservation inventory](reviews/2026-09-09-wave2/initial-preservation.json) records retained worktrees.
 
 Root owns shared definitions, input conversion, reference strategy, CLI/composition, independent acceptance, golden product cutover and CI. A owns the single causal queue, daily target conversion and risk; B owns one-command accounting and financial oracle integration; C owns pure metrics/reporting. There are at most three workers, with no nested tasks. No new financial persistence migration is required in W2.
 
 The five-session real Tiingo sample remains an insufficient-history case for default strategy/annualized metrics. Sufficiently long labelled fixtures and independent action/flow cases supply engineering acceptance; no factual publication time, provider action or untouched holdout is invented. W2 needs no provider requests, credentials, orders, subscriptions or deployment. Close all W2 gates and the authorized commit/PR/check/merge/verification workflow before beginning W3.
+
+## 18. Current Wave 3 handoff
+
+Wave 2 is closed through PR #53 and its verified merged tree; the preceding section and Wave 2 accepted artifacts retain their original local-gate snapshot. This orchestration task started `codex/personal-v1-w3-integration` directly from the verified merge. The owner authorized continued waves and delegated routine recommendations; the standing commit/PR/CI/review/merge/verification workflow remains mandatory before each wave closes.
+
+Root owns integration, codecs, catalog/evaluation persistence, migration 0039, API/composition, the shared process boundary and independent acceptance. A implements delegated new job DTOs, five additive job tables, artifact storage, lifecycle/workflow and orchestration. B implements new pure evaluation DTOs/input preparation and actual-engine tests. C implements delegated HTTP projection models and research UI; root owns generated API types and route cutover. At most three workers; no nested workers.
+
+W3 uses 60-second database leases, ten-second heartbeats and at most three attempts with automatic recovery only after abandonment. Owner cancellation is durable and terminal; graceful worker shutdown is recoverable abandonment. Inputs are capped at 32 MiB and reports at 64 MiB, below W2's ceiling. Completed and incomplete publications remain distinct. Every candidate/fold/window/cost trial is registered before execution. The four fixed cost scenarios and explicit no-fit reference artifacts support descriptive comparisons; neither untouched historical data nor profitability eligibility is inferred. Existing data sufficiency and connected-execution gates remain visible.
+
+### W3 integration decisions and observed limits
+
+The retained Tiingo sample remains the selected real-data workflow check. It has five registered sessions, four scored sessions with the final session reserved as a calendar horizon, and no annualized or untouched-holdout claim. Longer labelled synthetic histories supply engine, chronological-isolation and cost-stress engineering checks. This follows the owner's delegated recommendation preference without choosing investment suitability criteria. Actual predeclared candidate eligibility and frozen forward qualification remain W6 gates.
+
+Root's clean browser check exercised dataset selection, base/adverse runs, a terminal queued cancellation, actual report execution/journal views, and a comparable-cost report pair. A 520-session synthetic job survived parent SIGKILL, retained orphan ownership until child exit, waited for real lease expiry and completed on its second attempt with one publication. Independent rational/80-digit checks verified all three completed reports. No provider request or credential inspection was needed.
+
+Integration caught and corrected the imported default execution horizon, concurrent idempotent launch recovery, research-owner configuration validation, whole-report work escaping the supervised child, explicit wheel payload exclusions, and the narrow-window shell/banner. SQLite experiment/readiness contention required coherent snapshots with bounded batch reads, dependency loading before transactions, and explicit research WAL/FULL operation on a patched SQLite runtime. The stronger retained-history probe passed all five simultaneous lanes across three rounds with unchanged timeout/lease settings. Earlier smaller passing probes and stronger failures remain labelled separately in the evidence index.
+
+Three earlier experiment registries and all 36 owner-cancelled unexecuted trials remain retained; no attempt or accepted source pin is rewritten. Root declared a fresh 12-trial experiment through the actual browser against the frozen corrected source. All 12 completed in 48.944 seconds with one attempt/publication each; independent arithmetic, exact modeled costs, chronological resets, export bytes and source/report bindings passed. The final installed wheel separately passed actual execution and idempotent restart with WAL/FULL verified. Final local regressions passed: 1,974 Python tests, eight PostgreSQL skips, one retained dependency deprecation warning. Browser checks passed 139 Vitest and 33 bundle cases; Python lint/types, generated API contracts and architecture passed. Complete GitHub PR/CI/review/merge and exact content verification before beginning Wave 4.

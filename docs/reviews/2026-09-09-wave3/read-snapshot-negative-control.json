@@ -1,0 +1,8 @@
+{
+  "expected_writer_commit_timeout_detected": true,
+  "negative_control": "replay_kept_inside_shared_transaction_in_test_memory_only",
+  "provider_calls": 0,
+  "scope": "Private backup integration checks after detached replay and before selected-row/schema-probe batching; preserved diagnostic evidence, not final acceptance.",
+  "source_edits": false,
+  "source_evidence_sha256": "6a0e99e0c04746a6529e55494dd03d48f3177ec792ac74e4271318e7da7fdd61"
+}

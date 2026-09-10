@@ -1,0 +1,153 @@
+{
+  "allocation": "0.25",
+  "contains_raw_market_data": false,
+  "experiment_id": "61a38aef9e22727e5a39f4869214899b53a9b1b4cbd4b74c032e5d3c669dc7de",
+  "lookback": 3,
+  "numeric_basis": "exact rational slippage, adverse 1e-10 tick rounding and per-share fees",
+  "raw_prices_retained": false,
+  "reset": "independent",
+  "source_evidence_sha256": "5c7af38ed9378a81cbd7493f9dd3e6541d891e607599017212999e39d5068c4c",
+  "status": "passed",
+  "strategy": "buy_hold",
+  "trial_count": 12,
+  "trials": [
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_1x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.01",
+      "slippage_bps": "5",
+      "trial_id": "trial-072a22bb86755909f475eb024e6e275739373e6f5579cd22f4a5b7a2faffbf9e",
+      "window": "train"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_2x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "10",
+      "trial_id": "trial-d1d82323a299501699e3ea5986d9e7ab6dc8221d733279b3f7ece4fa21f4c8fa",
+      "window": "train"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_3x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.03",
+      "slippage_bps": "15",
+      "trial_id": "trial-f4490f222eee9f667bcbe10950679cb21a76a96f70d61df54d9573850b314e3b",
+      "window": "train"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "adverse",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "20",
+      "trial_id": "trial-3a6303f02684d6b1c9a4105a202054d1a08811b22ff4658e4a6ee7f79cb8cb6c",
+      "window": "train"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_1x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.01",
+      "slippage_bps": "5",
+      "trial_id": "trial-31ab60fa1e768d54372aa5cbb731ae9ec8aa0d65ba48840593a56d1303886c86",
+      "window": "validation"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_2x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "10",
+      "trial_id": "trial-867fcabd4c0bf9313605f1bdb308a1a9c3b77b03542e0cb7d95854e8126e68b2",
+      "window": "validation"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_3x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.03",
+      "slippage_bps": "15",
+      "trial_id": "trial-d20c7650cc7319a77a56d897278c545fda7785250bd624b00ec16747ad2396ec",
+      "window": "validation"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "adverse",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "20",
+      "trial_id": "trial-36e9cf995920877e0b6ea5a4596533265b67b1510a84951630a073fe1a2ac266",
+      "window": "validation"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_1x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.01",
+      "slippage_bps": "5",
+      "trial_id": "trial-468a7e2992d68f2253e2c779e105f7e4fd107ac89933388b1952b1d1ad6bb221",
+      "window": "test"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_2x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "10",
+      "trial_id": "trial-a77352f2a3dc177484326215a55646beaaf094711bb55fe449fc0cee1dad1ac8",
+      "window": "test"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "base_3x",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.03",
+      "slippage_bps": "15",
+      "trial_id": "trial-d7c7e5c36ad32e474dd98b9c48a29502ae1e57f38b467c576f98fa0cc5f8cded",
+      "window": "test"
+    },
+    {
+      "adverse_price_rounding_verified": true,
+      "cost_scenario": "adverse",
+      "exact_fee_verified": true,
+      "execution_count": 1,
+      "fee_per_share": "0.02",
+      "slippage_bps": "20",
+      "trial_id": "trial-cfb6cdb9da1577aea5941e45694a3519a72fe402c7ddcf9878c72b717be084da",
+      "window": "test"
+    }
+  ],
+  "warmup_sessions": 3,
+  "windows": [
+    {
+      "end": "2023-01-20",
+      "kind": "train",
+      "start": "2023-01-05"
+    },
+    {
+      "end": "2023-02-10",
+      "kind": "validation",
+      "start": "2023-01-23"
+    },
+    {
+      "end": "2023-03-03",
+      "kind": "test",
+      "start": "2023-02-13"
+    }
+  ]
+}

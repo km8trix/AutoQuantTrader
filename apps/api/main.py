@@ -70,6 +70,10 @@ from apps.api.operations_views import (
     OperationalControlCommandService,
     create_operations_router,
 )
+from apps.api.personal_research_service import PersonalResearchService
+from apps.api.personal_research_views import PersonalResearchApi, create_personal_research_router
+from packages.adapters.research_artifacts_v2 import LocalResearchArtifactStore
+from packages.application import personal_codec
 from packages.application.backtest_worker import ensure_golden_research_catalog
 from packages.application.local_operations import (
     DatabaseOnlyOperationalControlService,
@@ -99,6 +103,8 @@ from packages.persistence.immutable import ImmutableFactConflict
 from packages.persistence.local_operations import SqlLocalOperationsSnapshotReader
 from packages.persistence.market_data import SqlMarketDataCatalog
 from packages.persistence.operational_control import SqlOperationalControlRepository
+from packages.persistence.research_catalog import SqlResearchCatalog
+from packages.persistence.research_workflow_v2 import SqlResearchWorkflow
 from packages.persistence.risk import SqlRiskDecisionRepository
 from packages.persistence.walking_thread import (
     WalkingThreadUnitOfWork,
@@ -116,7 +122,7 @@ def _probe_persistence(
         return PersistenceMode.UNAVAILABLE, datetime.now(UTC)
     try:
         if persistence_mode(engine) == "durable":
-            verify_operational_schema(engine)
+            verify_operational_schema(engine, research_codec=personal_codec)
         else:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1")).scalar_one()
@@ -311,6 +317,7 @@ def create_app(
     operations_query: LocalOperationsQuery | None = None,
     operations_control: OperationalControlCommandService | None = None,
     operations_assignment: AdvancedRiskAssignmentCommandService | None = None,
+    personal_research: PersonalResearchApi | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     if resolved_settings.environment is not Environment.LOCAL:
@@ -332,13 +339,17 @@ def create_app(
     fixture_segment_provenance: FixtureSegmentProvenanceQuery | None = None
     try:
         if persistence_engine is None:
-            persistence_engine = create_database_engine(resolved_settings.database_url)
+            persistence_engine = create_database_engine(
+                resolved_settings.database_url,
+                research_sqlite_wal=resolved_settings.research_artifacts_path is not None,
+            )
         if persistence_mode(persistence_engine) == "ephemeral":
             initialize_phase_zero_schema(persistence_engine)
         else:
             verify_operational_schema(
                 persistence_engine,
                 require_phase_zero_facts=False,
+                research_codec=personal_codec,
             )
         unit_of_work = WalkingThreadUnitOfWork(persistence_engine)
         if unit_of_work.execution_exists(expected_result.order.order_id):
@@ -356,7 +367,7 @@ def create_app(
             ensure_golden_research_catalog(backtest_workflow)
             experiment_governance = SqlExperimentGovernance(persistence_engine)
             fixture_segment_provenance = SqlFixtureSegmentProvenanceQuery(persistence_engine)
-            verify_operational_schema(persistence_engine)
+            verify_operational_schema(persistence_engine, research_codec=personal_codec)
         persistence_status = PersistenceMode(persistence_mode(persistence_engine))
     except (
         SQLAlchemyError,
@@ -483,6 +494,28 @@ def create_app(
 
     router = APIRouter(prefix="/api/v1")
 
+    if (
+        personal_research is None
+        and persistence_engine is not None
+        and persistence_status is PersistenceMode.DURABLE
+        and resolved_settings.research_artifacts_path is not None
+    ):
+        try:
+            research_store = LocalResearchArtifactStore(resolved_settings.research_artifacts_path)
+            research_workflow = SqlResearchWorkflow(persistence_engine, codec=personal_codec)
+            research_catalog = SqlResearchCatalog(
+                persistence_engine, codec=personal_codec, workflow=research_workflow
+            )
+            personal_research = PersonalResearchService(
+                research_workflow,
+                research_catalog,
+                research_store,
+                owner_id=local_credentials.operator_id,
+                mutations_enabled=secure_local_operations,
+            )
+        except (ValueError, TypeError, OSError, SQLAlchemyError):
+            logger.warning("personal research configuration is unavailable")
+
     @router.get("/ui/bootstrap", response_model=UiBootstrap, tags=["ui"])
     def ui_bootstrap(request: Request, response: Response) -> UiBootstrap:
         response.headers["Cache-Control"] = "no-store"
@@ -564,6 +597,9 @@ def create_app(
                 detail="market-data quality catalog is unavailable or malformed",
             ) from error
 
+    router.include_router(
+        create_personal_research_router(service=personal_research, security=local_security)
+    )
     router.include_router(
         create_backtest_router(
             workflow=backtest_workflow,

@@ -705,9 +705,9 @@ export function ExperimentsPage() {
     <>
       <PageHeader
         actions={<RefreshButton isFetching={isFetching} onRefresh={refresh} />}
-        description="Inspect frozen experiment declarations, bounded attempt history, and final-holdout governance without mutating research state."
-        eyebrow="Phase 3 · Research governance"
-        title="Experiments"
+        description="Inspect historical governance declarations and fixture evidence retained from the earlier diagnostic workflow."
+        eyebrow="Historical diagnostics"
+        title="Historical governance diagnostics"
       />
       <Alert icon={<ScienceOutlinedIcon />} severity="info" sx={{ mb: 2 }} variant="outlined">
         <strong>Read-only governance evidence.</strong> This surface has no attempt, reveal,

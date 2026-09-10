@@ -1,0 +1,91 @@
+{
+  "backup_only_cancelled_copied_trials": 12,
+  "driver_sha256": "206ef0fedaa30b7dc5f950b35ed7b5017a29b4bf575641f8736d85f89dc2118f",
+  "foreign_keys": true,
+  "heartbeat_seconds": 10,
+  "journal_mode": "wal",
+  "lease_seconds": 60,
+  "original_database_bytes_unchanged": true,
+  "original_database_sha256": "c39de555a78bad1765128495e4891327b2cdb4d3b9f8cc926f8cc2696d4cb0af",
+  "original_publications_preserved": 3,
+  "overlap_rounds": 3,
+  "probe_claims": 3,
+  "probe_heartbeats": 3,
+  "probe_jobs": 3,
+  "profile_sha256": "2a88364fb919d128fe773b91703525ef0cad96ecdb8eaa6f3d9a426c18259e19",
+  "provider_calls": 0,
+  "require_phase_zero_facts": true,
+  "results": [
+    {
+      "count": 3,
+      "maximum_seconds": 26.762001,
+      "operation": "catalog_service_list"
+    },
+    {
+      "count": 3,
+      "maximum_seconds": 19.59428,
+      "operation": "catalog_service_detail"
+    },
+    {
+      "count": 3,
+      "maximum_seconds": 16.625197,
+      "operation": "workflow_getters"
+    },
+    {
+      "count": 3,
+      "maximum_seconds": 23.363625,
+      "operation": "schema_readiness"
+    },
+    {
+      "count_per_operation": 3,
+      "maximum_seconds": {
+        "claim": 0.151062,
+        "finish": 0.198003,
+        "heartbeat": 0.249609,
+        "launch": 0.155923
+      },
+      "operation": "writer_commits"
+    }
+  ],
+  "retained_experiments": 3,
+  "retained_trials": 36,
+  "scope": "Five simultaneous in-process validation/read lanes and lifecycle writes over a private original-preserving SQLite backup; timings describe this bounded stress workload, not a universal service latency guarantee.",
+  "simultaneous_operations": 5,
+  "source_evidence_sha256": "6d5efde2c73583a3f6dd9fd820328fbf38ac0deda8d476bdbd9424a9c898df99",
+  "source_sha256": {
+    "packages/persistence/database.py": "8e36076bb3098f258e9fe0dad7baaac0c6b952c6bcf5840bc0cf58397419df01",
+    "packages/persistence/research_catalog.py": "46456545e27f41e10afce2169730925c090c6ee9a46aedff613fbf1bd799b167",
+    "packages/persistence/research_workflow_v2.py": "63524a04dc11424071354ec43fac29a033365764d3d57862cba9490c49c906cc",
+    "packages/persistence/sqlite_config.py": "572aa614bd1317f72add3f538478a1881ae3e32248e441e5b12e42f7fdb5e37e"
+  },
+  "sqlite_busy_timeout_ms": 5000,
+  "sqlite_runtime": "3.53.1",
+  "sqlite_runtime_admitted": true,
+  "status": "passed",
+  "synchronous": 2,
+  "timeout_or_lease_changes": false,
+  "transaction_profile": {
+    "catalog_service_detail": {
+      "maximum_query_count": 9,
+      "maximum_seconds": 0.671189,
+      "transactions": 150
+    },
+    "catalog_service_list": {
+      "maximum_query_count": 9,
+      "maximum_seconds": 1.120742,
+      "transactions": 438
+    },
+    "schema_readiness": {
+      "maximum_query_count": 164,
+      "maximum_seconds": 6.283899,
+      "transactions": 3
+    },
+    "workflow_getters": {
+      "maximum_query_count": 7,
+      "maximum_seconds": 1.078455,
+      "transactions": 18
+    }
+  },
+  "wal_autocheckpoint_pages": 1000,
+  "worker_processes": 0
+}

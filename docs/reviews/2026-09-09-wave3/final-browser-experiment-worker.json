@@ -1,0 +1,78 @@
+{
+  "boundary": "actual source CLI supervised retained worker",
+  "contains_raw_market_data": false,
+  "elapsed_seconds": 48.944,
+  "exit_code": 0,
+  "experiment_id": "61a38aef9e22727e5a39f4869214899b53a9b1b4cbd4b74c032e5d3c669dc7de",
+  "log_bytes": 1645,
+  "max_wall_seconds": 900,
+  "records": [
+    {
+      "job_id": "8b5732e350703318de603a35a34fe73b380750b63e930b575ed9bc9cecd34852",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "3a0593e88accd7ad532c261132633d566298aeb45f134dad50158597bffaee20",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "d9467a4f6fc532939d52261e9058a09bf0bf87adc7b6d15181cab032c3f43557",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "3a13bbffe524a5ddb14981f22b7a19320184466480bcb8f49f43ea155705c17d",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "56425f2dc83a284f8e9af46e74953f9f07d8f339c5d21f63bdc8be966dc06ae8",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "7a2f6732beef3af056be229cef49c350d518099d583d16aebabd9bc104def66b",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "c3f247484948694b45f6a0d34d04582575cf7d511230a4630efad4cca3ee69b6",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "14aafecc5d4b91ba80c6366389d9821e6ffd276d7877b1291139cfb29d18b845",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "31671db7e219fed392fd42eed9487266da6d6c9e13aeaff9075845a4537dcf92",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "05a3cc1f26156565d3ede84fc716a7932db74d174ed8ec0a81ba7f6491c77660",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "434095d2ae22db1e624c3f43c61a550ac6f33cf0b788483528d8a510ed8f019e",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "job_id": "101e4f341a6b7bdb54424e67fd4c3f39510a68f552be18dd5ddee74e57b25466",
+      "status": "completed",
+      "trading_authorized": false
+    },
+    {
+      "processed_jobs": 12,
+      "status": "stopped",
+      "trading_authorized": false
+    }
+  ],
+  "source_evidence_sha256": "9dc90088b60ad6e5c31cad7c53167c77b6b4bdb75bc1472692c733e0dae744db",
+  "wall_timeout": false
+}

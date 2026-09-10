@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from packages.domain.research_job_contracts import require_identifier
+
 if TYPE_CHECKING:
     from packages.adapters.broker.alpaca_paper_account_runtime import (
         AlpacaPaperCredentialReference,
@@ -139,6 +141,7 @@ class Settings:
     api_port: int = 8000
     trusted_loopback_proxy: bool = False
     data_lake_path: Path = Path(".local/data-lake")
+    research_artifacts_path: Path | None = None
     market_data_fixture_path: Path = Path("tests/fixtures/market_data/phase1_bars.jsonl")
     credentials: CredentialConfig = field(default_factory=LocalCredentials)
 
@@ -181,6 +184,10 @@ class Settings:
             raise ValueError(
                 f"{self.environment.value} environment requires {expected_type.__name__}"
             )
+        if self.research_artifacts_path is not None and isinstance(
+            self.credentials, LocalCredentials
+        ):
+            require_identifier(self.credentials.operator_id, "personal research operator ID")
 
     @property
     def local_auth_transport_is_loopback_scoped(self) -> bool:
@@ -235,6 +242,9 @@ class Settings:
             api_port=int(os.getenv("AQT_API_PORT", "8000")),
             trusted_loopback_proxy=_parse_bool(os.getenv("AQT_TRUSTED_LOOPBACK_PROXY", "false")),
             data_lake_path=Path(os.getenv("AQT_DATA_LAKE_PATH", ".local/data-lake")),
+            research_artifacts_path=(
+                Path(value) if (value := os.getenv("AQT_RESEARCH_ARTIFACTS_PATH")) else None
+            ),
             market_data_fixture_path=Path(
                 os.getenv(
                     "AQT_MARKET_DATA_FIXTURE_PATH",

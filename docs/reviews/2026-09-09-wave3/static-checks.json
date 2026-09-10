@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "name": "ruff format --check .",
+      "result": "786 files already formatted"
+    },
+    {
+      "name": "ruff check .",
+      "result": "All checks passed"
+    },
+    {
+      "name": "mypy apps packages",
+      "result": "327 source files"
+    },
+    {
+      "name": "API contract generation --check",
+      "result": "current"
+    },
+    {
+      "name": "personal architecture",
+      "result": "layers, pure code and simulation import closure passed"
+    }
+  ],
+  "recorded_at": "2026-09-10T05:48:25.012904+00:00",
+  "schema": "personal-wave3-static-checks/1",
+  "scope": "Final integrated Python source after snapshot batching, readiness preloading and opt-in WAL/FULL corrections. PostgreSQL and full release checks are recorded separately.",
+  "snapshot_sources": {
+    "apps/api/main.py": "ceb587dc731b0e474efc51bb6d5572a3a9daeff074a900588800feed2caf1b5a",
+    "apps/worker/research_jobs.py": "b12779c5f170a4d2d42134ce1c5738a83e5545d6a5eb5ff246c54acf4f328de9",
+    "packages/persistence/database.py": "8e36076bb3098f258e9fe0dad7baaac0c6b952c6bcf5840bc0cf58397419df01",
+    "packages/persistence/research_catalog.py": "46456545e27f41e10afce2169730925c090c6ee9a46aedff613fbf1bd799b167",
+    "packages/persistence/research_workflow_v2.py": "63524a04dc11424071354ec43fac29a033365764d3d57862cba9490c49c906cc",
+    "packages/persistence/sqlite_config.py": "572aa614bd1317f72add3f538478a1881ae3e32248e441e5b12e42f7fdb5e37e",
+    "scripts/verify_personal_research_jobs.py": "6becfca534807b504ace414619cb9321238ec464bf8f2d9095faa48a93ad00eb"
+  },
+  "status": "passed"
+}

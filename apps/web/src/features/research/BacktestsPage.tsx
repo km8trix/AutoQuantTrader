@@ -405,9 +405,9 @@ export function BacktestsPage({ bootstrap }: BacktestsPageProps) {
   return (
     <>
       <PageHeader
-        description="Launch reproducible event-driven fixture runs, follow their durable lifecycle, and inspect retained performance and provenance."
-        eyebrow="Phase 2 · Research"
-        title="Backtests"
+        description="Inspect the retained golden fixture workflow and its diagnostic reports, lifecycle, and provenance."
+        eyebrow="Historical diagnostics"
+        title="Historical golden diagnostics"
       />
       <Alert icon={<ScienceOutlinedIcon />} severity="info" sx={{ mb: 2 }} variant="outlined">
         <strong>{summary}.</strong> Every distinct launch carries an idempotency key and exact strategy, replay, dataset, model, and metric pins; ambiguous retries reuse the same request identity.
