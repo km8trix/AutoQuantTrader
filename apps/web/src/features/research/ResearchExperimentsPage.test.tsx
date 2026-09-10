@@ -12,10 +12,16 @@ function renderPage(path = '/research/experiments') {
   return renderWithProviders(<MemoryRouter initialEntries={[path]}><ResearchExperimentsPage bootstrap={makeBootstrapFixture()} /></MemoryRouter>)
 }
 
+async function pasteDeclarationText(user: ReturnType<typeof userEvent.setup>, field: HTMLElement, value: string) {
+  // These tests cover complete declarations, not per-keystroke input behavior.
+  await user.click(field)
+  await user.paste(value)
+}
+
 async function fillDeclaration() {
   const user = userEvent.setup()
-  await user.type(await screen.findByLabelText(/Experiment name/), 'A declared study')
-  await user.type(screen.getByLabelText(/Hypothesis/), 'Inspect reference-rule cost sensitivity.')
+  await pasteDeclarationText(user, await screen.findByLabelText(/Experiment name/), 'A declared study')
+  await pasteDeclarationText(user, screen.getByLabelText(/Hypothesis/), 'Inspect reference-rule cost sensitivity.')
   const dates = { 'Training start': '2024-01-02', 'Training end': '2024-12-31', 'Validation start': '2025-01-02', 'Validation end': '2025-06-30', 'Test start': '2025-07-01', 'Test end': '2025-12-31' }
   Object.entries(dates).forEach(([label, value]) => { fireEvent.change(screen.getByLabelText(new RegExp(label)), { target: { value } }) })
   return user
@@ -38,12 +44,12 @@ describe('descriptive experiment workflow', () => {
     const user = await fillDeclaration()
     await user.click(screen.getByRole('button', { name: 'Declare and run experiment' }))
     expect(vi.mocked(fetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
-    await user.type(screen.getByLabelText(/Prior access description/), 'Earlier access to these periods is unknown.')
+    await pasteDeclarationText(user, screen.getByLabelText(/Prior access description/), 'Earlier access to these periods is unknown.')
     await user.click(screen.getByRole('button', { name: 'Declare and run experiment' }))
     await screen.findByText('Declared study')
     const post = vi.mocked(fetch).mock.calls.find(([, options]) => options?.method === 'POST')?.[1]
     if (typeof post?.body !== 'string') throw new Error('Expected a JSON request body')
-    expect(JSON.parse(post.body)).toMatchObject({ name: 'A declared study', prior_access: { status: 'unknown', description: 'Earlier access to these periods is unknown.' }, folds: [{ train_start: '2024-01-02', validation_start: '2025-01-02', test_start: '2025-07-01' }] })
+    expect(JSON.parse(post.body)).toMatchObject({ name: 'A declared study', hypothesis: 'Inspect reference-rule cost sensitivity.', prior_access: { status: 'unknown', description: 'Earlier access to these periods is unknown.' }, folds: [{ train_start: '2024-01-02', train_end: '2024-12-31', validation_start: '2025-01-02', validation_end: '2025-06-30', test_start: '2025-07-01', test_end: '2025-12-31' }] })
     expect(post?.headers).toMatchObject({ 'X-CSRF-Token': 'development-fixture-csrf-token' })
     expect(screen.queryByRole('option', { name: /untouched/i })).not.toBeInTheDocument()
   })
@@ -73,7 +79,7 @@ describe('descriptive experiment workflow', () => {
     })
     const page = renderPage()
     const user = await fillDeclaration()
-    await user.type(screen.getByLabelText(/Prior access description/), 'Previously inspected history.')
+    await pasteDeclarationText(user, screen.getByLabelText(/Prior access description/), 'Previously inspected history.')
     await user.click(screen.getByRole('button', { name: 'Declare and run experiment' }))
     await screen.findByRole('button', { name: 'Retry same experiment' })
     page.unmount()
@@ -94,7 +100,7 @@ describe('descriptive experiment workflow', () => {
     vi.mocked(fetch).mockImplementation((input) => Promise.resolve(jsonResponse(requestUrl(input).endsWith('/catalog') ? catalogFixture() : { as_of: asOf, experiments: [], truncated: false })))
     const page = renderPage()
     const user = await fillDeclaration()
-    await user.type(screen.getByLabelText(/Prior access description/), 'Previously inspected history.')
+    await pasteDeclarationText(user, screen.getByLabelText(/Prior access description/), 'Previously inspected history.')
     const storageFailure = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('storage disabled') })
     await user.click(screen.getByRole('button', { name: 'Declare and run experiment' }))
     expect(await screen.findByText(/No request was sent/)).toBeInTheDocument()

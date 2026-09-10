@@ -37,6 +37,9 @@ The [research runbook](../../runbooks/personal-v1-research.md) covers explicit l
 
 ## Integration failures and successive checks
 
+[PR #54](https://github.com/km8trix/AutoQuantTrader/pull/54) first exposed three five-second experiment-test timeouts and a following leaked-input assertion. The [scoped CI remediation](ci-browser-remediation.json) replaces long per-character fixture typing with awaited completed-field paste, preserves every existing assertion and strengthens the submitted-payload check. All 7 targeted, 139 full browser and 33 bundle cases, lint/types/build and unchanged production budgets passed locally afterward. Production UI, Python and financial sources are unchanged. Earlier frontend acceptance snapshots retain their original test-source binding; this supplemental record and the accepted-content manifest bind the corrected test. A fresh GitHub CI result remains required.
+
+
 The initial getter fix passed a smaller concurrent workload, but the stronger retained-history workload still exposed commit blocking. The records below preserve that distinction. None of the intermediate timing checks establishes the final exit gate.
 
 - [Initial failure](pre-fix-read-contention.json), [first cancelled registries](pre-fix-trials-preserved.json), [smaller first-fix check](read-contention-first-fix.json), and [actual worker commit failure](read-contention-commit-failure.json).

@@ -1,0 +1,250 @@
+{
+  "artifacts": {
+    "experiment-fix-build.log": "e8c72d561e30d47d85ad0041574820f9ca62c2ce3df781e36940aca19f77ac34",
+    "experiment-fix-bundle-tests.tap": "89bd17a7275874225b7767cbc74f325d5d6ccc548f19d5e6829edf6dcbd7fda3",
+    "experiment-fix-bundle.json": "25aece41ff5b0206041ec07807ef9aba26516679ecd652cbbd13aec6aa6ad1a8",
+    "experiment-fix-full-vitest.json": "8834136bf4370f2ee49ea0f801035b73216e2b9ffdd66701fc86860d4a8e157a",
+    "experiment-test-after.json": "0d6cbf0cbb4fe2e61c65065375c78be0e0a8e2e5a2b368a21e69cdd0519b669d",
+    "experiment-test-before.json": "22d9c85cbffd38cc56a11e3d09a6d0510fcdcf2ac58cc99dae258d1443bc3c85"
+  },
+  "bundle": {
+    "asset_count": 32,
+    "contract_version": "phase6b-production-bundle-admission-v1",
+    "deployment_authorized": false,
+    "initial_static_graph_asset_count": 5,
+    "initial_static_graph_bytes": 624724,
+    "max_asset_bytes": 300000,
+    "max_initial_graph_bytes": 625000,
+    "measured_max_asset_bytes": 285283,
+    "operational_control_authorized": false,
+    "required_shared_partition_count": 4,
+    "route_module_count": 14,
+    "status": "production_bundle_admitted",
+    "trading_authorized": false
+  },
+  "bundle_node_tests": {
+    "exit_code": 0,
+    "failed": 0,
+    "passed": 33,
+    "skipped": 0
+  },
+  "change": {
+    "description": "Awaited click plus user.paste enters completed text fields with one input update per field. Existing submit, admission, scope, retry/remount, acknowledgement and storage/discard assertions remain. Exact hypothesis and all six date fields were added to the submitted-body assertion.",
+    "product_or_config_changes": false,
+    "skipped_cases": 0,
+    "test_count_unchanged": true,
+    "timeout_changes": false
+  },
+  "command_context": "apps/web; commands used an isolated empty environment and the recorded local Node runtime. Machine-specific executable prefixes are omitted.",
+  "commands": [
+    {
+      "command": "node node_modules/vitest/vitest.mjs run src/features/research/ResearchExperimentsPage.test.tsx --reporter=json --outputFile=<private-evidence-file>",
+      "exit_code": 0,
+      "name": "targeted before and after"
+    },
+    {
+      "command": "node node_modules/vitest/vitest.mjs run --reporter=json --outputFile=<private-evidence-file>",
+      "exit_code": 0,
+      "name": "full Vitest"
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -b --pretty false",
+      "exit_code": 0,
+      "name": "typecheck"
+    },
+    {
+      "command": "node node_modules/eslint/bin/eslint.js . --max-warnings=0",
+      "exit_code": 0,
+      "name": "ESLint"
+    },
+    {
+      "command": "node --test scripts/verify-production-bundle.node.mjs",
+      "exit_code": 0,
+      "name": "bundle node tests"
+    },
+    {
+      "command": "node node_modules/vite/bin/vite.js build",
+      "exit_code": 0,
+      "name": "production build after typecheck"
+    },
+    {
+      "command": "node scripts/verify-production-bundle.mjs",
+      "exit_code": 0,
+      "name": "bundle policy"
+    }
+  ],
+  "eslint": {
+    "exit_code": 0,
+    "max_warnings": 0
+  },
+  "failure": {
+    "ci_run": 34498286036,
+    "diagnosis": "Per-character fixture typing repeatedly rerenders the complete MUI form. The timeout followed by E is consistent with typing continuing into the next test; the unchanged local file passed, so local timeout reproduction is not claimed.",
+    "failed": 4,
+    "observed": "Three long declaration tests timed out; intervening catalog-prior-access test received E in an initially empty description.",
+    "original_ci_log_sha256": "18ea8f02a0635536ddbd67863490483a692dd450496189352e1ee66efc2a343b",
+    "passed": 135,
+    "pr": 54,
+    "test_timeout_ms": 5000,
+    "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34498286036"
+  },
+  "full_vitest": {
+    "experiment_cases": [
+      {
+        "duration_ms": 1777.8574170000002,
+        "status": "passed",
+        "title": "requires a prior-access description before sending the declaration"
+      },
+      {
+        "duration_ms": 311.2674579999998,
+        "status": "passed",
+        "title": "prefills catalog access and prevents a known-accessed dataset being downgraded"
+      },
+      {
+        "duration_ms": 1446.6732080000002,
+        "status": "passed",
+        "title": "preserves declaration identity on an ambiguous retry"
+      },
+      {
+        "duration_ms": 1278.5920830000005,
+        "status": "passed",
+        "title": "blocks a declaration when storage fails and requires warned discard of malformed storage"
+      },
+      {
+        "duration_ms": 182.1479159999999,
+        "status": "passed",
+        "title": "shows all four costs, chronological windows, failed trials and benchmark metrics without selection"
+      },
+      {
+        "duration_ms": 116.95487500000036,
+        "status": "passed",
+        "title": "keeps pending results distinct from zero performance and unknown prior access visible"
+      },
+      {
+        "duration_ms": 28.11737499999981,
+        "status": "passed",
+        "title": "reports unavailable experiments without fixture governance evidence"
+      }
+    ],
+    "failed": 0,
+    "passed": 139,
+    "success": true,
+    "total": 139
+  },
+  "limits": [
+    "Original CI log and all prior acceptance evidence preserved.",
+    "CI retry on Node22 remains necessary; this record is local validation on Node20.20.2.",
+    "No production, API, shared configuration, dependencies, test timeouts or economic sources changed."
+  ],
+  "only_accepted_frontend_source_changed": "apps/web/src/features/research/ResearchExperimentsPage.test.tsx",
+  "original_evidence_sha256": "c4fb6c9d93b265e8d8777bf7496aba30fa6a6aa25900dd9c846c3c08ad896671",
+  "prior_source_sha256": "683876c3840bb40b2eef838bcb1b5f5b13c5b4ec4d49f214f94c248578bd1df4",
+  "root_review": {
+    "other_frontend_bindings_unchanged": 95,
+    "production_source_unchanged": true,
+    "runtime_and_financial_sources_unchanged": true,
+    "source_changes": [
+      "apps/web/src/features/research/ResearchExperimentsPage.test.tsx"
+    ]
+  },
+  "runtime": {
+    "ci_node_major": 22,
+    "node": "20.20.2"
+  },
+  "schema": "personal-wave3-ci-browser-remediation/1",
+  "source_file": "apps/web/src/features/research/ResearchExperimentsPage.test.tsx",
+  "source_sha256": "4c9e0dc0491a629c731acea721ffc263e52435afe2392aad7153ea34f3b13c4c",
+  "status": "local_validation_passed_ci_retry_pending",
+  "targeted_after": {
+    "experiment_cases": [
+      {
+        "duration_ms": 729.0449580000001,
+        "status": "passed",
+        "title": "requires a prior-access description before sending the declaration"
+      },
+      {
+        "duration_ms": 118.0100829999999,
+        "status": "passed",
+        "title": "prefills catalog access and prevents a known-accessed dataset being downgraded"
+      },
+      {
+        "duration_ms": 607.4826249999999,
+        "status": "passed",
+        "title": "preserves declaration identity on an ambiguous retry"
+      },
+      {
+        "duration_ms": 547.6759999999999,
+        "status": "passed",
+        "title": "blocks a declaration when storage fails and requires warned discard of malformed storage"
+      },
+      {
+        "duration_ms": 53.01479100000006,
+        "status": "passed",
+        "title": "shows all four costs, chronological windows, failed trials and benchmark metrics without selection"
+      },
+      {
+        "duration_ms": 42.22020799999973,
+        "status": "passed",
+        "title": "keeps pending results distinct from zero performance and unknown prior access visible"
+      },
+      {
+        "duration_ms": 11.800500000000284,
+        "status": "passed",
+        "title": "reports unavailable experiments without fixture governance evidence"
+      }
+    ],
+    "failed": 0,
+    "passed": 7,
+    "success": true,
+    "total": 7
+  },
+  "targeted_before": {
+    "experiment_cases": [
+      {
+        "duration_ms": 2485.423167,
+        "status": "passed",
+        "title": "requires a prior-access description before sending the declaration"
+      },
+      {
+        "duration_ms": 128.95062499999995,
+        "status": "passed",
+        "title": "prefills catalog access and prevents a known-accessed dataset being downgraded"
+      },
+      {
+        "duration_ms": 2064.6630830000004,
+        "status": "passed",
+        "title": "preserves declaration identity on an ambiguous retry"
+      },
+      {
+        "duration_ms": 2045.251875,
+        "status": "passed",
+        "title": "blocks a declaration when storage fails and requires warned discard of malformed storage"
+      },
+      {
+        "duration_ms": 61.12266699999964,
+        "status": "passed",
+        "title": "shows all four costs, chronological windows, failed trials and benchmark metrics without selection"
+      },
+      {
+        "duration_ms": 49.96495799999957,
+        "status": "passed",
+        "title": "keeps pending results distinct from zero performance and unknown prior access visible"
+      },
+      {
+        "duration_ms": 15.042625000000044,
+        "status": "passed",
+        "title": "reports unavailable experiments without fixture governance evidence"
+      }
+    ],
+    "failed": 0,
+    "passed": 7,
+    "success": true,
+    "total": 7
+  },
+  "typecheck": {
+    "exit_code": 0
+  },
+  "vite_build": {
+    "exit_code": 0
+  }
+}
