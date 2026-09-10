@@ -1,0 +1,27 @@
+{
+  "base": "ec63ca793ed4fe8a68397dc752000e102741da59",
+  "status": "shared_interfaces_and_independent_reducer_slices_verified",
+  "files": {
+    "packages/domain/personal_contracts.py": "dc9849b5a79ba0574f06692fe6946e6217e816e49de0d3e03c6e78e59043bd97",
+    "packages/domain/accounting_contracts.py": "7d108f55aab2e42b9b9b5ab95c3bc26df780f56d9d500d8f5828adf7953a2960",
+    "packages/domain/engine_contracts.py": "c7b04e8d04a5ce15d507f8e696a70ca77432c377e7a40e370505cd45307d4802",
+    "packages/domain/report_contracts.py": "e6d72096d7e0a54b766b40971fc4c5eecee41cb38a9bfdae119f68c719f8a82c",
+    "docs/contracts/personal-v1/wave2-interfaces.md": "73bde651e47031a63f0da4bb8967e6524498e19804eab9b60f2eb894193777d2",
+    "packages/domain/daily_reference.py": "73b1a545e91ed5549787ee56d6bfd997f5070ac0d824fcf52d17914e889da133",
+    "packages/domain/wealth.py": "4ce715294a8484e4de7c81afe542011aa0653150aa80da2a35a04a238a242465",
+    "packages/domain/account_projection.py": "0cc90c69e200e96fb381fb8cff74f459f44d4df13ca7c55e43694035393b12d3",
+    "tests/unit/test_personal_engine_contracts.py": "3bd5f8c0114dd5e14600fe5fd7181d8176c7f36048417d3c938c8fa6a6f00812",
+    "tests/unit/test_daily_reference.py": "092c5046678cef4056657aab5bf91b6fb43f047bf7bb321cf0a61590a67539f1",
+    "tests/unit/test_personal_wealth.py": "b9ed74d2d62a58acdca3f9cf5ce4b6381b206c6a05dccdfca6f59b21a75b13ce",
+    "tests/unit/test_personal_fifo_projection.py": "5da96f7648b49bd0e4c9496987b0f47c27db4235823f4670087474794edf97f6",
+    "docs/reviews/2026-09-09-wave2/lane-a-interface-proposal.md": "2d68ea1bd9e19475cce347782d9d1da61776b752ac334df01bb2331fbc5c912c",
+    "docs/reviews/2026-09-09-wave2/lane-b-interface-proposal.md": "057f9943a0ad33f69d0fa29a2757e1af5d2d178c530298e17202ca47017b112e",
+    "docs/reviews/2026-09-09-wave2/lane-c-interface-proposal.md": "ce709a589e1abdacc0b1ae0b7f634a26632f1738bcaf8241aad7cd103d7d9cd5"
+  },
+  "tests_passed": 280,
+  "mypy_source_files": 7,
+  "architecture": "passed",
+  "pure_math_and_offline_code_only": true,
+  "financial_persistence_changes": false,
+  "trading_authorized": false
+}

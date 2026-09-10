@@ -60,3 +60,31 @@ def test_mutation_is_rejected(repository: Path, name: str, code: str, message: s
 def test_missing_entry_does_not_pass(repository: Path) -> None:
     (repository / "apps/trader/personal_simulation.py").unlink()
     assert check(repository) == ["personal simulation composition root is missing"]
+
+
+def test_research_process_authority_is_only_at_explicit_composition_root(repository: Path) -> None:
+    _source(
+        repository,
+        "apps/worker/personal_research.py",
+        "import subprocess\nfrom packages.application import research\n",
+    )
+    _source(repository, "packages/application/research.py", "from decimal import Decimal\n")
+    assert check(repository) == []
+    _source(repository, "packages/application/research.py", "import subprocess\n")
+    assert any("research reaches" in item for item in check(repository))
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import requests",
+        "from apps.api import config",
+        "from packages.adapters.broker import etrade",
+        "__import__('requests')",
+    ],
+)
+def test_research_cannot_gain_provider_or_configuration_authority(
+    repository: Path, code: str
+) -> None:
+    _source(repository, "apps/worker/personal_research.py", code)
+    assert any("research" in item for item in check(repository))

@@ -1,0 +1,6 @@
+{
+  "schema": "personal-build-metadata/1",
+  "dependency_lock_sha256": "9584eb25ebea09189b4ed92fa89827a445b6a1c76d65262b14b7b5be70cdb941",
+  "build_constraints_sha256": "f414ac60a696061f1080ee2b0e2f067dcadb3314ff5dbaee2489bd14c225ab8d",
+  "base_revision": "ec63ca793ed4fe8a68397dc752000e102741da59"
+}

@@ -1,0 +1,13 @@
+{
+  "status": "report_and_combined_economic_acceptance_passed",
+  "report_files": {
+    "packages/domain/metrics.py": "c90ed58637eff934f523f7c22bb9e37167cb78e974d4f586ea92137e36351f61",
+    "packages/application/run_report.py": "92b2800c1b747892c62cf5e91fa0e24fc9d0256086f9b221589e87fed43df5ef",
+    "tests/unit/test_personal_metrics.py": "88594b5bdee66ece408fee7eca48ebf877ca6201fac06e8a383d4714503ccb09",
+    "tests/unit/test_run_report.py": "d964a8a9406bd3ba82e0ea51015a40c66140f5d4f4c98bc33d813ad55649c363"
+  },
+  "report_worker_tests": 102,
+  "actual_reference_and_flow_tests": 16,
+  "accounting_report_oracles": 12,
+  "independent_review": "No new W2 scope blocker; limits retained in acceptance.md"
+}

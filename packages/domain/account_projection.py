@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from fractions import Fraction
 
 from packages.domain.canonical import canonical_json_bytes, canonical_persisted_decimal
 from packages.domain.corporate_action_ledger import (
@@ -40,6 +41,7 @@ from packages.domain.order_reducer import (
 )
 
 ACCOUNT_PROJECTION_CONTRACT_VERSION = "phase2-fifo-account-projection-v3"
+UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION = "personal-v1-unvalued-fifo-projection-v1"
 
 
 class AccountProjectionError(ValueError):
@@ -594,10 +596,16 @@ class _MutableLot:
     quantity: Decimal
     cost_basis: Decimal
     acquired_at: datetime
+    execution: FifoExecution
+    fee_weight: Fraction
+    split_ids: tuple[str, ...] = ()
+    split_sha256s: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class _CurrentExecution:
+class FifoExecution:
+    """Current execution head with its original FIFO ordering coordinates."""
+
     instrument_id: str
     symbol: str
     side: Side
@@ -609,12 +617,214 @@ class _CurrentExecution:
     occurred_at: datetime
     received_at: datetime
     broker_sequence: int
+    revision: int
+    event_id: str
+    event_sha256: str
+    current_occurred_at: datetime
+    current_received_at: datetime
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION,
+                "execution",
+                self.instrument_id,
+                self.symbol,
+                self.side,
+                self.execution_id,
+                self.order_id,
+                self.quantity,
+                self.price,
+                self.fee,
+                self.occurred_at,
+                self.received_at,
+                self.broker_sequence,
+                self.revision,
+                self.event_id,
+                self.event_sha256,
+                self.current_occurred_at,
+                self.current_received_at,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FifoOpenLotLineage:
+    lot: OpenTaxLot
+    execution: FifoExecution
+    # Exact proportion of the original execution fee remaining with this lot.
+    fee_weight: tuple[int, int]
+    split_ids: tuple[str, ...]
+    split_sha256s: tuple[str, ...]
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION,
+                "open_lot_lineage",
+                self.lot.semantic_sha256,
+                self.execution.semantic_sha256,
+                self.fee_weight,
+                self.split_ids,
+                self.split_sha256s,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FifoRealizedMatch:
+    """Current FIFO match; fee weights are attribution, never new expenses."""
+
+    match_id: str
+    buy: FifoExecution
+    sell: FifoExecution
+    quantity: Decimal
+    cost_basis: Decimal
+    proceeds: Decimal
+    buy_fee_weight: tuple[int, int]
+    sell_fee_weight: tuple[int, int]
+    split_ids: tuple[str, ...]
+    split_sha256s: tuple[str, ...]
+
+    @property
+    def realized_pnl_before_fees(self) -> Decimal:
+        return exact_decimal_subtract(self.proceeds, self.cost_basis)
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION,
+                "realized_match",
+                self.match_id,
+                self.buy.semantic_sha256,
+                self.sell.semantic_sha256,
+                self.quantity,
+                self.cost_basis,
+                self.proceeds,
+                self.buy_fee_weight,
+                self.sell_fee_weight,
+                self.split_ids,
+                self.split_sha256s,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UnvaluedFifoPosition:
+    instrument_id: str
+    symbol: str
+    open_lot_lineage: tuple[FifoOpenLotLineage, ...]
+    realized_pnl_before_fees: Decimal
+    execution_fees: Decimal
+    dividend_income: Decimal
+    latest_split_at: datetime | None
+
+    @property
+    def open_lots(self) -> tuple[OpenTaxLot, ...]:
+        return tuple(lineage.lot for lineage in self.open_lot_lineage)
+
+    @property
+    def quantity(self) -> Decimal:
+        return exact_decimal_sum(lot.quantity for lot in self.open_lots)
+
+    @property
+    def cost_basis(self) -> Decimal:
+        return exact_decimal_sum(lot.cost_basis for lot in self.open_lots)
+
+    @property
+    def realized_pnl(self) -> Decimal:
+        return exact_decimal_add(
+            exact_decimal_subtract(self.realized_pnl_before_fees, self.execution_fees),
+            self.dividend_income,
+        )
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION,
+                "position",
+                self.instrument_id,
+                self.symbol,
+                tuple(lineage.semantic_sha256 for lineage in self.open_lot_lineage),
+                self.realized_pnl_before_fees,
+                self.execution_fees,
+                self.dividend_income,
+                self.latest_split_at,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class UnvaluedFifoAccountProjection:
+    """Reducer-produced trade-date accounting facts, with no valuation claim."""
+
+    account_id: str
+    policy: CostBasisPolicy
+    currency: str
+    ledger: CanonicalLedgerState
+    corporate_action_ledger: CanonicalCorporateActionLedgerState
+    executions: tuple[FifoExecution, ...]
+    positions: tuple[UnvaluedFifoPosition, ...]
+    realized_matches: tuple[FifoRealizedMatch, ...]
+    as_of: datetime
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise TypeError("UnvaluedFifoAccountProjection can only be created by the account reducer")
+
+    @property
+    def cash(self) -> Decimal:
+        return self.corporate_action_ledger.cash_balance()
+
+    @property
+    def realized_pnl_before_fees(self) -> Decimal:
+        return exact_decimal_sum(position.realized_pnl_before_fees for position in self.positions)
+
+    @property
+    def execution_fees(self) -> Decimal:
+        return exact_decimal_sum(position.execution_fees for position in self.positions)
+
+    @property
+    def dividend_income(self) -> Decimal:
+        return self.corporate_action_ledger.dividend_income
+
+    @property
+    def dividend_receivable(self) -> Decimal:
+        return self.corporate_action_ledger.dividend_receivable
+
+    @property
+    def realized_pnl(self) -> Decimal:
+        return exact_decimal_add(
+            exact_decimal_subtract(self.realized_pnl_before_fees, self.execution_fees),
+            self.dividend_income,
+        )
+
+    @property
+    def semantic_sha256(self) -> str:
+        return _semantic_sha256(
+            (
+                UNVALUED_FIFO_PROJECTION_CONTRACT_VERSION,
+                self.account_id,
+                self.policy,
+                self.currency,
+                self.ledger.semantic_sha256,
+                self.corporate_action_ledger.semantic_sha256,
+                tuple(execution.semantic_sha256 for execution in self.executions),
+                tuple(position.semantic_sha256 for position in self.positions),
+                tuple(match.semantic_sha256 for match in self.realized_matches),
+                self.as_of,
+            )
+        )
 
 
 def _current_executions(
     states: tuple[CanonicalOrderState, ...],
-) -> tuple[_CurrentExecution, ...]:
-    executions: list[_CurrentExecution] = []
+) -> tuple[FifoExecution, ...]:
+    executions: list[FifoExecution] = []
     execution_owners: dict[str, str] = {}
     for state in states:
         initial_events = {
@@ -622,6 +832,7 @@ def _current_executions(
             for event in state.broker_events
             if event.kind is BrokerOrderEventKind.EXECUTION
         }
+        events_by_id = {event.event_id: event for event in state.broker_events}
         for current in state.executions:
             existing_order_id = execution_owners.get(current.execution_id)
             if existing_order_id is not None and existing_order_id != state.submission.order_id:
@@ -629,7 +840,7 @@ def _current_executions(
             execution_owners[current.execution_id] = state.submission.order_id
             initial = initial_events[current.execution_id]
             executions.append(
-                _CurrentExecution(
+                FifoExecution(
                     instrument_id=state.submission.intent.instrument_id,
                     symbol=state.submission.intent.symbol,
                     side=state.submission.intent.side,
@@ -641,6 +852,11 @@ def _current_executions(
                     occurred_at=initial.occurred_at,
                     received_at=initial.received_at,
                     broker_sequence=initial.broker_sequence,
+                    revision=current.revision,
+                    event_id=current.event_id,
+                    event_sha256=events_by_id[current.event_id].semantic_sha256,
+                    current_occurred_at=current.occurred_at,
+                    current_received_at=current.received_at,
                 )
             )
     return tuple(
@@ -703,20 +919,23 @@ def _canonical_marks(
     return ordered, selected
 
 
-def project_fifo_account(
+def _prepare_fifo_evidence(
     *,
     account_id: str,
     order_states: Iterable[CanonicalOrderState] = (),
     cash_flows: Iterable[LedgerCashFlow] = (),
-    marks: Iterable[PositionMark] = (),
     stock_splits: Iterable[StockSplitAction] = (),
     cash_dividends: Iterable[CashDividendAccrual] = (),
     dividend_payments: Iterable[CashDividendPayment] = (),
     valuation_at: datetime,
     currency: str = "USD",
     policy: CostBasisPolicy = CostBasisPolicy.FIFO_TRADE_DATE,
-) -> CanonicalAccountProjection:
-    """Project a long-only cash account from corrected executions and causal marks."""
+) -> tuple[
+    CanonicalLedgerState,
+    CanonicalCorporateActionLedgerState,
+    tuple[CanonicalOrderState, ...],
+]:
+    """Validate and canonicalize the accounting evidence shared by both projections."""
 
     _require_text(account_id, "account_id")
     require_utc(valuation_at, "valuation_at")
@@ -725,7 +944,6 @@ def project_fifo_account(
         raise AccountProjectionError("unsupported cost-basis policy")
     states = tuple(order_states)
     flows = tuple(cash_flows)
-    mark_values = tuple(marks)
     split_values = tuple(stock_splits)
     dividend_values = tuple(cash_dividends)
     payment_values = tuple(dividend_payments)
@@ -753,9 +971,22 @@ def project_fifo_account(
         raise AccountProjectionError(str(error)) from error
     if corporate_action_ledger.as_of is not None and valuation_at < corporate_action_ledger.as_of:
         raise AccountProjectionError("valuation_at cannot precede the accounting state")
-    observed_marks, selected_marks = _canonical_marks(mark_values, valuation_at)
     unique_states = {state.submission.order_id: state for state in states}
     canonical_states = tuple(unique_states[order_id] for order_id in sorted(unique_states))
+    return ledger, corporate_action_ledger, canonical_states
+
+
+def _reduce_unvalued_fifo(
+    *,
+    account_id: str,
+    policy: CostBasisPolicy,
+    currency: str,
+    ledger: CanonicalLedgerState,
+    corporate_action_ledger: CanonicalCorporateActionLedgerState,
+    canonical_states: tuple[CanonicalOrderState, ...],
+    as_of: datetime,
+) -> UnvaluedFifoAccountProjection:
+    """The single FIFO timeline, independent of whether any marks are available."""
 
     lots: dict[str, list[_MutableLot]] = {}
     symbols: dict[str, str] = {}
@@ -763,12 +994,14 @@ def project_fifo_account(
     fees_by_instrument: dict[str, Decimal] = {}
     dividend_by_instrument: dict[str, Decimal] = {}
     latest_split_by_instrument: dict[str, datetime] = {}
+    matches: list[FifoRealizedMatch] = []
+    executions = _current_executions(canonical_states)
     timeline: list[
         tuple[
             datetime,
             int,
             str,
-            StockSplitAction | CashDividendAccrual | _CurrentExecution,
+            StockSplitAction | CashDividendAccrual | FifoExecution,
         ]
     ] = []
     timeline.extend(
@@ -780,8 +1013,7 @@ def project_fifo_account(
         for dividend in corporate_action_ledger.cash_dividends
     )
     timeline.extend(
-        (execution.occurred_at, 2, execution.execution_id, execution)
-        for execution in _current_executions(canonical_states)
+        (execution.occurred_at, 2, execution.execution_id, execution) for execution in executions
     )
     for _, _, _, account_event in sorted(timeline, key=lambda item: item[:3]):
         if isinstance(account_event, StockSplitAction):
@@ -805,6 +1037,8 @@ def project_fifo_account(
                         "stock split creates a fractional FIFO lot without cash-in-lieu policy"
                     )
                 lot.quantity = _persisted(new_quantity, "split lot quantity")
+                lot.split_ids = (*lot.split_ids, account_event.split_id)
+                lot.split_sha256s = (*lot.split_sha256s, account_event.semantic_sha256)
             basis_after = exact_decimal_sum(lot.cost_basis for lot in instrument_lots)
             if basis_after != basis_before:
                 raise AccountProjectionError("stock split does not preserve FIFO cost basis")
@@ -826,7 +1060,7 @@ def project_fifo_account(
             )
             continue
 
-        if not isinstance(account_event, _CurrentExecution):
+        if not isinstance(account_event, FifoExecution):
             raise AssertionError("account timeline contains an unsupported event")
         execution = account_event
         existing_symbol = symbols.get(execution.instrument_id)
@@ -850,6 +1084,8 @@ def project_fifo_account(
                             execution.price,
                         ),
                         acquired_at=execution.occurred_at,
+                        execution=execution,
+                        fee_weight=Fraction(1),
                     )
                 )
             continue
@@ -870,6 +1106,25 @@ def project_fifo_account(
                     "partial FIFO basis allocation",
                 )
             cost_basis = exact_decimal_add(cost_basis, consumed_basis)
+            buy_fee_weight = lot.fee_weight * Fraction(consumed) / Fraction(lot.quantity)
+            sell_fee_weight = Fraction(consumed) / Fraction(execution.quantity)
+            matches.append(
+                FifoRealizedMatch(
+                    match_id=canonical_id(
+                        "fifo-match", account_id, lot.execution_id, execution.execution_id
+                    ),
+                    buy=lot.execution,
+                    sell=execution,
+                    quantity=consumed,
+                    cost_basis=consumed_basis,
+                    proceeds=exact_decimal_multiply(consumed, execution.price),
+                    buy_fee_weight=(buy_fee_weight.numerator, buy_fee_weight.denominator),
+                    sell_fee_weight=(sell_fee_weight.numerator, sell_fee_weight.denominator),
+                    split_ids=lot.split_ids,
+                    split_sha256s=lot.split_sha256s,
+                )
+            )
+            lot.fee_weight -= buy_fee_weight
             lot.quantity = exact_decimal_subtract(lot.quantity, consumed)
             lot.cost_basis = exact_decimal_subtract(lot.cost_basis, consumed_basis)
             remaining = exact_decimal_subtract(remaining, consumed)
@@ -885,57 +1140,33 @@ def project_fifo_account(
             exact_decimal_subtract(proceeds, cost_basis),
         )
 
-    projections: list[InstrumentAccountProjection] = []
+    projections: list[UnvaluedFifoPosition] = []
     for instrument_id in sorted(symbols):
-        open_lots = tuple(
-            OpenTaxLot(
-                execution_id=lot.execution_id,
-                order_id=lot.order_id,
-                quantity=lot.quantity,
-                cost_basis=lot.cost_basis,
-                acquired_at=lot.acquired_at,
+        lineage = tuple(
+            FifoOpenLotLineage(
+                lot=OpenTaxLot(
+                    execution_id=lot.execution_id,
+                    order_id=lot.order_id,
+                    quantity=lot.quantity,
+                    cost_basis=lot.cost_basis,
+                    acquired_at=lot.acquired_at,
+                ),
+                execution=lot.execution,
+                fee_weight=(lot.fee_weight.numerator, lot.fee_weight.denominator),
+                split_ids=lot.split_ids,
+                split_sha256s=lot.split_sha256s,
             )
             for lot in lots.get(instrument_id, ())
         )
-        quantity = exact_decimal_sum(lot.quantity for lot in open_lots)
-        mark = selected_marks.get(instrument_id)
-        if quantity > 0 and mark is None:
-            raise AccountProjectionError(f"open position lacks a causal mark for {instrument_id}")
-        latest_split_at = latest_split_by_instrument.get(instrument_id)
-        if (
-            quantity > 0
-            and mark is not None
-            and latest_split_at is not None
-            and mark.effective_at <= latest_split_at
-        ):
-            raise AccountProjectionError(
-                f"open position lacks an unambiguous post-split mark for {instrument_id}"
-            )
-        symbol = symbols[instrument_id]
-        if mark is not None and mark.symbol != symbol:
-            raise AccountFactConflict("mark symbol conflicts with execution evidence")
-        cost_basis = exact_decimal_sum(lot.cost_basis for lot in open_lots)
-        market_value = Decimal(0) if mark is None else exact_decimal_multiply(quantity, mark.price)
-        realized_before_fees = realized_by_instrument.get(instrument_id, Decimal(0))
-        fees = fees_by_instrument.get(instrument_id, Decimal(0))
-        dividend_income = dividend_by_instrument.get(instrument_id, Decimal(0))
         projections.append(
-            InstrumentAccountProjection(
+            UnvaluedFifoPosition(
                 instrument_id=instrument_id,
-                symbol=symbol,
-                quantity=quantity,
-                open_lots=open_lots,
-                cost_basis=cost_basis,
-                mark=mark,
-                market_value=market_value,
-                realized_pnl_before_fees=realized_before_fees,
-                execution_fees=fees,
-                dividend_income=dividend_income,
-                realized_pnl=exact_decimal_add(
-                    exact_decimal_subtract(realized_before_fees, fees),
-                    dividend_income,
-                ),
-                unrealized_pnl=exact_decimal_subtract(market_value, cost_basis),
+                symbol=symbols[instrument_id],
+                open_lot_lineage=lineage,
+                realized_pnl_before_fees=realized_by_instrument.get(instrument_id, Decimal(0)),
+                execution_fees=fees_by_instrument.get(instrument_id, Decimal(0)),
+                dividend_income=dividend_by_instrument.get(instrument_id, Decimal(0)),
+                latest_split_at=latest_split_by_instrument.get(instrument_id),
             )
         )
 
@@ -945,24 +1176,173 @@ def project_fifo_account(
     if execution_fees != ledger_fees:
         raise AccountProjectionError("account fees do not reconcile to the execution ledger")
     for position in positions:
+        for field_name in (
+            "quantity",
+            "cost_basis",
+            "realized_pnl_before_fees",
+            "execution_fees",
+            "dividend_income",
+            "realized_pnl",
+        ):
+            _persisted(getattr(position, field_name), f"position {field_name}")
+        if position.open_lots != tuple(
+            sorted(
+                position.open_lots,
+                key=lambda lot: (lot.acquired_at, lot.order_id, lot.execution_id),
+            )
+        ):
+            raise AccountProjectionError("open lots must remain in canonical FIFO order")
         if position.quantity != corporate_action_ledger.position_quantity(position.instrument_id):
             raise AccountProjectionError(
                 "account units do not reconcile to the corporate-action ledger"
             )
-    cash = corporate_action_ledger.cash_balance()
-    market_value = exact_decimal_sum(position.market_value for position in positions)
-    realized_before_fees = exact_decimal_sum(
-        position.realized_pnl_before_fees for position in positions
-    )
     dividend_income = exact_decimal_sum(position.dividend_income for position in positions)
     if dividend_income != corporate_action_ledger.dividend_income:
         raise AccountProjectionError(
             "account dividend income does not reconcile to the corporate-action ledger"
         )
-    realized = exact_decimal_add(
-        exact_decimal_subtract(realized_before_fees, execution_fees),
-        dividend_income,
+    projection = object.__new__(UnvaluedFifoAccountProjection)
+    for field_name, value in (
+        ("account_id", account_id),
+        ("policy", policy),
+        ("currency", currency),
+        ("ledger", ledger),
+        ("corporate_action_ledger", corporate_action_ledger),
+        ("executions", executions),
+        ("positions", positions),
+        ("realized_matches", tuple(matches)),
+        ("as_of", as_of),
+    ):
+        object.__setattr__(projection, field_name, value)
+    for field_name in (
+        "cash",
+        "realized_pnl_before_fees",
+        "execution_fees",
+        "dividend_income",
+        "dividend_receivable",
+        "realized_pnl",
+    ):
+        _persisted(getattr(projection, field_name), f"account {field_name}")
+    return projection
+
+
+def project_unvalued_fifo_account(
+    *,
+    account_id: str,
+    order_states: Iterable[CanonicalOrderState] = (),
+    cash_flows: Iterable[LedgerCashFlow] = (),
+    stock_splits: Iterable[StockSplitAction] = (),
+    cash_dividends: Iterable[CashDividendAccrual] = (),
+    dividend_payments: Iterable[CashDividendPayment] = (),
+    as_of: datetime,
+    currency: str = "USD",
+    policy: CostBasisPolicy = CostBasisPolicy.FIFO_TRADE_DATE,
+) -> UnvaluedFifoAccountProjection:
+    """Project current accounting and exact FIFO lineage without requesting marks.
+
+    Cash is trade-date cash, not settlement-adjusted or reserved buying capacity.
+    Matches describe current execution heads; callers compare stable match IDs and
+    hashes across revisions rather than appending all snapshots as new realizations.
+    Fee weights are reduced integer numerator/denominator pairs, including residual
+    open-lot weights. They allocate existing fees and never create journal expenses.
+    """
+
+    ledger, corporate_action_ledger, canonical_states = _prepare_fifo_evidence(
+        account_id=account_id,
+        order_states=order_states,
+        cash_flows=cash_flows,
+        stock_splits=stock_splits,
+        cash_dividends=cash_dividends,
+        dividend_payments=dividend_payments,
+        valuation_at=as_of,
+        currency=currency,
+        policy=policy,
     )
+    return _reduce_unvalued_fifo(
+        account_id=account_id,
+        policy=policy,
+        currency=currency,
+        ledger=ledger,
+        corporate_action_ledger=corporate_action_ledger,
+        canonical_states=canonical_states,
+        as_of=as_of,
+    )
+
+
+def project_fifo_account(
+    *,
+    account_id: str,
+    order_states: Iterable[CanonicalOrderState] = (),
+    cash_flows: Iterable[LedgerCashFlow] = (),
+    marks: Iterable[PositionMark] = (),
+    stock_splits: Iterable[StockSplitAction] = (),
+    cash_dividends: Iterable[CashDividendAccrual] = (),
+    dividend_payments: Iterable[CashDividendPayment] = (),
+    valuation_at: datetime,
+    currency: str = "USD",
+    policy: CostBasisPolicy = CostBasisPolicy.FIFO_TRADE_DATE,
+) -> CanonicalAccountProjection:
+    """Project a long-only cash account from corrected executions and causal marks."""
+
+    ledger, corporate_action_ledger, canonical_states = _prepare_fifo_evidence(
+        account_id=account_id,
+        order_states=order_states,
+        cash_flows=cash_flows,
+        stock_splits=stock_splits,
+        cash_dividends=cash_dividends,
+        dividend_payments=dividend_payments,
+        valuation_at=valuation_at,
+        currency=currency,
+        policy=policy,
+    )
+    observed_marks, selected_marks = _canonical_marks(tuple(marks), valuation_at)
+    unvalued = _reduce_unvalued_fifo(
+        account_id=account_id,
+        policy=policy,
+        currency=currency,
+        ledger=ledger,
+        corporate_action_ledger=corporate_action_ledger,
+        canonical_states=canonical_states,
+        as_of=valuation_at,
+    )
+    projections: list[InstrumentAccountProjection] = []
+    for position in unvalued.positions:
+        instrument_id = position.instrument_id
+        quantity = position.quantity
+        mark = selected_marks.get(instrument_id)
+        if quantity > 0 and mark is None:
+            raise AccountProjectionError(f"open position lacks a causal mark for {instrument_id}")
+        if (
+            quantity > 0
+            and mark is not None
+            and position.latest_split_at is not None
+            and mark.effective_at <= position.latest_split_at
+        ):
+            raise AccountProjectionError(
+                f"open position lacks an unambiguous post-split mark for {instrument_id}"
+            )
+        if mark is not None and mark.symbol != position.symbol:
+            raise AccountFactConflict("mark symbol conflicts with execution evidence")
+        market_value = Decimal(0) if mark is None else exact_decimal_multiply(quantity, mark.price)
+        projections.append(
+            InstrumentAccountProjection(
+                instrument_id=instrument_id,
+                symbol=position.symbol,
+                quantity=quantity,
+                open_lots=position.open_lots,
+                cost_basis=position.cost_basis,
+                mark=mark,
+                market_value=market_value,
+                realized_pnl_before_fees=position.realized_pnl_before_fees,
+                execution_fees=position.execution_fees,
+                dividend_income=position.dividend_income,
+                realized_pnl=position.realized_pnl,
+                unrealized_pnl=exact_decimal_subtract(market_value, position.cost_basis),
+            )
+        )
+    positions = tuple(projections)
+    cash = unvalued.cash
+    market_value = exact_decimal_sum(position.market_value for position in positions)
     unrealized = exact_decimal_sum(position.unrealized_pnl for position in positions)
     return _create_canonical_account_projection(
         account_id=account_id,
@@ -980,11 +1360,11 @@ def project_fifo_account(
         ),
         gross_exposure=market_value.copy_abs(),
         net_exposure=market_value,
-        realized_pnl_before_fees=realized_before_fees,
-        execution_fees=execution_fees,
-        dividend_income=dividend_income,
+        realized_pnl_before_fees=unvalued.realized_pnl_before_fees,
+        execution_fees=unvalued.execution_fees,
+        dividend_income=unvalued.dividend_income,
         dividend_receivable=corporate_action_ledger.dividend_receivable,
-        realized_pnl=realized,
+        realized_pnl=unvalued.realized_pnl,
         unrealized_pnl=unrealized,
         as_of=valuation_at,
     )

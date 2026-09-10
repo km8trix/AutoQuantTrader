@@ -1,4 +1,8 @@
-"""Market-data source adapters."""
+"""Offline market-data adapters.
+
+Network capture is imported explicitly from ``tiingo_eod_capture`` so importing
+an offline archive parser does not also load HTTP transport authority.
+"""
 
 from packages.adapters.market_data.recorded import (
     RecordedHistoricalBarSource,
@@ -31,13 +35,6 @@ from packages.adapters.market_data.tiingo_eod import (
 from packages.adapters.market_data.tiingo_eod_calendar import (
     TiingoEodPinnedCalendar,
     TiingoEodPinnedCalendarArtifact,
-)
-from packages.adapters.market_data.tiingo_eod_capture import (
-    TiingoEodApiRequest,
-    TiingoEodApiResponse,
-    TiingoEodApiTransport,
-    TiingoEodCaptureError,
-    capture_tiingo_eod,
 )
 from packages.adapters.market_data.tiingo_eod_identity_lifecycle import (
     MAX_TIINGO_EOD_IDENTITY_LIFECYCLE_ARTIFACT_BYTES,
@@ -121,12 +118,8 @@ __all__ = [
     "TiingoEodAcquisitionProfile",
     "TiingoEodActionCandidateConvention",
     "TiingoEodAdjustedBasis",
-    "TiingoEodApiRequest",
-    "TiingoEodApiResponse",
-    "TiingoEodApiTransport",
     "TiingoEodCalendarBinding",
     "TiingoEodCaptureAuthorization",
-    "TiingoEodCaptureError",
     "TiingoEodCaptureManifest",
     "TiingoEodCaptureReceipt",
     "TiingoEodDataset",
@@ -162,7 +155,6 @@ __all__ = [
     "TiingoEodSourcedUniverseMembership",
     "TiingoEodSymbolChangeCase",
     "TiingoEodVerifiedResearchSnapshot",
-    "capture_tiingo_eod",
     "derive_tiingo_eod_receipt_lineage",
     "qualify_tiingo_eod",
     "qualify_tiingo_eod_identity_lifecycle",

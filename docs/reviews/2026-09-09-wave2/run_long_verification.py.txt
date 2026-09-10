@@ -1,0 +1,34 @@
+from pathlib import Path
+from dataclasses import asdict
+from datetime import UTC,datetime
+import hashlib,json,resource,sys,time
+ROOT=Path('/private/tmp/aqt-wave2-yh_1osee/integration-stage');OUT=Path('/private/tmp/aqt-wave2-yh_1osee/long-runs');OUT.mkdir(mode=0o700,exist_ok=True);sys.path.insert(0,str(ROOT))
+from packages.adapters.personal_build import current_build_pins
+from packages.application.causal_engine import run_causal_engine
+from packages.application.personal_inputs import synthetic_engine_inputs
+from packages.application.reference_strategy import ReferenceStrategy
+from packages.application.run_report import build_run_report,build_report_artifact
+from packages.backtest.personal_accounting import PersonalAccounting
+from packages.domain.daily_reference import ReferenceConfiguration
+from packages.domain.report_contracts import ReportConventions
+from packages.domain.personal_contracts import content_digest,semantic_value
+from apps.worker.personal_research import _write_report
+from tests.helpers.personal_report_oracle import verify_personal_report
+pins=current_build_pins();records=[]
+for fixture in ('flat','regime'):
+ for kind in ('buy_hold','trend_sma'):
+  start=time.monotonic();print(json.dumps({'starting':fixture+'-'+kind}),flush=True)
+  inputs=synthetic_engine_inputs(fixture=fixture,pins=pins,configuration=ReferenceConfiguration(kind=kind))
+  result=run_causal_engine(inputs,accounting=PersonalAccounting(),strategy=ReferenceStrategy())
+  assert result.status=='completed',result.reasons
+  report=build_run_report(result,ReportConventions());verified=verify_personal_report(result,report)
+  assert current_build_pins()==pins,'implementation changed during acceptance'
+  path=OUT/(fixture+'-'+kind+'.json')
+  artifact=build_report_artifact(report,attempt_id='wave2-independent-'+fixture+'-'+kind,generated_at=datetime.now(UTC))
+  _write_report(path,artifact,inputs.spec.max_output_bytes)
+  metrics={m.name:{'value':None if m.value is None else str(m.value),'status':m.status,'reasons':m.reasons,'coverage':{'expected_sessions':m.coverage.expected_sessions,'valid_returns':m.coverage.valid_returns,'sample_count':m.coverage.sample_count}} for m in report.metrics}
+  record={'fixture':fixture,'strategy':kind,'run_id':result.run_id,'result_sha256':result.semantic_sha256,'report_sha256':report.semantic_sha256,'artifact_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'artifact_bytes':path.stat().st_size,'sessions':len(inputs.spec.evaluation.scored_sessions),'warmup':len(inputs.spec.evaluation.warmup_sessions),'trace_rows':len(result.trace),'executions':len(result.executions),'independent_rational':{k:None if v is None else str(v) for k,v in asdict(verified).items()},'metrics':metrics,'seconds':round(time.monotonic()-start,3),'scope':'synthetic-engineering-no-investment-performance-claim'}
+  records.append(record);(OUT/'results.json').write_text(json.dumps({'status':'in_progress','pins':[{'name':p.name,'version':p.version,'sha256':p.sha256} for p in pins],'cases':records},indent=2)+'\n');print(json.dumps({'completed':fixture+'-'+kind,'seconds':record['seconds'],'ending_equity':metrics['ending_equity'],'executions':len(result.executions)}),flush=True)
+assert len({r['run_id'] for r in records})==4
+summary={'status':'passed','independent_verification':'Fraction accounting and return path plus separately derived sampled statistics','pins':[{'name':p.name,'version':p.version,'sha256':p.sha256} for p in pins],'cases':records,'peak_resident_bytes':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if sys.platform=='darwin' else resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024}
+(OUT/'results.json').write_text(json.dumps(summary,indent=2)+'\n');print(json.dumps({'status':'passed','cases':4,'peak_resident_bytes':summary['peak_resident_bytes']}),flush=True)

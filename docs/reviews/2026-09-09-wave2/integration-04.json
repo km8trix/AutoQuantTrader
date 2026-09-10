@@ -1,0 +1,7 @@
+{
+  "status": "consumer_seams_resolved",
+  "files": {
+    "packages/domain/accounting_contracts.py": "4c2edce38c61351d04a5127461f160fe102683bab1d0f2a91953ebe6f42883df"
+  },
+  "contract_tests": 13
+}

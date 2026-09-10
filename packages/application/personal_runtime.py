@@ -147,6 +147,12 @@ class LocalInstanceGuard:
             os.close(self._descriptor)
             self._descriptor = None
 
+    def fileno(self) -> int:
+        """Allow a supervised child to retain this same advisory lock on parent exit."""
+        if self._descriptor is None:
+            raise RuntimeError("instance guard is not held")
+        return self._descriptor
+
 
 def _print_event(payload: dict[str, object]) -> None:
     print(json.dumps(payload, sort_keys=True), flush=True)

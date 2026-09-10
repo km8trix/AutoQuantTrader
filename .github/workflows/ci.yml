@@ -68,6 +68,9 @@ jobs:
           uv pip install --python "$RUNNER_TEMP/personal-installed/bin/python" --no-deps "$RUNNER_TEMP"/personal-wheel/*.whl
           cd "$RUNNER_TEMP"
           env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/personal-installed/bin/autoquant-personal-simulation" --instance-lock "$RUNNER_TEMP/personal-runtime.lock" --once
+          env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/personal-installed/bin/autoquant-worker" --fixture flat --fixture-sessions 12 --warmup 3 --lookback 3 --max-seconds 30 --max-output-mib 16 --output "$RUNNER_TEMP/installed-research.json"
+          "$RUNNER_TEMP/personal-installed/bin/python" -c 'import json,sys; from decimal import Decimal; r=json.load(open(sys.argv[1]))["report"]; m={x["name"]:x for x in r["metrics"]}; assert r["status"]=="completed" and Decimal(m["ending_equity"]["value"])==Decimal("9998.56"); assert m["annualized_return"]["value"] is None; assert len(r["source"]["executions"])==1' "$RUNNER_TEMP/installed-research.json"
+          "$RUNNER_TEMP/personal-installed/bin/python" -B "$GITHUB_WORKSPACE/scripts/verify_personal_research_process.py" --python "$RUNNER_TEMP/personal-installed/bin/python" --output-dir "$RUNNER_TEMP/installed-research-process-checks"
       - name: Validate historical Compose definitions without activation
         run: docker compose --env-file /dev/null -f infra/compose/compose.yaml config --quiet
 

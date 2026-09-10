@@ -89,8 +89,9 @@ services:
     stop_grace_period: 15s
 
   worker:
+    profiles: ["legacy-golden-oracle"]
     image: autoquanttrader-runtime:development
-    command: ["uv", "run", "autoquant-worker"]
+    command: ["uv", "run", "autoquant-golden-oracle"]
     environment: *api-environment
     volumes:
       - ../..:/workspace

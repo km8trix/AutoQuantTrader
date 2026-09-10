@@ -292,3 +292,62 @@ def test_invalid_import_receipt_is_rejected(tmp_path: Path, instant: datetime) -
             calendar=calendar,
             imported_at=instant,
         ).load()
+
+
+def test_engine_conversion_rejects_unqualified_dividend_candidates(tmp_path: Path) -> None:
+    from packages.adapters.personal_build import current_build_pins
+    from packages.application.personal_inputs import research_engine_inputs
+    from packages.domain.accounting_contracts import SettlementCalendar
+    from packages.domain.daily_reference import ReferenceConfiguration
+    from packages.domain.engine_contracts import EvaluationSpec
+
+    dataset = _load(*_inputs(tmp_path))
+    dates = tuple(s.session_label for s in dataset.manifest.calendar.sessions)
+    with pytest.raises(ValueError, match="action candidates"):
+        research_engine_inputs(
+            dataset,
+            configuration=ReferenceConfiguration(),
+            evaluation=EvaluationSpec("test", dates[:2], dates[2:], "reused-test-fixture"),
+            settlement_calendar=SettlementCalendar("synthetic-test", "1", dates),
+            pins=current_build_pins(),
+        )
+
+
+def test_engine_conversion_preserves_real_class_receipt_and_separate_open_model(
+    tmp_path: Path,
+) -> None:
+    from packages.adapters.personal_build import current_build_pins
+    from packages.application.personal_inputs import OPEN_PROXY_ASSUMPTION, research_engine_inputs
+    from packages.domain.accounting_contracts import ExecutionObservation, SettlementCalendar
+    from packages.domain.daily_reference import ReferenceConfiguration
+    from packages.domain.engine_contracts import DailyPrice, EvaluationSpec
+
+    paths, declaration, calendar = _inputs(tmp_path)
+    for item in declaration["instruments"]:
+        path = paths[item["symbol"]]
+        rows = json.loads(path.read_bytes())
+        for row in rows:
+            row["divCash"] = 0
+        path.write_text(json.dumps(rows))
+        item["source_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        item["observed_available_at"] = "2025-02-10T15:30:00+00:00"
+        item["capture_reference"] = "synthetic-test-of-real-import-classification"
+    declaration["source_kind"] = "owner_export"
+    dataset = _load(paths, declaration, calendar)
+    dates = tuple(s.session_label for s in dataset.manifest.calendar.sessions)
+    inputs = research_engine_inputs(
+        dataset,
+        configuration=ReferenceConfiguration(),
+        evaluation=EvaluationSpec("test", dates[:2], dates[2:], "reused-test-fixture"),
+        settlement_calendar=SettlementCalendar("synthetic-test", "1", dates),
+        pins=current_build_pins(),
+    )
+    assert inputs.spec.data_class is ResearchDataClass.VALIDATED_CURRENT_VINTAGE
+    assert "no-historical-pit" in inputs.spec.limitations
+    assert inputs.spec.dataset_id == dataset.dataset_id
+    opens = [e for e in inputs.events if isinstance(e.payload, ExecutionObservation)]
+    assert opens and all(e.provenance.observed_at > e.knowledge_at for e in opens)
+    assert all(e.provenance.assumption_id == OPEN_PROXY_ASSUMPTION for e in opens)
+    daily = [e for e in inputs.events if isinstance(e.payload, DailyPrice)]
+    assert all(e.provenance.simulated_available_at == e.knowledge_at for e in daily)
+    assert all(e.provenance.observed_at is not None for e in daily)

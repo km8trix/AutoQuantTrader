@@ -1,6 +1,6 @@
 # AutoQuantTrader implementation plan
 
-Status: sole authoritative delivery plan, consolidated 2026-09-08. Wave 0 contract/baseline and Wave 1 bounded data/runtime/production account-read feasibility gates passed; GitHub closeout is pending. Connected financing, quotes, quotas and reconciliation remain unqualified. Waves 2–8 have not started. Base code is `107fa791`; local W0/W1 changes await commit/PR/merge. Secret values remain private; trading and deployment remain disabled.
+Status: sole authoritative delivery plan. Waves 0 and 1 closed through [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52), merged as `ec63ca793ed4fe8a68397dc752000e102741da59` after all PR checks passed. Wave 2 local exit gates passed: one engine/account/report path, four independently checked 520-session runs, 1,633 Python tests and source/installed process recovery. GitHub CI and merge verification remain open. Broker connected-execution qualification remains blocked; trading and deployment stay disabled.
 
 Implement the [architecture](ARCHITECTURE.md) using the evidence-backed priorities in the [design review](reviews/2026-09-08-design-review.md). The new waves replace the previous Phase 0–8/subphase/Wave 1–7 roadmaps. Existing local passes remain historical evidence; they do not mark any new wave passed.
 
@@ -41,7 +41,7 @@ At the integration barrier, the orchestrator reviews and incorporates work seque
 
 The owner has authorized this standing closeout sequence for every wave: once its exit gates pass, commit the reviewed in-scope changes, push the feature branch to `origin` (`km8trix/AutoQuantTrader`), open a GitHub PR with the concrete behavior and validation, satisfy required CI/review checks, merge through GitHub, and verify the resulting default-branch revision. Record the PR URL and merged commit in the status/evidence table. Then this same orchestration task starts the next eligible wave from the merged revision under the global worker cap. This instruction supplies ongoing authorization for commits, pushes, PRs, merges and dependency-qualified continuation; no repeated permission request is needed. Preserve unrelated work and existing worktrees, do not bypass branch protection or force-push, and do not close a wave with unresolved acceptance gates. Trading, capital, deployment, subscriptions and other operational actions retain their separate scope gates.
 
-Do not begin dependent work until its prerequisite passes. A provider/account blocker need not stop independent offline research: the dependency table permits Waves 2–3 after the data/runtime parts of Wave 1, while broker work is explicitly blocked. Those dependencies describe technical eligibility. Under the owner’s requested sequential closeout cadence, finish the current wave and its GitHub merge before starting the next wave; Wave 1 GitHub closeout is the current gate. The same three-worker global cap applies. There is no automatic retry of an external action simply to fill a task slot.
+Do not begin dependent work until its prerequisite passes. A provider/account blocker need not stop independent offline research: the dependency table permits Waves 2–3 after the data/runtime parts of Wave 1, while broker work is explicitly blocked. Those dependencies describe technical eligibility. Under the owner’s requested sequential closeout cadence, finish the current wave and its GitHub merge before starting the next wave; Wave 1 GitHub closeout has passed; Wave 2 is current. The same three-worker global cap applies. There is no automatic retry of an external action simply to fill a task slot.
 
 ### Worker brief template
 
@@ -250,8 +250,8 @@ The orchestrator updates this compact table as work occurs; detailed results bel
 | Wave | Current status | Accepted revision/evidence | Blocker / next gate |
 |---|---|---|---|
 | W0 | **Complete — contract/baseline only** | Code `107fa791`; [pack](contracts/personal-v1/README.md), [baseline](reviews/2026-09-08-wave0/baseline.md), [artifact manifest](reviews/2026-09-08-wave0/final-artifact-manifest.json) | None for W0; recorded checker failures/environment gaps remain later gates |
-| W1 | **Foundation/read-feasibility gates passed; GitHub closeout pending** | Base `107fa791` + reviewed W1 files; [integrated evidence](reviews/2026-09-08-wave1/README.md): 1,264 tests passed, 7 PostgreSQL skipped; real Tiingo import/replay; reproducible wheel and installed start/stop; complete authorized production read traversal | [Acceptance rationale](reviews/2026-09-08-wave1/wave1-acceptance.md) separates read feasibility from retained financing/quote/quota/recovery/reconciliation blocks. Sandbox identity remains unresolved. Commit, required checks, PR merge and merged-revision verification precede W2 |
-| W2 | Not started | None | W1 data/runtime |
+| W1 | **Complete within bounded foundation/read-feasibility scope** | [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52), merged `ec63ca793ed4fe8a68397dc752000e102741da59`; CI passed 1,271 Python tests including PostgreSQL, browser regressions, migrations and packaging; merged tree and 140 artifact hashes verified; post-merge CI passed | [Closeout verification](reviews/2026-09-09-wave2/wave1-merged-verification.json); financing, quotes, quotas, recovery and reconciliation remain connected-execution blockers under the [acceptance rationale](reviews/2026-09-08-wave1/wave1-acceptance.md) |
+| W2 | **Local gates passed — GitHub closeout pending** | Base `ec63ca793ed4fe8a68397dc752000e102741da59`; [integrated evidence](reviews/2026-09-09-wave2/README.md); 1,633 tests, four 520-session independent runs, two reproducible wheels and nine source and nine installed process cases each | Required PostgreSQL/browser/packaging CI, PR merge and exact merged-revision verification |
 | W3 | Not started | None | W2 |
 | W4 | Not started | None | W1 broker/runtime + W2 |
 | W5 | Not started | None | W4 |
@@ -270,7 +270,7 @@ The orchestrator updates this compact table as work occurs; detailed results bel
 | Account type, funds, loss and notional limits | Unspecified for live; default live-disabled | W6 dossier / W7 approval |
 | Always-on host, database backup, alert recipient and monthly cost | Local supervised first; select and qualify before unattended operation; no infrastructure purchase implied | W5 design, W8 activation |
 
-The architecture's personal-use simplifications take precedence over conflicting old future requirements. Keep factual implementation limits visible until changed and verified. Wave 0 ends with reviewed contracts and an offline baseline; Wave 1 data/runtime and authorized production read foundations are accepted within their evidence limits. Connected execution qualification remains blocked; GitHub closeout precedes later waves.
+The architecture's personal-use simplifications take precedence over conflicting old future requirements. Keep factual implementation limits visible until changed and verified. Wave 0 ends with reviewed contracts and an offline baseline; Wave 1 data/runtime and authorized production read foundations are accepted within their evidence limits. Connected execution qualification remains blocked; W1 GitHub closeout passed and W2 interface work has started.
 
 
 ## 15. Wave 0 handoff (historical snapshot)
@@ -283,9 +283,9 @@ The next authorized wave is W1, not the old native Wave 8. Use the current activ
 
 A starts with the frozen manifest/availability contract and a licensed source/import; C proves clock/suspend/ownership/halted startup/normal stop before removing mapped native prerequisites. B starts offline with fixtures; actual credentials, account reads, rights and quotes require separately scoped qualification inputs and permission. Missing B evidence may block W1 B while A/C progress; W1 overall cannot be marked complete while B is blocked. No source/account call, Preview/Place/Cancel, native activation, deployment, live amount, or follow-on wave is authorized by this handoff.
 
-## 16. Current Wave 1 handoff
+## 16. Wave 1 accepted boundary
 
-Wave 1 A, B and C passed their bounded foundation/read-feasibility gates. Root integrated exact worker allowlists sequentially from base `107fa791`; the original 39 worktrees and frozen W0 contracts remain preserved. The [acceptance rationale](reviews/2026-09-08-wave1/wave1-acceptance.md) maps each retained provider limitation to its connected/execution gate. Complete the owner-authorized commit, PR, required checks, merge and merged-revision verification before this orchestration task starts W2.
+Wave 1 A, B and C passed their bounded foundation/read-feasibility gates. Root integrated exact worker allowlists sequentially from base `107fa791`; the original 39 worktrees and frozen W0 contracts remain preserved. The [acceptance rationale](reviews/2026-09-08-wave1/wave1-acceptance.md) maps each retained provider limitation to its connected/execution gate. The owner-authorized closeout completed through PR #52; section 17 governs current work.
 
 The integrated gate passed 1,264 Python tests and all selected formatting/lint/type/API/standard architecture/Compose checks. Seven PostgreSQL tests were skipped locally; CI configures a disposable PostgreSQL service. Two conventional wheel builds were byte-identical. The installed CLI outside the checkout starts HALTED, rejects duplicate ownership, stops on SIGTERM and restarts HALTED. Physical host suspension, external clock-offset measurement, remote CI and native/container activation are not claimed by these local results.
 
@@ -298,3 +298,11 @@ The revised production capture completed fresh discovery and balance, portfolio,
 USD, settled-cash/liability/restriction semantics, quotes, actual provider quotas, retention, usable execution/correction identities and reconciliation remain unqualified. The frozen quota obligation is explicitly unresolved: the ten-reads-per-minute/one-attempt/three-second limits are local bounds only. These prevent connected execution admission. They do not turn a complete authorized W1 read traversal into a failed transport result or authorize fabricated financial facts.
 
 See [integrated evidence](reviews/2026-09-08-wave1/README.md), the [foundation runbook](runbooks/personal-v1-foundations.md) and [read-only runbook](runbooks/personal-v1-etrade-readonly.md). Preview/Place/Cancel, trading and deployment remain outside the owner-authorized read scope.
+
+## 17. Current Wave 2 handoff
+
+The same orchestration task completed local W2 acceptance from merged W1 revision `ec63ca793ed4fe8a68397dc752000e102741da59`, on `codex/personal-v1-w2-integration`. The [shared interfaces](contracts/personal-v1/wave2-interfaces.md) are implemented; the [current evidence index](reviews/2026-09-09-wave2/README.md) records local exit acceptance and remaining GitHub closeout. The [preservation inventory](reviews/2026-09-09-wave2/initial-preservation.json) records retained worktrees.
+
+Root owns shared definitions, input conversion, reference strategy, CLI/composition, independent acceptance, golden product cutover and CI. A owns the single causal queue, daily target conversion and risk; B owns one-command accounting and financial oracle integration; C owns pure metrics/reporting. There are at most three workers, with no nested tasks. No new financial persistence migration is required in W2.
+
+The five-session real Tiingo sample remains an insufficient-history case for default strategy/annualized metrics. Sufficiently long labelled fixtures and independent action/flow cases supply engineering acceptance; no factual publication time, provider action or untouched holdout is invented. W2 needs no provider requests, credentials, orders, subscriptions or deployment. Close all W2 gates and the authorized commit/PR/check/merge/verification workflow before beginning W3.

@@ -1,0 +1,33 @@
+{
+  "pr": "https://github.com/km8trix/AutoQuantTrader/pull/52",
+  "reviewed_pr_head": "a9dbb0d19f9911747eb180c992004acc393f44f8",
+  "merged_commit": "ec63ca793ed4fe8a68397dc752000e102741da59",
+  "merged_at": "2026-09-09T22:48:13Z",
+  "verified_remote_default_branch": "ec63ca793ed4fe8a68397dc752000e102741da59",
+  "reviewed_tree": "5993bd8fda8f9147725a99cd59cb306efe36171f",
+  "merged_tree_matches_reviewed_pr": true,
+  "bound_files_verified": 140,
+  "pr_ci_run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34413504848",
+  "pr_ci_conclusion": "success",
+  "python_tests_with_postgres": 1271,
+  "browser_migration_packaging_checks": "success",
+  "main_ci_run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34413994218",
+  "main_ci_conclusion": "success",
+  "trading_authorized": false,
+  "main_ci_jobs": [
+    {
+      "completedAt": "2026-09-09T22:49:30Z",
+      "conclusion": "success",
+      "name": "Browser regressions",
+      "status": "completed",
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34413994218/job/102674611662"
+    },
+    {
+      "completedAt": "2026-09-09T22:52:30Z",
+      "conclusion": "success",
+      "name": "Standard Python foundations and retained financial regressions",
+      "status": "completed",
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34413994218/job/102674611825"
+    }
+  ]
+}

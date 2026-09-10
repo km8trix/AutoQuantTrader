@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "builds": [
+    {
+      "name": "wheel-final",
+      "exit_code": 0,
+      "seconds": 0.567
+    },
+    {
+      "name": "wheel-final-repeat",
+      "exit_code": 0,
+      "seconds": 0.485
+    }
+  ],
+  "wheel_sha256": "72eb734e0396225c93f5261ebd4fdfdf9da79e24305dff367bcb194fc94e8b0d",
+  "wheel_bytes": 2032217,
+  "byte_reproducible": true,
+  "native_hook_enabled": false,
+  "payload_files_match_source": 388,
+  "installed_without_dependencies": true,
+  "standalone_simulation_remains_halted": true
+}

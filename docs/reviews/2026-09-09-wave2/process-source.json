@@ -1,0 +1,119 @@
+{
+  "cases": [
+    {
+      "artifact_completed": true,
+      "artifact_present": true,
+      "artifact_sha256": "e79df0f20c1cb14277e1f4e395ff5f67963d5185f6c9001b09bac28531929632",
+      "case": "short",
+      "cli_status": "completed",
+      "duration_ms": 1011,
+      "nav_matches_expected": true,
+      "private_mode": true,
+      "report_status": "completed",
+      "returncode": 0,
+      "source_status": "completed",
+      "stdout_sha256": "8db8397a77e4c07cf6fefbb32bbd267ae096bcf707c72cb0607ac58cd06f7340"
+    },
+    {
+      "artifact_completed": true,
+      "artifact_present": true,
+      "artifact_sha256": "e79df0f20c1cb14277e1f4e395ff5f67963d5185f6c9001b09bac28531929632",
+      "case": "existing_output",
+      "cli_status": "rejected",
+      "duration_ms": 269,
+      "nav_matches_expected": true,
+      "original_hash_preserved": true,
+      "private_mode": true,
+      "report_status": "completed",
+      "returncode": 2,
+      "source_status": "completed",
+      "stdout_sha256": "646625094a1330818dc3c22638093aa1e98ae1c18414c0c28adc0cf48b0353ad"
+    },
+    {
+      "artifact_completed": false,
+      "artifact_present": false,
+      "case": "duplicate",
+      "cli_status": "rejected",
+      "duration_ms": 263,
+      "original_lock_observed_held": true,
+      "returncode": 2,
+      "stdout_sha256": "646625094a1330818dc3c22638093aa1e98ae1c18414c0c28adc0cf48b0353ad"
+    },
+    {
+      "artifact_completed": false,
+      "artifact_present": false,
+      "case": "terminated",
+      "cli_status": "cancelled",
+      "duration_ms": 1332,
+      "returncode": 3,
+      "shutdown_ms": 844,
+      "stdout_sha256": "3adcc178639237e8aed8a116c3a33df3daa782a3dbe9d9f3dd20bc6608df0067"
+    },
+    {
+      "artifact_completed": true,
+      "artifact_present": true,
+      "artifact_sha256": "3797aaca5edb107535d3150101553a6ca5a8812963af0c3113ce39e3ae9918e2",
+      "case": "restart",
+      "cli_status": "completed",
+      "duration_ms": 1020,
+      "nav_matches_expected": true,
+      "private_mode": true,
+      "report_status": "completed",
+      "returncode": 0,
+      "source_status": "completed",
+      "stdout_sha256": "8db8397a77e4c07cf6fefbb32bbd267ae096bcf707c72cb0607ac58cd06f7340"
+    },
+    {
+      "artifact_completed": false,
+      "artifact_present": false,
+      "case": "killed",
+      "cli_status": "no_status",
+      "duration_ms": 748,
+      "orphan_lock_release_ms": 540,
+      "returncode": -9,
+      "startup_grace_ms": 500,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "artifact_completed": true,
+      "artifact_present": true,
+      "artifact_sha256": "ee1b82b3cf5d0bae78a6f8aafdf43563c6aa7c3f8e80549722568a25c0e7516a",
+      "case": "restart_after_kill",
+      "cli_status": "completed",
+      "duration_ms": 1035,
+      "nav_matches_expected": true,
+      "private_mode": true,
+      "report_status": "completed",
+      "returncode": 0,
+      "source_status": "completed",
+      "stdout_sha256": "8db8397a77e4c07cf6fefbb32bbd267ae096bcf707c72cb0607ac58cd06f7340"
+    },
+    {
+      "artifact_completed": false,
+      "artifact_present": false,
+      "case": "max_wall",
+      "cli_status": "failed",
+      "duration_ms": 1307,
+      "returncode": 3,
+      "stdout_sha256": "743561e2829cfa567a1e9ee37e4774d1bcd9bc421141077007a337f24641155a"
+    },
+    {
+      "artifact_completed": false,
+      "artifact_present": true,
+      "artifact_sha256": "ecdb9294f2fc3771205c50213e9300653384486430091f147bc84b487b1423b7",
+      "case": "max_events",
+      "cli_status": "incomplete",
+      "duration_ms": 1306,
+      "nav_matches_expected": false,
+      "private_mode": true,
+      "report_status": "incomplete",
+      "returncode": 3,
+      "source_status": "rejected",
+      "stdout_sha256": "77236888e76451efa3c2334528c98921109dca22f66db7da82d10a57a2824fac"
+    }
+  ],
+  "duration_ms": 8591,
+  "reason": "all_process_checks_passed",
+  "status": "passed",
+  "version": "personal-research-process-verification/1"
+}
