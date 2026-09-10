@@ -424,7 +424,7 @@ def _child(args: argparse.Namespace) -> int:
         writer(args.output, artifact, inputs.spec.max_output_bytes)
     try:
         _check_peak_memory(args.max_memory_mib * 1024 * 1024)
-    except MemoryError:
+    except (MemoryError, OSError, ValueError):
         args.output.unlink(missing_ok=True)
         raise
     if stop_requested():
@@ -436,9 +436,26 @@ def _child(args: argparse.Namespace) -> int:
 
 
 def _check_peak_memory(limit: int) -> None:
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if sys.platform != "darwin":
-        peak *= 1024
+    if sys.platform == "linux":
+        # Linux getrusage preserves the replaced address space's peak across
+        # exec. VmHWM belongs to the current mm, including released allocations.
+        # Keep this bounded and fail closed when that measurement is unavailable.
+        payload = _bounded_read(Path("/proc/self/status"), 16 * 1024)
+        rows = [line.split() for line in payload.splitlines() if line.startswith(b"VmHWM:")]
+        if (
+            len(rows) != 1
+            or len(rows[0]) != 3
+            or rows[0][0] != b"VmHWM:"
+            or rows[0][2] != b"kB"
+            or not rows[0][1].isdigit()
+            or int(rows[0][1]) <= 0
+        ):
+            raise ValueError("resident memory measurement unavailable")
+        peak = int(rows[0][1]) * 1024
+    elif sys.platform == "darwin":
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    else:
+        raise ValueError("resident memory measurement unavailable")
     if peak > limit:
         raise MemoryError("resident memory exceeded its budget")
 

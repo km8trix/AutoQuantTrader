@@ -6,7 +6,9 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -131,16 +133,197 @@ def test_two_actual_jobs_with_descending_budgets_ignore_parent_lifetime_peak(
     from apps.worker import personal_research
 
     # Simulate an earlier parent allocation larger than either child's budget.
-    # Fresh subprocesses still use their own real rusage and active RSS checks.
+    # Fresh subprocesses use their post-exec peak and active RSS checks.
     monkeypatch.setattr(
         personal_research.resource, "getrusage", lambda _: SimpleNamespace(ru_maxrss=5 * 1024**3)
     )
     root = tmp_path / "objects"
     runner = ResearchProcessRunner(artifact_root=root)
+    stages = []
+
+    def control(progress: ResearchProgress) -> RunControl:
+        stages.append(progress.stage)
+        return RunControl()
+
     for number, memory in enumerate((512, 256)):
         execution = _execution(root, memory_mib=memory, key=f"request-{number:04}")
-        outcome = runner.run_retained(execution, control=lambda _: RunControl())
-        assert outcome.outcome == "completed" and outcome.publication is not None
+        stages.clear()
+        outcome = runner.run_retained(execution, control=control)
+        assert outcome.outcome == "completed" and outcome.publication is not None, {
+            "memory_mib": memory,
+            "outcome": outcome.outcome,
+            "reason_code": outcome.reason_code,
+            "stages": sorted(set(stages)),
+        }
+
+
+def test_linux_peak_uses_current_image_high_water_not_inherited_rusage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.worker import personal_research as cli
+
+    status = tmp_path / "status"
+    read = cli._bounded_read
+
+    def current_status(path: Path, limit: int) -> bytes:
+        assert str(path) == "/proc/self/status" and limit == 16 * 1024
+        return read(status, limit)
+
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    monkeypatch.setattr(cli, "_bounded_read", current_status)
+    monkeypatch.setattr(cli.resource, "getrusage", lambda _: SimpleNamespace(ru_maxrss=5 * 1024**2))
+    status.write_bytes(b"VmHWM:\t131072 kB\nVmRSS:\t65536 kB\n")
+    cli._check_peak_memory(128 * 1024**2)
+    status.write_bytes(b"VmHWM:\t131073 kB\nVmRSS:\t65536 kB\n")
+    with pytest.raises(MemoryError, match="resident memory exceeded its budget"):
+        cli._check_peak_memory(128 * 1024**2)
+    # An unavailable or overlong source must never fall back to a lower sample.
+    status.unlink()
+    with pytest.raises(OSError):
+        cli._check_peak_memory(128 * 1024**2)
+    status.write_bytes(b"VmHWM: 1 kB\n" + b"x" * (16 * 1024))
+    with pytest.raises(ValueError, match="byte limit"):
+        cli._check_peak_memory(128 * 1024**2)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"VmRSS: 1 kB\n",
+        b"VmHWM: 1 kB\nVmHWM: 2 kB\n",
+        b"VmHWM: -1 kB\n",
+        b"VmHWM: 0 kB\n",
+        b"VmHWM: 1.5 kB\n",
+        b"VmHWM: 1 MB\n",
+        b"VmHWM: 1\n",
+        b"VmHWM:garbage 1 kB\n",
+    ],
+)
+def test_linux_peak_rejects_missing_or_malformed_measurement(
+    payload: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.worker import personal_research as cli
+
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    monkeypatch.setattr(cli, "_bounded_read", lambda *_: payload)
+    with pytest.raises(ValueError, match="resident memory measurement unavailable"):
+        cli._check_peak_memory(128 * 1024**2)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires actual Linux exec/mm accounting")
+def test_linux_exec_peak_excludes_old_image_and_retains_released_child_allocation(
+    tmp_path: Path,
+) -> None:
+    # A small isolated parent retains 192 MiB across fork. The child's exec
+    # replaces that mm; its own later 160 MiB allocation must still be rejected
+    # after release. No sampling interval or enlarged job budget hides the peak.
+    child_code = """import gc,json,resource
+from apps.worker.personal_research import _check_peak_memory
+limit = 128 * 1024**2
+inherited = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+_check_peak_memory(limit)
+allocation = bytearray(160 * 1024**2)
+allocation[::4096] = b'x' * (len(allocation) // 4096)
+del allocation
+gc.collect()
+try:
+    _check_peak_memory(limit)
+except MemoryError:
+    print(json.dumps({'inherited_peak_exceeds_limit': inherited > limit,
+                      'post_exec_baseline_passed': True, 'released_peak_rejected': True}))
+else:
+    raise AssertionError('released child peak was lost')
+"""
+    parent_code = """import os,sys
+allocation = bytearray(192 * 1024**2)
+allocation[::4096] = b'x' * (len(allocation) // 4096)
+pid = os.fork()
+if pid == 0:
+    os.execve(sys.executable, [sys.executable, '-B', '-c', CHILD], dict(os.environ))
+_, status = os.waitpid(pid, 0)
+raise SystemExit(os.waitstatus_to_exitcode(status))
+""".replace("CHILD", repr(child_code))
+    process = subprocess.Popen(
+        [sys.executable, "-B", "-c", parent_code],
+        cwd=tmp_path,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=15)
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+    assert process.returncode == 0, {"child_exit_code": process.returncode}
+    assert len(output) <= 256
+    assert json.loads(output) == {
+        "inherited_peak_exceeds_limit": True,
+        "post_exec_baseline_passed": True,
+        "released_peak_rejected": True,
+    }
+
+
+@pytest.mark.parametrize("peak_check", [1, 2])
+@pytest.mark.parametrize("exception_name", ["MemoryError", "OSError", "ValueError"])
+def test_actual_retained_peak_failure_before_or_after_payload_never_publishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, peak_check: int, exception_name: str
+) -> None:
+    from apps.worker import personal_research as cli
+
+    marker = tmp_path / "peak-check"
+    code = (
+        """import json,sys
+from pathlib import Path
+from apps.worker import personal_research as cli
+original = cli._check_peak_memory
+count = 0
+def exceeded(limit):
+    global count
+    count += 1
+    if count == CHECK:
+        raise ERROR('injected child peak measurement failure')
+    original(limit)
+cli._check_peak_memory = exceeded
+args = cli._parser().parse_args(sys.argv[1:])
+status = cli.main(sys.argv[1:])
+Path(MARKER).write_text(json.dumps({'peak_check':count,'output_exists':args.output.exists(),
+                                  'publication_exists':args._publication.exists()}))
+raise SystemExit(status)
+""".replace("CHECK", str(peak_check))
+        .replace("ERROR", exception_name)
+        .replace("MARKER", repr(str(marker)))
+    )
+    original_popen = subprocess.Popen
+    children = []
+
+    def fault_process(command, **kwargs):
+        if command[2:4] != ["-m", "apps.worker.personal_research"]:
+            return original_popen(command, **kwargs)
+        child = original_popen([*command[:2], "-c", code, *command[4:]], **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fault_process)
+    root = tmp_path / "objects"
+    outcome = ResearchProcessRunner(artifact_root=root).run_retained(
+        _execution(root), control=lambda _: RunControl()
+    )
+    assert json.loads(marker.read_bytes()) == {
+        "peak_check": peak_check,
+        "output_exists": False,
+        "publication_exists": False,
+    }
+    assert outcome.outcome == "failed" and outcome.reason_code == "bounded-process-failed"
+    assert outcome.publication is None and len(tuple(root.iterdir())) == 2
+    assert all(child.poll() is not None for child in children)
 
 
 @pytest.mark.parametrize("fault", ["deadline", "cancel_requested", "lease_lost", "shutdown"])

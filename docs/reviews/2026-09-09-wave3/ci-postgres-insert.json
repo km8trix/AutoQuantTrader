@@ -1,0 +1,45 @@
+{
+  "actual_postgresql": "Not run locally: no explicitly authorized disposable PostgreSQL database selected. Retained actual PostgreSQL CI test remains required.",
+  "all_other_workflow_ast_unchanged": true,
+  "base_revision": "5a753a9e229d730daff6bac06c042e8759e7707d",
+  "bindings": [
+    {
+      "after_sha256": "3c4951a999aa49adae2676b3778925a01e96ce7feaf6121d2662020d292ed765",
+      "before_sha256": "63524a04dc11424071354ec43fac29a033365764d3d57862cba9490c49c906cc",
+      "path": "packages/persistence/research_workflow_v2.py"
+    },
+    {
+      "after_sha256": "91c484e21d9a9e8773a5574b49a5349902c78a6dc49e12ed661a4d2177d94c25",
+      "before_sha256": "5231e72fbe437ee06baeb96d39ee09e68f41a08bc7914c3613e6e4ca059cca62",
+      "path": "tests/integration/test_research_workflow_v2.py"
+    },
+    {
+      "after_sha256": "611a5c9d05188af99d0a2efcce909c5a51c7ae8003018c110602d935d33d0a91",
+      "before_sha256": "ee2c7a968ab756f60e5826ac92c327a28e44a323d4de02d80236745328a95598",
+      "path": "tests/integration/test_research_catalog_transactions.py"
+    }
+  ],
+  "checks": {
+    "architecture": "passed",
+    "focused_seconds": 10.01,
+    "focused_tests_passed": 59,
+    "late_conflict_all_nine_tables_unchanged": "passed on SQLite; asserted by PG CI test",
+    "mypy_three_files": "passed",
+    "postgresql_direct_idempotent_retry": "added for CI",
+    "postgresql_tests_skipped": 1,
+    "ruff": "passed"
+  },
+  "historical_wheel_evidence": "Preserved; production source changed and previous wheel no longer represents current stage.",
+  "negative_control": {
+    "failure": "Identical later-time launch incorrectly attempted a second queued event and raised ImmutableFactConflict for occurred_at/payload/event_sha256.",
+    "injected_condition": "Only job INSERT result.rowcount=-1; actual SQL writes and returned rows preserved.",
+    "real_database": "disposable SQLite",
+    "result": "reproduced"
+  },
+  "no_exception_broadening": true,
+  "no_timeout_lease_or_fencing_change": true,
+  "production_change": "Use INSERT ON CONFLICT DO NOTHING RETURNING instead of driver-dependent INSERT rowcount to select new lifecycle versus locked idempotent replay.",
+  "provider_calls": 0,
+  "schema": "personal-postgresql-insert-outcome-fix/1",
+  "worker_processes": 0
+}

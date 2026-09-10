@@ -73,6 +73,37 @@ def test_sql_launch_roundtrip_idempotency_and_owner_visibility(
     assert SqlResearchWorkflow(engine, codec=personal_codec).get(request.job_id) == accepted
 
 
+def test_launch_uses_inserted_row_when_driver_rowcount_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, workflow, clock = make_workflow(tmp_path, monkeypatch)
+    inserts = 0
+
+    def hide_insert_rowcount(_connection, statement, _multiparams, _params, _options, result):  # type: ignore[no-untyped-def]
+        nonlocal inserts
+        if isinstance(statement, sa.sql.dml.Insert) and statement.table is research_jobs_v2:
+            # INSERT rowcount may be -1 even though the SQL statement succeeded.
+            # Preserve the real writes and any RETURNING rows from the database.
+            result.rowcount = -1
+            inserts += 1
+
+    sa.event.listen(engine, "after_execute", hide_insert_rowcount)
+    request = sample_request()
+    accepted = workflow.launch(request)
+    clock[0] += timedelta(seconds=10)
+    assert workflow.launch(request) == accepted
+    with pytest.raises(ResearchJobConflict, match="idempotency key conflicts"):
+        workflow.launch(replace(request, trial_id="different-trial"))
+    assert inserts == 3
+    assert workflow.get(request.job_id) == accepted
+    assert workflow.get_request(request.job_id) == request
+    with engine.connect() as connection:
+        assert connection.scalar(sa.select(sa.func.count()).select_from(research_jobs_v2)) == 1
+        assert (
+            connection.scalar(sa.select(sa.func.count()).select_from(research_job_events_v2)) == 1
+        )
+
+
 def test_parallel_claims_and_recovery_fence_stale_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

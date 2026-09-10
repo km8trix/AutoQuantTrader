@@ -1,6 +1,6 @@
 # Wave 3 — durable research workspace
 
-Status: local exit gates passed; GitHub PR/CI/merge verification remains open. Wave 4 starts after the verified merge.
+Status: corrected-source local exit gates passed; [PR #54](https://github.com/km8trix/AutoQuantTrader/pull/54) CI/merge verification remains open. Wave 4 starts after the verified merge.
 
 The [accepted-content manifest](accepted-content.json) binds the reviewed source, tests, documentation and sanitized evidence. Its own hash and the exact tested/merged tree are verified separately during GitHub closeout.
 
@@ -8,7 +8,7 @@ Base: `6ea218addaa38d1c36c69b6a7ffbe564d701f834`, verified Wave 2 merge via [PR 
 
 Current scope: immutable actual-engine research jobs, private content-addressed inputs/reports, fenced recovery/cancellation, descriptive evaluation and the research UI. Existing fixture records and financial schema history remain preserved. The fixed reference strategies have no learned parameters. Known-accessed/unknown history is never described as untouched. Actual provider calls, trading and deployment are not part of current implementation.
 
-## Exit evidence
+## Original acceptance snapshots
 
 | Gate | Evidence and scope |
 |---|---|
@@ -27,6 +27,17 @@ The final source-worker experiment completed all 12 trials in 48.944 seconds, wi
 
 The [research runbook](../../runbooks/personal-v1-research.md) covers explicit local setup, imports, process limits, cancellation/restart, exports, SQLite runtime/filesystem requirements and consistent database/object backups. New infrastructure, provider access, order execution and deployment are outside this wave. GitHub checks must run the PostgreSQL cases and released-wheel process checks before merge.
 
+## Corrected-source acceptance
+
+The first PR CI run also exposed PostgreSQL insert-result ambiguity and Linux peak-memory accounting after fork/exec. [Transactional remediation](ci-postgres-insert.json) uses the returned inserted row to distinguish new jobs from exact retries, with all-nine-table rollback assertions. [Memory remediation](ci-linux-memory.json) measures the Linux post-exec image through bounded `VmHWM` parsing, retains Darwin process accounting and existing limits, and prevents publication when measurement fails. The original Linux failure did not expose its phase, so the retained negative control is not described as an exact reproduction of that CI failure. [Independent reviews](ci-independent-review.json) accepted both changes; actual PostgreSQL and Linux execution remain CI gates.
+
+The [new source freeze](ci-runtime-source-freeze.json) binds source `efe9fcc2a30fa66da4a8fc5ef372a7ce859b4792bd0dec9944ac0d2583f1531b` and resource profile `posix-cpu-file-wall-sampled-resident/2`. Earlier records above retain the source and resource profiles they actually exercised.
+
+- [Integrated local checks](ci-local-checks.json) passed **1,990 Python tests**, with eight PostgreSQL cases and one Linux-only case skipped; [sanitized output](check-output/ci-personal-suite.txt). [Static checks](ci-runtime-static.json) passed formatting, lint, types, API artifacts and architecture.
+- [Fresh synthetic API/CLI acceptance](ci-runtime-acceptance.json) completed 12 declared trials in **29.115 seconds**, one attempt/publication each. [Detailed results](ci-runtime-recheck.json) bind independent exact arithmetic, four cost scenarios, all report projections, exports, comparison and unchanged restart. This used the actual ASGI application and supervised CLI worker on macOS; the original browser acceptance remains separately scoped.
+- [Sandbox diagnosis](ci-sandbox-diagnosis.json) preserves an earlier failed synthetic run: the tool sandbox denied mandatory read-only process RSS sampling before dataset loading. The unchanged source and harness passed in a fresh database with that process-read permission. No original acceptance database or object store was opened.
+- [Two identical corrected wheels](ci-wheel-checks.json) have SHA-256 `df8fd8799515410f992e10106027fea66434c51a8ca2503a0e9e0a3ac7765bc3`. That build snapshot precedes the worker run; [completed installed-workflow verification](ci-installed-workflow.json) and [raw safe evidence](ci-installed-evidence.json) supply its subsequent successful execution, economics and idempotent restart. [468 source bindings](ci-wheel-source-bindings.json) and all 43 locked dependency records were verified after execution. Eleven dependency console scripts differ from the prior installation solely by the new environment prefix; dependency payloads and versions are otherwise unchanged.
+
 ## Supporting checks
 
 - [Independent report arithmetic](independent-reports.json) covers two real-sample reports and the 520-session synthetic recovery report. Rational and 80-digit calculations independently check reported economics. These reports retain their original earlier build pins.
@@ -37,7 +48,7 @@ The [research runbook](../../runbooks/personal-v1-research.md) covers explicit l
 
 ## Integration failures and successive checks
 
-[PR #54](https://github.com/km8trix/AutoQuantTrader/pull/54) first exposed three five-second experiment-test timeouts and a following leaked-input assertion. The [scoped CI remediation](ci-browser-remediation.json) replaces long per-character fixture typing with awaited completed-field paste, preserves every existing assertion and strengthens the submitted-payload check. All 7 targeted, 139 full browser and 33 bundle cases, lint/types/build and unchanged production budgets passed locally afterward. Production UI, Python and financial sources are unchanged. Earlier frontend acceptance snapshots retain their original test-source binding; this supplemental record and the accepted-content manifest bind the corrected test. A fresh GitHub CI result remains required.
+[PR #54](https://github.com/km8trix/AutoQuantTrader/pull/54) first exposed three five-second experiment-test timeouts and a following leaked-input assertion. The [scoped CI remediation](ci-browser-remediation.json) replaces long per-character fixture typing with awaited completed-field paste, preserves every existing assertion and strengthens the submitted-payload check. All 7 targeted, 139 full browser and 33 bundle cases, lint/types/build and unchanged production budgets passed locally afterward. That test-only correction leaves production UI, Python and financial sources unchanged; the separate runtime corrections below have their own source bindings. Earlier frontend acceptance snapshots retain their original test-source binding; this supplemental record and the accepted-content manifest bind the corrected test. A fresh GitHub CI result remains required.
 
 
 The initial getter fix passed a smaller concurrent workload, but the stronger retained-history workload still exposed commit blocking. The records below preserve that distinction. None of the intermediate timing checks establishes the final exit gate.

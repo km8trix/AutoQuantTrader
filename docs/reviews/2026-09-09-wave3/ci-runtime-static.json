@@ -1,0 +1,33 @@
+{
+  "schema": "wave3-ci-runtime-static/1",
+  "source_sha256": "efe9fcc2a30fa66da4a8fc5ef372a7ce859b4792bd0dec9944ac0d2583f1531b",
+  "source_freeze_sha256": "099c3dbc8258465336b153025ea5d4acbe29f5e5a7079c19592578e3a7435a7e",
+  "status": "passed",
+  "checks": [
+    {
+      "name": "format",
+      "exit_code": 0,
+      "output": "786 files already formatted"
+    },
+    {
+      "name": "lint",
+      "exit_code": 0,
+      "output": "All checks passed!"
+    },
+    {
+      "name": "types",
+      "exit_code": 0,
+      "output": "Success: no issues found in 327 source files"
+    },
+    {
+      "name": "contracts",
+      "exit_code": 0,
+      "output": "API contract artifacts are current."
+    },
+    {
+      "name": "architecture",
+      "exit_code": 0,
+      "output": "Personal architecture check passed (layers, pure code, simulation import closure)."
+    }
+  ]
+}

@@ -104,9 +104,14 @@ def current_build_pins() -> tuple[VersionPin, ...]:
             content_digest((sys.version, platform.machine(), metadata["build_constraints_sha256"])),
         ),
         "resources": (
-            "posix-cpu-file-wall-sampled-resident/1",
+            "posix-cpu-file-wall-sampled-resident/2",
             content_digest(
-                (sys.platform, "resident-sample-100ms-final-high-water", "linux-extra-RLIMIT_AS")
+                (
+                    sys.platform,
+                    "resident-sample-100ms-final-high-water",
+                    "linux-post-exec-VmHWM-darwin-process-getrusage",
+                    "linux-extra-RLIMIT_AS",
+                )
             ),
         ),
     }

@@ -515,10 +515,15 @@ class SqlResearchWorkflow:
             raise ResearchJobConflict("launch requires an immutable typed request")
         now = database_time(connection)
         insert = sqlite_insert if connection.dialect.name == "sqlite" else pg_insert
+        # INSERT rowcount is driver-dependent, including -1 for unknown. Only
+        # a returned row proves this transaction created the queued lifecycle.
         inserted = connection.execute(
-            insert(jobs_table).values(**self._job_values(request, now)).on_conflict_do_nothing()
-        ).rowcount
-        if inserted == 0:
+            insert(jobs_table)
+            .values(**self._job_values(request, now))
+            .on_conflict_do_nothing()
+            .returning(sa.literal(True))
+        ).scalar_one_or_none()
+        if inserted is None:
             state = self._load(connection, request.job_id, locked=True)
             if state.request != request:
                 raise ResearchJobConflict("launch idempotency key conflicts with immutable request")

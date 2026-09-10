@@ -1,0 +1,38 @@
+{
+  "actual_linux_and_postgresql": "pending GitHub CI",
+  "memory_profile_review": {
+    "checks": [
+      "exact bounded positive VmHWM field and kB units",
+      "missing and malformed readings prevent publication",
+      "pre/post-output cleanup preserves no publication",
+      "RSS and existing limits unchanged",
+      "Linux fork-exec regression selected for CI",
+      "resources profile /2 matches documentation"
+    ],
+    "files": {
+      "apps/worker/personal_research.py": "8f44671bcf03d962f78491ef09a07abdcd7f73e94602468c39b63f7f0bbdbea5",
+      "docs/runbooks/personal-v1-research.md": "24165941571c36ca4604b3dec181784e674f90fbbfc6dfba10c98e2f07fe16fe",
+      "packages/adapters/personal_build.py": "3b18a174169166b66d23128f74e4d7a6b28c95d52b3bfa4b89aa92db9c432aa6",
+      "tests/unit/test_retained_research_runner.py": "76ba04b4517e90d3dbee42c83e715128af12c8fbcbd5ba8fe3498e15c4241ac7"
+    },
+    "finding_count": 0,
+    "reviewer_lane": "C"
+  },
+  "postgres_insert_review": {
+    "checks": [
+      "RETURNING identifies actual insert",
+      "locked exact immutable replay retained",
+      "all nine tables unchanged after late conflict"
+    ],
+    "files": {
+      "packages/persistence/research_workflow_v2.py": "3c4951a999aa49adae2676b3778925a01e96ce7feaf6121d2662020d292ed765",
+      "tests/integration/test_research_catalog_transactions.py": "611a5c9d05188af99d0a2efcce909c5a51c7ae8003018c110602d935d33d0a91",
+      "tests/integration/test_research_workflow_v2.py": "91c484e21d9a9e8773a5574b49a5349902c78a6dc49e12ed661a4d2177d94c25"
+    },
+    "finding_count": 0,
+    "reviewer_lane": "B"
+  },
+  "review_only_no_test_reruns": true,
+  "schema": "wave3-ci-independent-review/1",
+  "status": "accepted_pending_external_ci"
+}

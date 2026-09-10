@@ -1,0 +1,62 @@
+{
+  "checks": [
+    {
+      "duration_seconds": 1.55,
+      "passed": 1,
+      "selection": "unmodified_descending_budgets"
+    },
+    {
+      "duration_seconds": 30.73,
+      "passed": 22,
+      "selection": "focused_file_exact_key_before_cleanup_parameter_extension",
+      "skipped": 1
+    },
+    {
+      "duration_seconds": 3.78,
+      "passed": 6,
+      "selection": "final_cleanup_MemoryError_OSError_ValueError_before_and_after_payload"
+    },
+    {
+      "result": "pass",
+      "selection": "Ruff_format_and_check"
+    },
+    {
+      "result": "pass",
+      "selection": "strict_mypy_both_worker_modules"
+    },
+    {
+      "result": "pass",
+      "selection": "personal_architecture"
+    }
+  ],
+  "files": {
+    "apps/worker/personal_research.py": "8f44671bcf03d962f78491ef09a07abdcd7f73e94602468c39b63f7f0bbdbea5",
+    "tests/unit/test_retained_research_runner.py": "76ba04b4517e90d3dbee42c83e715128af12c8fbcbd5ba8fe3498e15c4241ac7"
+  },
+  "injected_diagnostic": {
+    "exception": "MemoryError",
+    "injected_peak_bytes": 5368709120,
+    "limit_bytes": 268435456,
+    "model": "inherited_peak_injected_into_actual_Darwin_child",
+    "outcome": "failed",
+    "phase": "final-peak-before-artifact-validation",
+    "publication": false,
+    "reason_code": "bounded-process-failed"
+  },
+  "linux_runtime_available": false,
+  "original_ci_failure_phase_observed": false,
+  "pending_gate": "actual Linux fork/exec regression and full Linux CI",
+  "platform_executed": "darwin",
+  "primary_source_confirmed_defect": "Linux getrusage includes the replaced pre-exec mm peak; VmHWM reads the current mm peak",
+  "primary_sources": [
+    "https://www.man7.org/linux/man-pages/man2/getrusage.2.html",
+    "https://raw.githubusercontent.com/torvalds/linux/v6.8/fs/exec.c",
+    "https://raw.githubusercontent.com/torvalds/linux/v6.8/kernel/sys.c",
+    "https://raw.githubusercontent.com/torvalds/linux/v6.8/fs/proc/task_mmu.c",
+    "https://docs.kernel.org/filesystems/proc.html"
+  ],
+  "resource_caps_unchanged": true,
+  "rlimit_as_unchanged": true,
+  "rss_sample_interval_unchanged": true,
+  "schema": "retained-runner-linux-peak-review/1"
+}

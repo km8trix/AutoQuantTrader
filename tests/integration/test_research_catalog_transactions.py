@@ -213,6 +213,17 @@ def count(engine: Engine, table: sa.Table) -> int:
         return int(connection.scalar(sa.select(sa.func.count()).select_from(table)))
 
 
+def retained_sql_rows(engine: Engine) -> dict[str, tuple[tuple[object, ...], ...]]:
+    with engine.connect() as connection:
+        return {
+            table.name: tuple(
+                tuple(row)
+                for row in connection.execute(sa.select(table).order_by(*table.primary_key.columns))
+            )
+            for table in (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+        }
+
+
 def verify_integrity(engine: Engine) -> None:
     with _repeatable_read_transaction(engine) as connection:
         validate = _capture_personal_research_validation(connection, codec=personal_codec)
@@ -270,8 +281,10 @@ def test_experiment_atomic_late_conflict_rolls_back_all_new_jobs(
     entry = catalog.register(catalog_sample(), owner_id="owner")
     record, requests = experiment_sample(entry)
     catalog.workflow.launch(replace(requests[-1], trial_id="conflicting-last-trial"))
-    with pytest.raises(ResearchJobConflict):
+    retained = retained_sql_rows(engine)
+    with pytest.raises(ResearchJobConflict, match="idempotency key conflicts"):
         catalog.register_experiment(record, requests)
+    assert retained_sql_rows(engine) == retained
     assert count(engine, jobs) == 1
     assert count(engine, experiments) == count(engine, links) == 0
     assert catalog.workflow.get_request(requests[-1].job_id).trial_id == "conflicting-last-trial"
@@ -565,9 +578,17 @@ def test_postgres_catalog_registration_concurrent_and_atomic(postgres_engine: En
             )
         assert results == (record, record)
         assert catalog.experiment(record.experiment_id, owner_id=owner) == record
+        accepted = catalog.workflow.get(requests[0].job_id)
+        assert catalog.workflow.launch(requests[0]) == accepted
         catalog.workflow.launch(replace(conflicting_requests[-1], trial_id="preexisting-conflict"))
-        with pytest.raises(ResearchJobConflict):
+        retained = retained_sql_rows(postgres_engine)
+        with pytest.raises(ResearchJobConflict, match="idempotency key conflicts"):
             catalog.register_experiment(conflict, conflicting_requests)
+        assert retained_sql_rows(postgres_engine) == retained
+        assert (
+            catalog.workflow.get_request(conflicting_requests[-1].job_id).trial_id
+            == "preexisting-conflict"
+        )
         with postgres_engine.connect() as connection:
             assert (
                 connection.scalar(
