@@ -7,6 +7,8 @@ from decimal import Decimal
 
 from packages.domain.accounting_contracts import AccountSnapshot
 from packages.domain.canonical import canonical_persisted_decimal
+from packages.domain.daily_runtime_contracts import DailyRuntimeRiskEvidence
+from packages.domain.daily_runtime_risk import build_daily_runtime_evidence
 from packages.domain.decimal_math import (
     exact_decimal_add as add,
 )
@@ -32,7 +34,7 @@ def evaluate_daily_risk(
     policy: DailyRiskPolicy,
     snapshot: AccountSnapshot,
     target_batch: DailyIntentBatch,
-    evidence: DailyRiskEvidence,
+    evidence: DailyRiskEvidence | DailyRuntimeRiskEvidence,
     evaluated_at: datetime,
 ) -> DailyRiskDecision:
     """Approve a whole batch or reserve nothing; never infer missing evidence.
@@ -41,31 +43,53 @@ def evaluate_daily_risk(
     Other pending buys retain their cash, quantity and count obligations; pending
     sells never fund a purchase or reduce conservative gross exposure.
     """
+    if type(evidence) not in (DailyRiskEvidence, DailyRuntimeRiskEvidence):
+        raise ValueError("daily risk requires an exact supported evidence version")
     reasons = list(target_batch.reasons) + list(evidence.reasons)
     intents = target_batch.intents
     ids = {intent.intent_id for intent in intents}
     if len(ids) != len(intents):
         reasons.append("DUPLICATE_INTENT")
-    if (
-        snapshot.semantic_sha256 != target_batch.snapshot_sha256
-        or evidence.snapshot_sha256 != snapshot.semantic_sha256
-        or evidence.produced_at != evaluated_at
-        or snapshot.point.knowledge_at != evaluated_at
-    ):
-        reasons.append("STALE_OR_UNBOUND_ACCOUNT_EVIDENCE")
-    if evidence.producer.name != "engine":
-        reasons.append("UNRECOGNIZED_EVIDENCE_PRODUCER")
-    for name in (
-        "complete_daily_inputs",
-        "controls_healthy",
-        "session_healthy",
-        "time_healthy",
-        "cash_semantics_known",
-        "request_capacity_available",
-        "simulation_reconciled",
-    ):
-        if not getattr(evidence, name):
-            reasons.append(name.upper() + "_REQUIRED")
+    if isinstance(evidence, DailyRuntimeRiskEvidence):
+        recomputed = build_daily_runtime_evidence(
+            evidence.assignment,
+            snapshot,
+            target_batch,
+            evidence.inputs,
+            producer_map=evidence.producer_map,
+            evaluated_at=evaluated_at,
+        )
+        reasons.extend(recomputed.reasons)
+        if evidence != recomputed:
+            reasons.append("RUNTIME_EVIDENCE_RECOMPUTATION_MISMATCH")
+        if policy != evidence.assignment.policy:
+            reasons.append("RUNTIME_POLICY_ASSIGNMENT_MISMATCH")
+    else:
+        if any(
+            mark.basis in ("runtime_quote_ask_v1", "runtime_quote_bid_v1")
+            for mark in snapshot.marks
+        ):
+            reasons.append("RUNTIME_QUOTE_REQUIRES_RUNTIME_EVIDENCE")
+        if (
+            snapshot.semantic_sha256 != target_batch.snapshot_sha256
+            or evidence.snapshot_sha256 != snapshot.semantic_sha256
+            or evidence.produced_at != evaluated_at
+            or snapshot.point.knowledge_at != evaluated_at
+        ):
+            reasons.append("STALE_OR_UNBOUND_ACCOUNT_EVIDENCE")
+        if evidence.producer.name != "engine":
+            reasons.append("UNRECOGNIZED_EVIDENCE_PRODUCER")
+        for name in (
+            "complete_daily_inputs",
+            "controls_healthy",
+            "session_healthy",
+            "time_healthy",
+            "cash_semantics_known",
+            "request_capacity_available",
+            "simulation_reconciled",
+        ):
+            if not getattr(evidence, name):
+                reasons.append(name.upper() + "_REQUIRED")
     if snapshot.halted:
         reasons.append("ACCOUNT_HALTED")
     if snapshot.nav is None or snapshot.nav <= 0 or snapshot.valuation_reasons:
@@ -143,8 +167,15 @@ def evaluate_daily_risk(
         )
         if mark.session != expected_session:
             reasons.append("STALE_INTENT_MARK_SESSION")
-        if evidence.phase == "activation" and mark.basis != "raw_execution":
-            reasons.append("ACTIVATION_REQUIRES_EXECUTION_PRICE")
+        if evidence.phase == "activation":
+            if type(evidence) is DailyRuntimeRiskEvidence:
+                expected_basis = (
+                    "runtime_quote_ask_v1" if intent.side is Side.BUY else "runtime_quote_bid_v1"
+                )
+                if mark.basis != expected_basis:
+                    reasons.append("RUNTIME_ACTIVATION_REQUIRES_SIDE_QUOTE")
+            elif mark.basis != "raw_execution":
+                reasons.append("ACTIVATION_REQUIRES_EXECUTION_PRICE")
         if evidence.phase == "decision" and (
             intent.portfolio_snapshot_sha256 != snapshot.semantic_sha256
             or intent.created_at != evaluated_at

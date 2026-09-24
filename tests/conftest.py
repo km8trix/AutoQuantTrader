@@ -107,3 +107,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 def isolate_operational_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent ambient runtime configuration from redirecting test migrations."""
     monkeypatch.delenv("AQT_DATABASE_URL", raising=False)
+
+
+@pytest.fixture(scope="session")
+def activation_receipt():
+    """Share one authority for the same pure account across both test modules."""
+    from tests.unit.test_account_coordinator import coordinator
+    from tests.unit.test_daily_risk_snapshot import START
+
+    owner, clock, _ = coordinator("daily-pure-canonical-account")
+    clock.instant = START
+    lease = owner.acquire("explicit-pure-fixture-owner")
+    try:
+        yield owner.revalidate(lease.fence)
+    finally:
+        owner.release(lease.fence)

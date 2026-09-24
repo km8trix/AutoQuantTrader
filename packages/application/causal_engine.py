@@ -11,10 +11,20 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, localcontext
+from math import ceil
 from time import monotonic
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from packages.application.account_reconciliation import (
+    check_reconciliation_candidate,
+    derive_reconciliation_application,
+    plan_reconciliation_facts,
+    reconciliation_fact_effective_at,
+    reconciliation_ready_facts,
+)
+from packages.application.daily_commitment_install import prepare_daily_commitments
+from packages.application.personal_codec import encode_record
 from packages.domain.accounting_contracts import (
     AccountingCommand,
     AccountingContext,
@@ -22,6 +32,7 @@ from packages.domain.accounting_contracts import (
     AccountingTransition,
     AccountSnapshot,
     ActivateCommitment,
+    ActivateRuntimeCommitments,
     Commitment,
     ControlCommand,
     DueAccountingEvent,
@@ -29,15 +40,27 @@ from packages.domain.accounting_contracts import (
     ExecutionObservation,
     InstallCommitment,
     ModelDisposition,
+    RegisterVenueSubmission,
+    ReleaseRuntimeUnsent,
 )
 from packages.domain.canonical import canonical_json_bytes
+from packages.domain.causal_checkpoint import CausalEngineCheckpoint
+from packages.domain.continuous_engine_contracts import (
+    ClosedEngineFrontier,
+    ContinuousDecision,
+    ContinuousEngineInputs,
+    ContinuousEngineSpec,
+    ContinuousRiskEvidencePort,
+)
+from packages.domain.continuous_reconciliation_contracts import ContinuousReconciliationBatch
+from packages.domain.continuous_runtime_action import ContinuousRuntimeAction
 from packages.domain.daily_risk import evaluate_daily_risk
-from packages.domain.decimal_math import exact_decimal_add as add
-from packages.domain.decimal_math import exact_decimal_multiply as mul
+from packages.domain.daily_runtime_contracts import DailyRuntimeRiskEvidence
 from packages.domain.engine_contracts import (
     BenchmarkPrice,
     DailyIntentBatch,
     DailyPrice,
+    DailyRiskDecision,
     DailyRiskEvidence,
     DailyStrategy,
     DailyStrategyContext,
@@ -55,15 +78,17 @@ from packages.domain.ledger_reducer import CashFlowKind, LedgerCashFlow, create_
 from packages.domain.order_reducer import (
     BrokerOrderEventKind,
     OrderCancelRequest,
-    create_order_submission,
 )
 from packages.domain.personal_contracts import (
     CausalMark,
     ReductionPoint,
     content_digest,
+    require_utc,
     semantic_value,
 )
 from packages.domain.portfolio import daily_target_to_intents
+from packages.domain.reconciliation_application_contracts import AppliedReconciliationBatch
+from packages.domain.reconciliation_contracts import FactApplication
 from packages.domain.report_contracts import (
     BenchmarkValuationInput,
     EngineResult,
@@ -101,6 +126,36 @@ class _SimulatedRequests:
         self.rows.append((at, low_priority))
 
 
+def continuous_request_budget_available(
+    rows: tuple[tuple[datetime, bool], ...],
+    *,
+    at: datetime,
+    count: int,
+    low_priority: bool,
+) -> bool:
+    """Read the existing engine's modeled request budget from its exact callback rows.
+
+    This is not an external provider quota or a transport-reservation proof.
+    Original row times are retained and the copied budget is never published.
+    """
+    require_utc(at, "modeled request budget check")
+    if type(rows) is not tuple or len(rows) > 20 or type(count) is not int or not 0 <= count <= 20:
+        raise ValueError("modeled request inventory or requested count exceeds its bound")
+    if type(low_priority) is not bool:
+        raise ValueError("modeled request priority must be explicit")
+    previous = None
+    for row in rows:
+        if type(row) is not tuple or len(row) != 2 or type(row[1]) is not bool:
+            raise ValueError("modeled request rows require exact immutable values")
+        require_utc(row[0], "modeled request time")
+        if row[0] > at or (previous is not None and row[0] < previous):
+            raise ValueError("modeled request rows reverse time or contain future knowledge")
+        previous = row[0]
+    budget = _SimulatedRequests()
+    budget.rows = list(rows)
+    return budget.permits(at, count, low_priority=low_priority)
+
+
 def _cutoff(session: date) -> datetime:
     return datetime.combine(session, time(9), ZoneInfo("America/New_York")).astimezone(UTC)
 
@@ -109,6 +164,8 @@ def _stage(event: EngineEvent) -> int:
     payload = event.payload
     if isinstance(payload, AccountingCommand):
         return 0 if isinstance(payload.payload, ControlCommand) else 1
+    if isinstance(payload, ContinuousReconciliationBatch):
+        return 1
     if isinstance(payload, (DailyPrice, BenchmarkPrice)):
         return 2
     if isinstance(payload, ExecutionObservation):
@@ -119,14 +176,23 @@ def _stage(event: EngineEvent) -> int:
 class _Engine:
     def __init__(
         self,
-        inputs: EngineInputs,
+        inputs: EngineInputs | ContinuousEngineInputs,
         accounting: ExecutionAccountingPort,
         strategy: DailyStrategy,
         stop_requested: Callable[[], bool] | None,
+        runtime_evidence: ContinuousRiskEvidencePort | None = None,
     ) -> None:
         self.inputs, self.spec = inputs, inputs.spec
         self.accounting, self.strategy, self.stop_requested = accounting, strategy, stop_requested
+        self.runtime_evidence = runtime_evidence
+        self.continuous = isinstance(inputs, ContinuousEngineInputs)
+        self.closed_source_frontiers: dict[str, str] = {}
+        self.runtime_decisions: list[ContinuousDecision] = []
+        self.application_batches: list[AppliedReconciliationBatch] = []
+        self._last_apply_context: AccountingContext | None = None
         self.started = monotonic()
+        self._wall_allowance_ns = self.spec.max_wall_seconds * 10**9
+        self._closure_status = "unadmitted"
         self.requests = _SimulatedRequests()
         self.state = inputs.initial_state
         self.strategy_state = DailyStrategyState()
@@ -160,6 +226,8 @@ class _Engine:
             default=self.now,
         )
         self.now = max(self.now, self.retained_knowledge)
+        if isinstance(self.spec, ContinuousEngineSpec):
+            self.now = self.spec.initialized_at
         self.economic = self.now
         self.events: dict[str, EngineEvent] = {}
         self.causal_sources: dict[str, str] = {}
@@ -187,6 +255,11 @@ class _Engine:
         self.baseline_at = self.sessions[self.scored[0]].opens_at
         self.baseline_economic = self.baseline_at
         self.baseline_session = self.scored[0]
+        if isinstance(self.spec, ContinuousEngineSpec):
+            self.baseline_at = self.baseline_economic = self.spec.initialized_at
+            self.baseline_session = self.spec.initialized_at.astimezone(
+                ZoneInfo("America/New_York")
+            ).date()
 
     def _context(
         self,
@@ -224,12 +297,17 @@ class _Engine:
     def _budget(self) -> None:
         if self.stop_requested is not None and self.stop_requested():
             raise _Stop("cancelled", "OWNER_CANCELLED")
-        if monotonic() - self.started > self.spec.max_wall_seconds:
+        if self._remaining_wall_ns() < 0:
             raise _Stop("cancelled", "WALL_TIME_BUDGET_EXCEEDED")
         if self.processed > self.spec.max_events:
             raise _Stop("rejected", "EVENT_BUDGET_EXCEEDED")
         if self.output_bytes > self.spec.max_output_bytes:
             raise _Stop("rejected", "OUTPUT_BUDGET_EXCEEDED")
+
+    def _remaining_wall_ns(self) -> int:
+        # Round consumption upward. A restore can never replenish the retained
+        # finite-run budget, including time spent restoring/projecting state.
+        return self._wall_allowance_ns - ceil(max(0.0, monotonic() - self.started) * 10**9)
 
     def _trace(
         self,
@@ -371,13 +449,16 @@ class _Engine:
         source: str,
         stage: int,
         approved: AccountSnapshot | None = None,
+        reject_stops: bool = True,
     ) -> AccountingTransition:
         before = self.current.snapshot
         self._point(stage)
+        context = self._context(command.command_id, approved)
+        self._last_apply_context = context
         result = self.accounting.advance(
             state=self.state,
             command=command,
-            context=self._context(command.command_id, approved),
+            context=context,
             policy=self.spec.execution_policy,
         )
         if result.disposition == "rejected":
@@ -389,7 +470,9 @@ class _Engine:
             self._trace(
                 command.command_id, "accounting_rejected", source, before, reasons=result.reasons
             )
-            raise _Stop("failed", "ACCOUNTING_COMMAND_REJECTED")
+            if reject_stops:
+                raise _Stop("failed", "ACCOUNTING_COMMAND_REJECTED")
+            return result
         self.state, self.current = result.state, result
         self.seen.add(command.command_id)
         self.causal_sources[command.command_id] = source
@@ -404,6 +487,14 @@ class _Engine:
         return result
 
     def _admit(self) -> None:
+        if self._closure_status != "unadmitted":
+            raise _Stop("failed", "ENGINE_ALREADY_ADMITTED")
+        self._closure_status = "admitting"
+        if isinstance(self.inputs, ContinuousEngineInputs):
+            self._admit_continuous()
+            self._closure_status = "closed"
+            return
+        assert not isinstance(self.spec, ContinuousEngineSpec)
         unique: dict[str, EngineEvent] = {}
         for event in self.inputs.events:
             if event.event_id in unique and unique[event.event_id] != event:
@@ -465,8 +556,17 @@ class _Engine:
                     modeled_daily_availability(payload.session)
                 ):
                     raise _Stop("rejected", "DAILY_PRICE_PRECEDES_MODELED_2000")
+            elif isinstance(payload, ContinuousReconciliationBatch):
+                raise _Stop("rejected", "CONTINUOUS_RECONCILIATION_NOT_A_FINITE_SOURCE")
             elif isinstance(payload, AccountingCommand) and isinstance(
-                payload.payload, (InstallCommitment, ActivateCommitment)
+                payload.payload,
+                (
+                    InstallCommitment,
+                    ActivateCommitment,
+                    ActivateRuntimeCommitments,
+                    RegisterVenueSubmission,
+                    ReleaseRuntimeUnsent,
+                ),
             ):
                 raise _Stop("rejected", "ENGINE_OWNED_COMMAND_IN_SOURCE_TAPE")
             elif isinstance(payload, ExecutionObservation):
@@ -520,6 +620,161 @@ class _Engine:
             self._scheduled(label, "decision_due", modeled_daily_availability(label))
             next_label = self.labels[self.labels.index(label) + 1]
             self._scheduled(label, "missing_cutoff", _cutoff(next_label))
+        self._closure_status = "closed"
+
+    def _admit_continuous(self) -> None:
+        """Initialize once from known warmup rows, without a future tape."""
+        assert isinstance(self.inputs, ContinuousEngineInputs)
+        spec = self.inputs.spec
+        if spec.execution_policy.fee_per_share > spec.risk_policy.fee_per_share:
+            raise _Stop("rejected", "EXECUTION_FEE_EXCEEDS_RISK_BUDGET")
+        for event in self.inputs.bootstrap_events:
+            if not isinstance(event.payload, (DailyPrice, BenchmarkPrice)):
+                raise _Stop("rejected", "CONTINUOUS_BOOTSTRAP_REQUIRES_MARKET_HISTORY")
+            if isinstance(event.payload, DailyPrice) and (
+                event.payload.session not in spec.window.warmup_sessions
+            ):
+                raise _Stop("rejected", "BOOTSTRAP_PRICE_OUTSIDE_WARMUP")
+        self._admit_continuous_events(
+            self.inputs.bootstrap_events, at=spec.initialized_at, bootstrap=True
+        )
+        self._scheduled(self.baseline_session, "baseline", self.baseline_at)
+        for label in self.scored:
+            session = self.sessions[label]
+            for kind, at in (
+                ("session_open", session.opens_at),
+                ("session_close", session.closes_at),
+                ("decision_due", modeled_daily_availability(label)),
+            ):
+                if at > spec.initialized_at:
+                    self._scheduled(label, kind, at)
+            following = self.labels[self.labels.index(label) + 1]
+            self._scheduled(label, "missing_cutoff", _cutoff(following))
+
+    def _admit_continuous_events(
+        self,
+        events: tuple[EngineEvent, ...],
+        *,
+        at: datetime,
+        bootstrap: bool = False,
+    ) -> None:
+        remaining: dict[str, EngineEvent] = {}
+        for event in events:
+            if event.event_id in self.events:
+                self._admit_continuous_event(event, at=at)
+            else:
+                remaining[event.event_id] = event
+        while remaining:
+            self._budget()
+            first_sequences: dict[str, int] = {}
+            for event in remaining.values():
+                if event.sequence_scope is not None:
+                    assert event.source_sequence is not None
+                    first_sequences[event.sequence_scope] = min(
+                        first_sequences.get(event.sequence_scope, event.source_sequence),
+                        event.source_sequence,
+                    )
+            ready = sorted(
+                (
+                    event
+                    for event in remaining.values()
+                    if set(event.predecessor_ids) <= set(self.events)
+                    and (
+                        event.sequence_scope is None
+                        or event.source_sequence == first_sequences[event.sequence_scope]
+                    )
+                ),
+                key=lambda event: (
+                    event.sequence_scope or "",
+                    event.source_sequence or 0,
+                    event.event_id,
+                ),
+            )
+            if not ready:
+                raise ValueError("closed frontier has missing or cyclic predecessors")
+            for event in ready:
+                # Earlier bootstrap knowledge is retained exactly. A newly
+                # delivered frontier still requires this actual close time.
+                if bootstrap and event.knowledge_at > at:
+                    raise ValueError("bootstrap contains future knowledge")
+                self._admit_continuous_event(event, at=event.knowledge_at if bootstrap else at)
+                del remaining[event.event_id]
+
+    def _admit_continuous_event(self, event: EngineEvent, *, at: datetime) -> None:
+        """Validate a newly closed observation, preserving receipt provenance."""
+        assert isinstance(self.spec, ContinuousEngineSpec)
+        prior = self.events.get(event.event_id)
+        if prior is not None:
+            if prior != event:
+                raise _Stop("rejected", "CONFLICTING_EVENT_ID")
+            return
+        if event.knowledge_at != at:
+            raise _Stop("rejected", "NEW_EVENT_REQUIRES_CURRENT_CLOSED_FRONTIER")
+        if event.provenance.data_class != self.spec.data_class:
+            raise _Stop("rejected", "SOURCE_DATA_CLASS_MISMATCH")
+        availability = (
+            event.provenance.observed_at
+            if self.spec.availability_mode == "recorded"
+            else event.provenance.simulated_available_at
+        )
+        if availability is None or availability > at:
+            raise _Stop("rejected", "EVENT_PRECEDES_DECLARED_AVAILABILITY")
+        if self.spec.availability_mode == "recorded" and (
+            event.provenance.raw_sha256 is None
+            or event.provenance.simulated_available_at is not None
+        ):
+            raise _Stop("rejected", "OBSERVED_SOURCE_REQUIRES_RETAINED_CAPTURE")
+        payload = event.payload
+        if isinstance(payload, (ExecutionObservation, ScheduleSignal)) or (
+            isinstance(payload, AccountingCommand)
+            and isinstance(
+                payload.payload,
+                (
+                    InstallCommitment,
+                    ActivateCommitment,
+                    ActivateRuntimeCommitments,
+                    ModelDisposition,
+                    RegisterVenueSubmission,
+                    ReleaseRuntimeUnsent,
+                ),
+            )
+        ):
+            raise _Stop("rejected", "ENGINE_OR_VENUE_OWNED_COMMAND_IN_SOURCE")
+        if isinstance(payload, ContinuousReconciliationBatch) and (
+            payload.scope.account_id != self.spec.account_id
+            or payload.scope.binding_sha256 != self.spec.account_binding_sha256
+            or payload.scope.environment != self.spec.environment
+            or any(page.received_at > at for page in payload.source_receipts)
+        ):
+            raise _Stop("rejected", "RECONCILIATION_BATCH_SCOPE_OR_TIME_DIFFERS")
+        if isinstance(payload, DailyPrice):
+            if dict(self.spec.instruments).get(payload.instrument_id) != payload.symbol:
+                raise _Stop("rejected", "EVENT_INSTRUMENT_OUTSIDE_UNIVERSE")
+            if payload.session not in self.sessions:
+                raise _Stop("rejected", "EVENT_SESSION_OUTSIDE_CALENDAR")
+            if event.economic_at != self.sessions[payload.session].closes_at:
+                raise _Stop("rejected", "DAILY_PRICE_ECONOMIC_BOUNDARY_MISMATCH")
+        if any(
+            parent not in self.events or self.events[parent].knowledge_at > at
+            for parent in event.predecessor_ids
+        ):
+            raise _Stop("rejected", "MISSING_OR_FUTURE_PREDECESSOR")
+        if event.sequence_scope is not None:
+            stream = sorted(
+                (
+                    previous
+                    for previous in self.events.values()
+                    if previous.sequence_scope == event.sequence_scope
+                ),
+                key=lambda previous: previous.source_sequence or 0,
+            )
+            if stream:
+                previous = stream[-1]
+                assert previous.source_sequence is not None and event.source_sequence is not None
+                if event.source_sequence != previous.source_sequence + 1:
+                    raise _Stop("rejected", "SOURCE_SEQUENCE_NOT_CONTIGUOUS")
+                self.sequence_parents[event.event_id] = previous.event_id
+        self._enqueue(event)
 
     def _ordered(self, events: list[EngineEvent]) -> list[EngineEvent]:
         remaining = {event.event_id: event for event in events}
@@ -733,13 +988,21 @@ class _Engine:
         self._budget()
         return row
 
-    def _flow(self, command: AccountingCommand, source: str, *, initial: bool = False) -> None:
+    def _flow(
+        self,
+        command: AccountingCommand,
+        source: str,
+        *,
+        initial: bool = False,
+        reject_stops: bool = True,
+    ) -> AccountingTransition:
         flow = command.payload
         assert isinstance(flow, LedgerCashFlow)
         self.mark_session = flow.effective_at.astimezone(ZoneInfo("America/New_York")).date()
         if any(item.flow.cash_flow_id == flow.cash_flow_id for item in self.flows):
-            self._apply(command, source=source, stage=1)
-            return
+            return self._apply(command, source=source, stage=1, reject_stops=reject_stops)
+        retained_counts = (len(self.valuations), len(self.wealth), len(self.benchmark_inputs))
+        before_valuation_bytes = self.output_bytes
         pre_id = canonical_id("pre-flow", self.spec.run_id, flow.cash_flow_id)
         post_id = canonical_id("post-flow", self.spec.run_id, flow.cash_flow_id)
         self._valuation(
@@ -751,7 +1014,17 @@ class _Engine:
             row_id=pre_id,
             paired=post_id,
         )
-        result = self._apply(command, source=source, stage=1)
+        tentative_valuation_bytes = self.output_bytes - before_valuation_bytes
+        result = self._apply(command, source=source, stage=1, reject_stops=reject_stops)
+        if result.disposition == "rejected":
+            # The observed-fact consumer continues with unrelated facts. Failed
+            # cash input creates no flow pair or wealth point; preserve only the
+            # actual rejection trace and its consumed reduction sequence.
+            del self.valuations[retained_counts[0] :]
+            del self.wealth[retained_counts[1] :]
+            del self.benchmark_inputs[retained_counts[2] :]
+            self.output_bytes -= tentative_valuation_bytes
+            return result
         signed = (
             flow.amount if flow.kind is CashFlowKind.CONTRIBUTION else flow.amount.copy_negate()
         )
@@ -778,6 +1051,7 @@ class _Engine:
         )
         if initial:
             self.baseline_id = post.row_id
+        return result
 
     def _baseline(self) -> None:
         if self.baseline_id is not None:
@@ -809,29 +1083,30 @@ class _Engine:
             raise _Stop("rejected", "POSITIVE_CAUSAL_BASELINE_REQUIRED")
 
     def _loss(self) -> tuple[Decimal | None, Decimal | None]:
-        if not self.wealth:
-            return None, None
-        snapshot = self.current.snapshot
-        points = (
-            *self.wealth,
-            WealthPoint(
-                "risk-" + str(self.sequence),
-                self.sequence + 1,
-                snapshot.nav,
-                reasons=snapshot.valuation_reasons,
-            ),
+        return _runtime_loss_inputs(
+            tuple(self.wealth), self.sequence, self.current.snapshot, self.daily_wealth
         )
-        value = derive_wealth_path(points)[-1]
-        if value.wealth is None or self.daily_wealth is None:
-            return None, value.drawdown
-        with localcontext(derived_context()):
-            return value.wealth / self.daily_wealth - 1, value.drawdown
 
     def _evidence(
         self, batch: DailyIntentBatch, phase: Literal["decision", "activation"]
-    ) -> DailyRiskEvidence:
+    ) -> DailyRiskEvidence | DailyRuntimeRiskEvidence:
         daily_return, drawdown = self._loss()
         trigger = batch.target.trigger
+        if self.continuous:
+            if self.runtime_evidence is None:
+                raise _Stop("rejected", "RUNTIME_RISK_PRODUCER_REQUIRED")
+            return self.runtime_evidence.build(
+                snapshot=self.current.snapshot,
+                batch=batch,
+                phase=phase,
+                evaluated_at=self.now,
+                accepted_intent_ids=tuple(
+                    sorted(self.accepted.get(trigger.execution_session, set()))
+                ),
+                daily_return=daily_return,
+                drawdown=drawdown,
+                request_rows=tuple(self.requests.rows),
+            )
         return DailyRiskEvidence(
             self.current.snapshot.semantic_sha256,
             phase,
@@ -855,14 +1130,27 @@ class _Engine:
 
     def _install(self, batch: DailyIntentBatch) -> None:
         before = self.current.snapshot
+        source_state = self.state
+        source_context = self._context(batch.batch_id, before)
+        evidence = self._evidence(batch, "decision")
         decision = evaluate_daily_risk(
             self.spec.risk_policy,
             before,
             batch,
-            self._evidence(batch, "decision"),
+            evidence,
             self.now,
         )
         if not decision.approved or not batch.intents:
+            self._record_runtime_decision(
+                before,
+                batch,
+                evidence,
+                decision,
+                (),
+                "rejected" if not decision.approved else "no_intents",
+                source_state=source_state,
+                source_context=source_context,
+            )
             self._trace(
                 batch.target.trigger.trigger_id,
                 "risk_approved" if decision.approved else "risk_rejected",
@@ -872,67 +1160,55 @@ class _Engine:
                 batch=batch,
             )
             return
-        state = self.state
-        pending_results: list[AccountingTransition] = []
-        holds = dict(decision.reserved_cash_by_intent)
-        share_holds = dict(decision.reserved_shares_by_intent)
-        for intent in batch.intents:
-            self._point(6)
-            submission = create_order_submission(
-                intent=intent,
-                risk_decision_id=decision.semantic_sha256,
-                submission_attempt_id=canonical_id("model-attempt", intent.intent_id),
-                submitted_at=self.now,
+        prepared = prepare_daily_commitments(
+            state=self.state,
+            snapshot=before,
+            batch=batch,
+            decision=decision,
+            context=source_context,
+            execution_policy=self.spec.execution_policy,
+            risk_policy=self.spec.risk_policy,
+            accounting=self.accounting,
+            attempt_namespace="daily-runtime-attempt" if self.continuous else "model-attempt",
+        )
+        self.sequence, self._stage_number = prepared.last_reduction_sequence, 6
+        if prepared.disposition != "installed":
+            # Preserve the historical wrapper's failure boundary for exceptions;
+            # only explicit accounting rejection is a batch rollback outcome.
+            if any(reason.startswith("INSTALL_EXCEPTION:") for reason in prepared.reasons):
+                raise ValueError("invalid commitment accounting transition")
+            self._record_runtime_decision(
+                before,
+                batch,
+                evidence,
+                decision,
+                (),
+                "rolled_back",
+                source_state=source_state,
+                source_context=source_context,
             )
-            commitment = Commitment(
-                canonical_id("commitment", intent.intent_id),
-                intent.intent_id,
-                submission.order_id,
-                intent.instrument_id,
-                intent.symbol,
-                intent.side,
-                intent.quantity,
-                Decimal(0),
-                intent.quantity,
-                holds[intent.intent_id],
-                share_holds.get(intent.intent_id, Decimal(0)),
-                mul(
-                    intent.reference_price,
-                    add(Decimal(1), self.spec.risk_policy.adverse_reserve_fraction),
-                ),
-                mul(intent.quantity, self.spec.risk_policy.fee_per_share),
-                batch.target.trigger.source_session,
-                batch.target.trigger.execution_session,
-                self.sequence,
-                batch.target.not_before,
-                batch.target.expires_at,
-                decision.policy_sha256,
-                before.semantic_sha256,
+            self._project("atomic-batch-rollback", 6)
+            self._trace(
+                batch.batch_id,
+                "batch_install_rolled_back",
+                batch.target.trigger.source_sha256,
+                before,
+                reasons=prepared.reasons,
+                batch=batch,
             )
-            command = AccountingCommand(
-                commitment.commitment_id, InstallCommitment(submission, commitment)
-            )
-            result = self.accounting.advance(
-                state=state,
-                command=command,
-                context=self._context(command.command_id, before),
-                policy=self.spec.execution_policy,
-            )
-            if result.disposition != "applied":
-                self._project("atomic-batch-rollback", 6)
-                self._trace(
-                    batch.batch_id,
-                    "batch_install_rolled_back",
-                    batch.target.trigger.source_sha256,
-                    before,
-                    reasons=result.reasons or ("INSTALL_NOT_APPLIED",),
-                    batch=batch,
-                )
-                return
-            state = result.state
-            pending_results.append(result)
-        self.state, self.current = state, pending_results[-1]
-        for result in pending_results:
+            return
+        self.state, self.current = prepared.state, prepared.transitions[-1]
+        self._record_runtime_decision(
+            before,
+            batch,
+            evidence,
+            decision,
+            prepared.commitments,
+            "installed",
+            source_state=source_state,
+            source_context=source_context,
+        )
+        for result in prepared.transitions:
             self._due(result.due_events)
         self.accepted.setdefault(batch.target.trigger.execution_session, set()).update(
             item.intent_id for item in batch.intents
@@ -945,6 +1221,35 @@ class _Engine:
             batch.target.trigger.source_sha256,
             before,
             batch=batch,
+        )
+
+    def _record_runtime_decision(
+        self,
+        snapshot: AccountSnapshot,
+        batch: DailyIntentBatch,
+        evidence: DailyRiskEvidence | DailyRuntimeRiskEvidence,
+        decision: DailyRiskDecision,
+        commitments: tuple[Commitment, ...],
+        disposition: Literal["rejected", "no_intents", "installed", "rolled_back"],
+        *,
+        source_state: AccountingState,
+        source_context: AccountingContext,
+    ) -> None:
+        if not self.continuous:
+            return
+        if type(evidence) is not DailyRuntimeRiskEvidence:
+            raise _Stop("failed", "CONTINUOUS_EVIDENCE_VERSION_REQUIRED")
+        self.runtime_decisions.append(
+            ContinuousDecision(
+                source_state=source_state,
+                source_context=source_context,
+                snapshot=snapshot,
+                batch=batch,
+                evidence=evidence,
+                decision=decision,
+                installed_commitments=commitments,
+                disposition=disposition,
+            )
         )
 
     def _decision(
@@ -999,8 +1304,12 @@ class _Engine:
             tuple(history),
             expected,
             self.scored.index(source_session),
-            self.sessions[execution].opens_at,
-            self.sessions[execution].closes_at,
+            self.sessions[execution].opens_at + timedelta(minutes=5)
+            if self.continuous
+            else self.sessions[execution].opens_at,
+            self.sessions[execution].opens_at + timedelta(minutes=10)
+            if self.continuous
+            else self.sessions[execution].closes_at,
         )
         transition = self.strategy.on_decision(context)
         if (
@@ -1093,6 +1402,108 @@ class _Engine:
         )
         self._apply(command, source=content_digest(reason), stage=0)
 
+    def _reconcile(self, event: EngineEvent) -> None:
+        """Apply planned source facts in this engine, preserving flow/wealth history."""
+        batch = event.payload
+        assert isinstance(batch, ContinuousReconciliationBatch)
+        if not self.continuous or self.baseline_id is None:
+            raise _Stop("rejected", "RECONCILIATION_REQUIRES_CONTINUOUS_BASELINE")
+        before = self._project(event.event_id, 1)
+        plan = plan_reconciliation_facts(
+            scope=batch.scope,
+            current=self.current,
+            facts=batch.facts,
+            source_receipts=batch.source_receipts,
+            prior_applications=batch.prior_applications,
+            context=self._context(event.event_id),
+            policy=self.spec.execution_policy,
+            source_order=batch.source_order,
+        )
+        quarantine = set(plan.quarantined_fact_ids)
+        unresolved: set[str] = set()
+        reasons = set(plan.reasons)
+        duplicate: set[str] = set()
+        applications: dict[str, FactApplication] = {}
+        pending = {item.observation.fact_id for item in plan.candidates} - quarantine
+        while pending:
+            self._budget()
+            ready = reconciliation_ready_facts(plan, pending_fact_ids=tuple(sorted(pending)))
+            if not ready:
+                unresolved.update(pending)
+                reasons.add("CYCLIC_FACT_DEPENDENCY")
+                break
+            for item in ready:
+                identity = item.observation.fact_id
+                pending.remove(identity)
+                checked = check_reconciliation_candidate(
+                    plan,
+                    item,
+                    current=self.current,
+                    blocked_fact_ids=tuple(sorted(quarantine | unresolved)),
+                )
+                if checked.disposition != "apply":
+                    if checked.disposition == "duplicate":
+                        assert checked.application is not None
+                        applications[identity] = checked.application
+                        duplicate.add(identity)
+                    else:
+                        (quarantine if checked.disposition == "quarantined" else unresolved).add(
+                            identity
+                        )
+                        assert checked.reason is not None
+                        reasons.add(checked.reason)
+                    continue
+                self.processed += 1
+                self._budget()
+                self.economic = reconciliation_fact_effective_at(item)
+                self.mark_session = self.economic.astimezone(ZoneInfo("America/New_York")).date()
+                if isinstance(item.command.payload, LedgerCashFlow):
+                    result = self._flow(item.command, item.semantic_sha256, reject_stops=False)
+                else:
+                    result = self._apply(
+                        item.command, source=item.semantic_sha256, stage=1, reject_stops=False
+                    )
+                if result.disposition == "rejected":
+                    unresolved.add(identity)
+                    reasons.add("CANONICAL_ACCOUNTING_REJECTED_FACT")
+                    continue
+                if result.due_events:
+                    raise _Stop("failed", "OBSERVED_FACT_EMITTED_MODELED_DUE_EVENT")
+                assert self._last_apply_context is not None
+                application = derive_reconciliation_application(
+                    item,
+                    current=result,
+                    applied_context=self._last_apply_context,
+                )
+                if application is None:
+                    unresolved.add(identity)
+                    reasons.add("CANONICAL_ECONOMIC_APPLICATION_UNAVAILABLE")
+                else:
+                    applications[identity] = application
+                reasons.update(result.reasons)
+        if reasons:
+            self._halt("RECONCILIATION_REQUIRES_OWNER_DISPOSITION")
+        self.economic = event.economic_at
+        self.mark_session = self.economic.astimezone(ZoneInfo("America/New_York")).date()
+        self._project(event.event_id, 1)
+        result_batch = AppliedReconciliationBatch(
+            self.state,
+            self.current,
+            tuple(applications[key] for key in sorted(applications)),
+            tuple(sorted(duplicate)),
+            tuple(sorted(unresolved - quarantine)),
+            tuple(sorted(quarantine)),
+            tuple(sorted(reasons)),
+        )
+        self.application_batches.append(result_batch)
+        self._trace(
+            event.event_id,
+            "reconciliation_batch",
+            batch.source_closure_sha256,
+            before,
+            reasons=result_batch.reasons,
+        )
+
     def _frontier(self, events: list[EngineEvent]) -> None:
         ordered = self._ordered(events)
         observations = [
@@ -1111,6 +1522,7 @@ class _Engine:
         for event in ordered:
             if (
                 isinstance(event.payload, ScheduleSignal)
+                and not self.continuous
                 and event.payload.kind == "session_open"
                 and any(
                     c.state != "terminal"
@@ -1156,6 +1568,8 @@ class _Engine:
                     source=event.causal_sha256,
                     stage=3,
                 )
+            elif isinstance(payload, ContinuousReconciliationBatch):
+                self._reconcile(event)
             elif isinstance(payload, AccountingCommand):
                 if isinstance(payload.payload, CausalMark):
                     self.mark_session = payload.payload.session
@@ -1201,7 +1615,7 @@ class _Engine:
         for event, signal in signals:
             if signal.kind == "baseline":
                 self._baseline()
-            elif signal.kind == "session_close":
+            elif signal.kind == "session_close" and not self.continuous:
                 self.economic = self.sessions[signal.source_session].closes_at
                 self.mark_session = signal.source_session
                 for commitment in tuple(self.state.commitments):
@@ -1254,7 +1668,11 @@ class _Engine:
                     self.done_sessions.add(signal.source_session)
                 self._decision(signal.source_session, event.event_id, "timer")
         for commitment in tuple(self.state.commitments):
-            if commitment.state == "approved_unsent" and not self.state.halted:
+            if (
+                commitment.state == "approved_unsent"
+                and not self.state.halted
+                and not self.continuous
+            ):
                 self.economic = self.now
                 if not self.requests.permits(self.now, 1, low_priority=True):
                     self._halt("SIMULATED_REQUEST_CAPACITY_EXHAUSTED")
@@ -1313,21 +1731,172 @@ class _Engine:
             if terminal:
                 self.terminal_id = row.row_id
 
+    def checkpoint(self) -> CausalEngineCheckpoint:
+        """Snapshot a closed frontier without restarting strategy/account state."""
+        if self._closure_status != "closed":
+            raise ValueError("checkpoint requires successful admission and a closed frontier")
+        remaining = self._remaining_wall_ns()
+        if remaining < 0:
+            raise _Stop("cancelled", "WALL_TIME_BUDGET_EXCEEDED")
+        result = CausalEngineCheckpoint(
+            inputs=self.inputs,
+            state=self.state,
+            current=self.current,
+            strategy_state=self.strategy_state,
+            now=self.now,
+            economic=self.economic,
+            mark_session=self.mark_session,
+            frontier=self.frontier,
+            sequence=self.sequence,
+            stage=self.stage,
+            processed=self.processed,
+            output_bytes=self.output_bytes,
+            retained_knowledge=self.retained_knowledge,
+            events=tuple(self.events[key] for key in sorted(self.events)),
+            pending_ids=tuple(identity for _, identity in sorted(self.queue)),
+            seen=tuple(sorted(self.seen)),
+            causal_sources=tuple(sorted(self.causal_sources.items())),
+            sequence_parents=tuple(sorted(self.sequence_parents.items())),
+            heads=tuple((key, self.heads[key].event_id) for key in sorted(self.heads)),
+            benchmarks=tuple(
+                (key, self.benchmarks[key].event_id) for key in sorted(self.benchmarks)
+            ),
+            done_sessions=tuple(sorted(self.done_sessions)),
+            valued_sessions=tuple(sorted(self.valued_sessions)),
+            accepted=tuple(
+                (key, tuple(sorted(self.accepted[key]))) for key in sorted(self.accepted)
+            ),
+            targets=tuple(sorted(self.targets.items())),
+            trace=tuple(self.trace),
+            valuations=tuple(self.valuations),
+            flows=tuple(self.flows),
+            benchmark_inputs=tuple(self.benchmark_inputs),
+            wealth=tuple(self.wealth),
+            request_rows=tuple(self.requests.rows),
+            daily_wealth=self.daily_wealth,
+            baseline_id=self.baseline_id,
+            terminal_id=self.terminal_id,
+            baseline_at=self.baseline_at,
+            baseline_economic=self.baseline_economic,
+            baseline_session=self.baseline_session,
+            remaining_wall_nanoseconds=remaining,
+            closed_source_frontiers=tuple(sorted(self.closed_source_frontiers.items())),
+            runtime_decisions=tuple(self.runtime_decisions),
+        )
+        if self.continuous and len(encode_record(result)) > self.spec.max_output_bytes:
+            raise _Stop("rejected", "CHECKPOINT_BUDGET_EXCEEDED")
+        return result
+
+    @classmethod
+    def restore(
+        cls,
+        checkpoint: CausalEngineCheckpoint,
+        *,
+        expected_sha256: str,
+        accounting: ExecutionAccountingPort,
+        strategy: DailyStrategy,
+        stop_requested: Callable[[], bool] | None = None,
+        runtime_evidence: ContinuousRiskEvidencePort | None = None,
+    ) -> _Engine:
+        """Restore an exact caller-authenticated checkpoint, without readmission.
+
+        The expected digest comes from the durable account/input chain. A bare
+        checkpoint or caller-selected digest is not effect authorization.
+        """
+        if (
+            type(checkpoint) is not CausalEngineCheckpoint
+            or checkpoint.semantic_sha256 != expected_sha256
+        ):
+            raise ValueError("checkpoint differs from retained digest")
+        restored = cls(checkpoint.inputs, accounting, strategy, stop_requested, runtime_evidence)
+        if not restored.continuous:
+            restored._wall_allowance_ns = checkpoint.remaining_wall_nanoseconds
+        # The names are a fixed implementation whitelist, never wire-selected.
+        for name in (
+            "state",
+            "current",
+            "strategy_state",
+            "now",
+            "economic",
+            "mark_session",
+            "frontier",
+            "sequence",
+            "processed",
+            "output_bytes",
+            "retained_knowledge",
+            "daily_wealth",
+            "baseline_id",
+            "terminal_id",
+            "baseline_at",
+            "baseline_economic",
+            "baseline_session",
+        ):
+            setattr(restored, name, getattr(checkpoint, name))
+        restored._stage_number = checkpoint.stage
+        restored.events = {event.event_id: event for event in checkpoint.events}
+        restored.queue = [
+            (restored.events[key].knowledge_at, key) for key in checkpoint.pending_ids
+        ]
+        heapq.heapify(restored.queue)
+        restored.seen = set(checkpoint.seen)
+        restored.causal_sources = dict(checkpoint.causal_sources)
+        restored.sequence_parents = dict(checkpoint.sequence_parents)
+        restored.heads = {key: restored.events[value] for key, value in checkpoint.heads}
+        restored.benchmarks = {key: restored.events[value] for key, value in checkpoint.benchmarks}
+        restored.done_sessions = set(checkpoint.done_sessions)
+        restored.valued_sessions = set(checkpoint.valued_sessions)
+        restored.accepted = {key: set(value) for key, value in checkpoint.accepted}
+        restored.targets = dict(checkpoint.targets)
+        restored.trace = list(checkpoint.trace)
+        restored.valuations = list(checkpoint.valuations)
+        restored.flows = list(checkpoint.flows)
+        restored.benchmark_inputs = list(checkpoint.benchmark_inputs)
+        restored.wealth = list(checkpoint.wealth)
+        restored.requests.rows = list(checkpoint.request_rows)
+        restored.closed_source_frontiers = dict(checkpoint.closed_source_frontiers)
+        restored.runtime_decisions = list(checkpoint.runtime_decisions)
+        restored._closure_status = "closed"
+        retained = restored.checkpoint()
+        if (
+            replace(retained, remaining_wall_nanoseconds=checkpoint.remaining_wall_nanoseconds)
+            != checkpoint
+        ):
+            raise ValueError("restored checkpoint is not exact")
+        return restored
+
+    def advance_next_frontier(self) -> bool:
+        """Advance the same atomic frontier used by the historical wrapper."""
+        if self._closure_status != "closed":
+            raise ValueError("advance requires successful admission and a closed frontier")
+        if not self.queue or (self.terminal_id is not None and not self.continuous):
+            return False
+        self._closure_status = "advancing"
+        try:
+            self._budget()
+            instant = self.queue[0][0]
+            self.now = instant
+            self.frontier += 1
+            events: list[EngineEvent] = []
+            while self.queue and self.queue[0][0] == instant:
+                _, event_id = heapq.heappop(self.queue)
+                events.append(self.events[event_id])
+            self._frontier(events)
+        except BaseException:
+            self._closure_status = "failed"
+            raise
+        self._closure_status = "closed"
+        return True
+
     def run(self) -> EngineResult:
+        if self.continuous:
+            raise ValueError("continuous input requires explicit closed-frontier admission")
+        assert not isinstance(self.spec, ContinuousEngineSpec)
         status: Literal["completed", "cancelled", "failed", "rejected"] = "completed"
         reasons: tuple[str, ...] = ()
         try:
             self._admit()
-            while self.queue and self.terminal_id is None:
-                self._budget()
-                instant = self.queue[0][0]
-                self.now = instant
-                self.frontier += 1
-                events: list[EngineEvent] = []
-                while self.queue and self.queue[0][0] == instant:
-                    _, event_id = heapq.heappop(self.queue)
-                    events.append(self.events[event_id])
-                self._frontier(events)
+            while self.advance_next_frontier():
+                pass
             if self.terminal_id is None:
                 raise _Stop("failed", "TERMINAL_VALUATION_UNAVAILABLE")
         except _Stop as stop:
@@ -1378,3 +1947,304 @@ def run_causal_engine(
 ) -> EngineResult:
     """Run one bounded independent fold using only admitted causal facts."""
     return _Engine(inputs, accounting, strategy, stop_requested).run()
+
+
+def initialize_continuous_engine(
+    inputs: ContinuousEngineInputs,
+    *,
+    accounting: ExecutionAccountingPort,
+    strategy: DailyStrategy,
+    runtime_evidence: ContinuousRiskEvidencePort | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> CausalEngineCheckpoint:
+    """Prepare one new stream from known inputs through the canonical queue.
+
+    This pure transition needs a durable account transaction before it becomes
+    retained state. It performs no source I/O, order dispatch or lease acquisition.
+    """
+    if type(inputs) is not ContinuousEngineInputs:
+        raise ValueError("continuous initialization requires the exact input version")
+    engine = _Engine(inputs, accounting, strategy, stop_requested, runtime_evidence)
+    engine._admit()
+    while engine.queue and engine.queue[0][0] <= inputs.spec.initialized_at:
+        engine.advance_next_frontier()
+    return engine.checkpoint()
+
+
+def advance_continuous_engine_with_applications(
+    checkpoint: CausalEngineCheckpoint,
+    frontier: ClosedEngineFrontier,
+    *,
+    expected_sha256: str,
+    accounting: ExecutionAccountingPort,
+    strategy: DailyStrategy,
+    runtime_evidence: ContinuousRiskEvidencePort | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> tuple[CausalEngineCheckpoint, tuple[AppliedReconciliationBatch, ...]]:
+    """Prepare the next closed source frontier, never consume a future tape.
+
+    Exact input retry is inert. The caller authenticates and atomically retains
+    source closure, expected account heads, resulting checkpoint and outbound
+    proposals. Each newly admitted continuous step has its own bounded compute
+    allowance; finite historical restoration retains its aggregate allowance.
+    """
+    if (
+        type(checkpoint) is not CausalEngineCheckpoint
+        or not isinstance(checkpoint.inputs, ContinuousEngineInputs)
+        or checkpoint.semantic_sha256 != expected_sha256
+        or type(frontier) is not ClosedEngineFrontier
+        or frontier.stream_id != checkpoint.inputs.spec.run_id
+    ):
+        raise ValueError("continuous frontier differs from retained stream/checkpoint")
+    previous = dict(checkpoint.closed_source_frontiers).get(frontier.frontier_id)
+    if previous is not None:
+        if previous != frontier.semantic_sha256:
+            raise ValueError("conflicting closed frontier identity")
+        return checkpoint, ()
+    if (
+        frontier.previous_checkpoint_sha256 != expected_sha256
+        or frontier.knowledge_at <= checkpoint.now
+    ):
+        raise ValueError("continuous frontier requires exact predecessor and advancing knowledge")
+    engine = _Engine.restore(
+        checkpoint,
+        expected_sha256=expected_sha256,
+        accounting=accounting,
+        strategy=strategy,
+        runtime_evidence=runtime_evidence,
+        stop_requested=stop_requested,
+    )
+    engine._admit_continuous_events(frontier.events, at=frontier.knowledge_at)
+    # A clock-only closure still seals this knowledge boundary through the sole
+    # queue. It carries no market, risk or broker freshness assertion.
+    signal_id = canonical_id("continuous-closure", frontier.frontier_id)
+    engine._enqueue(
+        engine._internal(
+            signal_id,
+            ScheduleSignal("personal-continuous-closure/1", engine.mark_session, "valuation_due"),
+            frontier.knowledge_at,
+        )
+    )
+    # Pending calendar rows describe due instants, not evidence that a sleeping
+    # worker ran on time. Close overdue timers at this actually admitted boundary
+    # while retaining their original economic/due instant. Source receipt times
+    # and already-consumed events are never rewritten.
+    for _at, identity in engine.queue:
+        event = engine.events[identity]
+        if isinstance(event.payload, ScheduleSignal) and event.knowledge_at < frontier.knowledge_at:
+            engine.events[identity] = replace(event, knowledge_at=frontier.knowledge_at)
+    engine.queue = [
+        (engine.events[identity].knowledge_at, identity) for _, identity in engine.queue
+    ]
+    heapq.heapify(engine.queue)
+    while engine.queue and engine.queue[0][0] <= frontier.knowledge_at:
+        engine.advance_next_frontier()
+    engine.closed_source_frontiers[frontier.frontier_id] = frontier.semantic_sha256
+    return engine.checkpoint(), tuple(engine.application_batches)
+
+
+def advance_continuous_engine(
+    checkpoint: CausalEngineCheckpoint,
+    frontier: ClosedEngineFrontier,
+    *,
+    expected_sha256: str,
+    accounting: ExecutionAccountingPort,
+    strategy: DailyStrategy,
+    runtime_evidence: ContinuousRiskEvidencePort | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> CausalEngineCheckpoint:
+    """Advance the sole engine; application consumers may retain its receipt variant."""
+    result, _ = advance_continuous_engine_with_applications(
+        checkpoint,
+        frontier,
+        expected_sha256=expected_sha256,
+        accounting=accounting,
+        strategy=strategy,
+        runtime_evidence=runtime_evidence,
+        stop_requested=stop_requested,
+    )
+    return result
+
+
+def _runtime_loss_inputs(
+    wealth: tuple[WealthPoint, ...],
+    sequence: int,
+    snapshot: AccountSnapshot,
+    daily_wealth: Decimal | None,
+) -> tuple[Decimal | None, Decimal | None]:
+    if not wealth:
+        return None, None
+    points = (
+        *wealth,
+        WealthPoint(
+            "risk-" + str(sequence), sequence + 1, snapshot.nav, reasons=snapshot.valuation_reasons
+        ),
+    )
+    value = derive_wealth_path(points)[-1]
+    if value.wealth is None or daily_wealth is None:
+        return None, value.drawdown
+    with localcontext(derived_context()):
+        return value.wealth / daily_wealth - 1, value.drawdown
+
+
+def continuous_runtime_loss_inputs(
+    checkpoint: CausalEngineCheckpoint,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Use the sole engine's loss calculation on its exact retained history."""
+    if type(checkpoint.inputs) is not ContinuousEngineInputs:
+        raise ValueError("continuous loss inputs require a continuous checkpoint")
+    return _runtime_loss_inputs(
+        checkpoint.wealth, checkpoint.sequence, checkpoint.current.snapshot, checkpoint.daily_wealth
+    )
+
+
+def continuous_runtime_action_context(
+    checkpoint: CausalEngineCheckpoint,
+    *,
+    command_id: str,
+    activation: bool,
+    checked_at: datetime | None = None,
+) -> AccountingContext:
+    """Pure next-reduction context after an already closed actual source frontier.
+
+    This derives values, not source/fence/dispatch authority. The durable composer
+    verifies that the exact source closure produced the snapshot and command.
+    """
+    if type(checkpoint.inputs) is not ContinuousEngineInputs:
+        raise ValueError("runtime action context requires a continuous checkpoint")
+    spec = checkpoint.inputs.spec
+    at = checkpoint.now if checked_at is None else checked_at
+    if at < checkpoint.now:
+        raise ValueError("runtime context cannot rewind time")
+    if activation and checkpoint.current.snapshot.point.knowledge_at > checkpoint.now:
+        raise ValueError("runtime action requires the current closed-boundary snapshot")
+    return AccountingContext(
+        spec.run_id,
+        ReductionPoint(checkpoint.frontier, checkpoint.sequence + 1, at, 4),
+        checkpoint.economic,
+        command_id,
+        checkpoint.mark_session,
+        spec.instruments,
+        checkpoint.current.snapshot if activation else None,
+        spec.risk_policy.semantic_sha256 if activation else None,
+    )
+
+
+def apply_continuous_runtime_action(
+    checkpoint: CausalEngineCheckpoint,
+    action: ContinuousRuntimeAction,
+    *,
+    expected_sha256: str,
+    accounting: ExecutionAccountingPort,
+    strategy: DailyStrategy,
+    runtime_evidence: ContinuousRiskEvidencePort | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> CausalEngineCheckpoint:
+    """Apply one internal canonical command through the same engine and checkpoint.
+
+    Source frontiers cannot carry this action. A current retained source boundary
+    must precede it. Metadata records its actual later check time without
+    refreshing market snapshots or reading scheduled work. The
+    storage composer must authenticate complete attempts, risk and hold sources and
+    publish them with this checkpoint. These pure values cannot authorize delivery.
+    """
+    if (
+        type(action) is not ContinuousRuntimeAction
+        or type(checkpoint.inputs) is not ContinuousEngineInputs
+        or checkpoint.semantic_sha256 != expected_sha256
+        or action.stream_id != checkpoint.inputs.spec.run_id
+    ):
+        raise ValueError("runtime action differs from retained continuous stream")
+    previous = dict(checkpoint.closed_source_frontiers).get(action.retained_id)
+    if previous is not None:
+        if previous != action.semantic_sha256:
+            raise ValueError("runtime action identity conflicts with its retained command")
+        return checkpoint
+    if action.previous_checkpoint_sha256 != expected_sha256 or action.checked_at < checkpoint.now:
+        raise ValueError(
+            "runtime action requires exact predecessor and original closed-boundary time"
+        )
+    if action.command is None:
+        # Attempt metadata has its own authenticated durable B history. Seal the
+        # exact internal event/source identity without inventing a financial
+        # command, changing canonical orders or consuming a modeled request.
+        # The composer must bind this whole event group to the actual B result.
+        engine = _Engine.restore(
+            checkpoint,
+            expected_sha256=expected_sha256,
+            accounting=accounting,
+            strategy=strategy,
+            runtime_evidence=runtime_evidence,
+            stop_requested=stop_requested,
+        )
+        engine.processed += 1
+        engine._budget()
+        engine.now = action.checked_at
+        engine.closed_source_frontiers[action.retained_id] = action.semantic_sha256
+        return engine.checkpoint()
+    if action.command.command_id in checkpoint.seen or any(
+        command_id == action.command.command_id for command_id, _ in checkpoint.state.commands
+    ):
+        raise ValueError("runtime action cannot relabel a previously consumed command")
+    payload = action.command.payload
+    assert isinstance(payload, (ActivateRuntimeCommitments, ReleaseRuntimeUnsent))
+    if payload.account_id != checkpoint.state.account_id:
+        raise ValueError("runtime action account differs")
+    context = continuous_runtime_action_context(
+        checkpoint,
+        command_id=action.command.command_id,
+        activation=isinstance(payload, ActivateRuntimeCommitments),
+        checked_at=action.checked_at,
+    )
+    engine = _Engine.restore(
+        checkpoint,
+        expected_sha256=expected_sha256,
+        accounting=accounting,
+        strategy=strategy,
+        runtime_evidence=runtime_evidence,
+        stop_requested=stop_requested,
+    )
+    engine.processed += 1
+    engine._budget()
+    engine.now = action.checked_at
+    activation_count = len(payload.terms) if isinstance(payload, ActivateRuntimeCommitments) else 0
+    if activation_count and not continuous_request_budget_available(
+        checkpoint.request_rows,
+        at=action.checked_at,
+        count=activation_count,
+        low_priority=True,
+    ):
+        raise ValueError("runtime action exceeds the modeled low-priority request budget")
+    result = engine._apply(
+        action.command,
+        source=action.source_closure_sha256,
+        stage=4,
+        approved=context.approved_snapshot,
+    )
+    if (
+        result.disposition != "applied"
+        or engine._last_apply_context != context
+        or result.journal_entries
+        or result.due_events
+    ):
+        raise ValueError("runtime action differs from its exact non-economic canonical context")
+    # Commitments/command lineage may change; actual economic and order history may not.
+    for name in (
+        "submissions",
+        "broker_events",
+        "event_points",
+        "cancel_requests",
+        "cash_flows",
+        "stock_splits",
+        "cash_dividends",
+        "dividend_payments",
+        "settlement_instructions",
+        "settlement_confirmations",
+        "marks",
+    ):
+        if getattr(engine.state, name) != getattr(checkpoint.state, name):
+            raise ValueError("runtime action replaced observed financial or order history")
+    for _ in range(activation_count):
+        engine.requests.record(action.checked_at, low_priority=True)
+    engine.closed_source_frontiers[action.retained_id] = action.semantic_sha256
+    return engine.checkpoint()

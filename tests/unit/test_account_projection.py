@@ -221,6 +221,59 @@ def test_correction_rebuilds_fifo_book_from_current_execution_heads() -> None:
     assert account.equity == Decimal("10111.5")
 
 
+def test_simultaneous_cross_order_fills_keep_canonical_fifo_and_cost_basis() -> None:
+    buys = sorted(
+        (
+            order_state(side=Side.BUY, suffix=suffix, quantity="2", price=price, fee="0", offset=0)
+            for suffix, price in (("same-a", "100"), ("same-b", "110"))
+        ),
+        key=lambda state: state.submission.order_id,
+    )
+    # Execution IDs deliberately sort in the opposite order to order IDs.
+    buys = [
+        reduce_order_lifecycle(
+            submission=state.submission,
+            broker_events=(
+                state.broker_events[0],
+                replace(
+                    state.broker_events[1],
+                    execution_id=execution_id,
+                ),
+            ),
+        )
+        for state, execution_id in zip(buys, ("execution-z", "execution-a"), strict=True)
+    ]
+    for values in permutations(buys):
+        account = project_fifo_account(
+            account_id=ACCOUNT_ID,
+            policy=CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1,
+            order_states=values,
+            cash_flows=(funding(),),
+            marks=(mark(),),
+            valuation_at=VALUATION_AT,
+        )
+        assert tuple(lot.execution_id for lot in account.positions[0].open_lots) == (
+            "execution-z",
+            "execution-a",
+        )
+    sell = order_state(
+        side=Side.SELL, suffix="same-sell", quantity="1", price="120", fee="0", offset=1
+    )
+    first_price = buys[0].executions[0].price
+    for values in permutations((*buys, sell)):
+        account = project_fifo_account(
+            account_id=ACCOUNT_ID,
+            policy=CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1,
+            order_states=values,
+            cash_flows=(funding(),),
+            marks=(mark(),),
+            valuation_at=VALUATION_AT,
+        )
+        assert account.realized_pnl_before_fees == Decimal("120") - first_price
+        assert account.positions[0].cost_basis == Decimal("420") - first_price
+        assert account.positions[0].open_lots[0].quantity == Decimal("1")
+
+
 def test_corrected_history_that_would_create_short_position_fails_closed() -> None:
     buy_a, _, sell = fifo_history()
     busted_buy = corrected(buy_a, quantity="0", price="100", fee="0")
@@ -526,3 +579,97 @@ def test_account_projection_revalidates_ledger_marks_positions_and_as_of() -> No
         forged_projection(account, positions=())._validate()
     with pytest.raises(AccountProjectionError, match="as_of precedes"):
         forged_projection(account, as_of=BASE_TIME)._validate()
+
+
+def _tie_identity(state, *, order_id, execution_id):
+    submission = replace(state.submission, order_id=order_id)
+    return reduce_order_lifecycle(
+        submission=submission,
+        broker_events=tuple(
+            replace(
+                event,
+                order_id=order_id,
+                **({"execution_id": execution_id} if event.execution_id is not None else {}),
+            )
+            for event in state.broker_events
+        ),
+    )
+
+
+def test_historical_simultaneous_buy_sell_preserves_execution_id_order():
+    buy = _tie_identity(
+        order_state(
+            side=Side.BUY, suffix="round-buy", quantity="1", price="100", fee="0", offset=0
+        ),
+        order_id="order-z",
+        execution_id="execution-a",
+    )
+    sell = _tie_identity(
+        order_state(
+            side=Side.SELL, suffix="round-sell", quantity="1", price="110", fee="0", offset=0
+        ),
+        order_id="order-a",
+        execution_id="execution-z",
+    )
+    for values in permutations((buy, sell)):
+        result = project_fifo_account(
+            account_id=ACCOUNT_ID,
+            order_states=values,
+            cash_flows=(funding(),),
+            marks=(mark(),),
+            valuation_at=VALUATION_AT,
+        )
+        assert result.policy is CostBasisPolicy.FIFO_TRADE_DATE
+        assert result.cash == Decimal("10010")
+        assert result.realized_pnl_before_fees == Decimal("10")
+        assert result.positions[0].quantity == 0
+        with pytest.raises(AccountProjectionError, match="short position"):
+            project_fifo_account(
+                account_id=ACCOUNT_ID,
+                order_states=values,
+                policy=CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1,
+                cash_flows=(funding(),),
+                marks=(mark(),),
+                valuation_at=VALUATION_AT,
+            )
+
+
+def test_historical_tie_cost_basis_is_preserved_and_new_observed_policy_is_explicit():
+    buy_a = _tie_identity(
+        order_state(
+            side=Side.BUY, suffix="basis-buy-a", quantity="2", price="100", fee="0", offset=0
+        ),
+        order_id="order-z",
+        execution_id="execution-a",
+    )
+    buy_b = _tie_identity(
+        order_state(
+            side=Side.BUY, suffix="basis-buy-b", quantity="2", price="110", fee="0", offset=0
+        ),
+        order_id="order-a",
+        execution_id="execution-z",
+    )
+    sell = order_state(
+        side=Side.SELL, suffix="basis-sell", quantity="3", price="120", fee="0", offset=1
+    )
+    for values in permutations((buy_a, buy_b, sell)):
+        old = project_fifo_account(
+            account_id=ACCOUNT_ID,
+            order_states=values,
+            cash_flows=(funding(),),
+            marks=(mark(),),
+            valuation_at=VALUATION_AT,
+        )
+        new = project_fifo_account(
+            account_id=ACCOUNT_ID,
+            order_states=values,
+            policy=CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1,
+            cash_flows=(funding(),),
+            marks=(mark(),),
+            valuation_at=VALUATION_AT,
+        )
+        assert old.realized_pnl_before_fees == Decimal("50")
+        assert old.positions[0].cost_basis == Decimal("110")
+        assert new.realized_pnl_before_fees == Decimal("40")
+        assert new.positions[0].cost_basis == Decimal("100")
+        assert old.semantic_sha256 != new.semantic_sha256

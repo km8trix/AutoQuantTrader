@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy import Engine
 
 from packages.persistence import sqlite_config
-from packages.persistence.database import create_database_engine
+from packages.persistence.database import EXPECTED_SCHEMA_REVISION, create_database_engine
 from packages.persistence.sqlite_config import ResearchSQLiteConfigurationError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -368,8 +368,9 @@ def test_cli_initialization_and_empty_worker_use_persisted_wal(tmp_path: Path) -
     try:
         assert _settings(engine) == ("wal", 2, 1, 5000, 1000)
         with engine.connect() as connection:
-            assert connection.exec_driver_sql(
-                "SELECT version_num FROM alembic_version"
-            ).scalar_one() == ("0039_personal_research")
+            assert (
+                connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()
+                == EXPECTED_SCHEMA_REVISION
+            )
     finally:
         engine.dispose()

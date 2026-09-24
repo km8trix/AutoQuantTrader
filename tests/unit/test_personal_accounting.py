@@ -105,7 +105,7 @@ class Harness:
         self.state = self.last.state
         return self.last
 
-    def install(self, name, quantity, price, fee_budget="0", side=Side.BUY):
+    def install(self, name, quantity, price, fee_budget="0", side=Side.BUY, *, activate=True):
         source = self.project().snapshot
         at = self.at + timedelta(seconds=1)
         expiry = at.replace(hour=21, minute=0, second=0, microsecond=0)
@@ -164,8 +164,9 @@ class Harness:
         )
         result = self.apply(InstallCommitment(submission, c), at=at, approved=source)
         assert result.disposition == "applied", result.reasons
-        result = self.apply(ActivateCommitment(c.commitment_id))
-        assert result.disposition == "applied", result.reasons
+        if activate:
+            result = self.apply(ActivateCommitment(c.commitment_id))
+            assert result.disposition == "applied", result.reasons
         return c
 
     def order(self, c):

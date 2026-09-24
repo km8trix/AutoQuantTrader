@@ -100,6 +100,8 @@ def _json_text(node: object) -> str:
 
 
 def _typed_node(value: object) -> object:
+    if type(value) is tuple:
+        return {"type": "tuple", "value": [_typed_node(item) for item in value]}
     if value is None:
         return {"type": "null", "value": None}
     if isinstance(value, Enum):
@@ -131,8 +133,6 @@ def _typed_node(value: object) -> object:
         return {"type": "date", "value": value.isoformat()}
     if isinstance(value, UUID):
         return {"type": "uuid", "value": str(value)}
-    if type(value) is tuple:
-        return {"type": "tuple", "value": [_typed_node(item) for item in value]}
     if type(value) is list:
         return {"type": "list", "value": [_typed_node(item) for item in value]}
     if isinstance(value, Mapping):
@@ -149,10 +149,66 @@ def _typed_node(value: object) -> object:
     raise TypeError(f"unsupported canonical JSON value type: {type(value).__qualname__}")
 
 
+def _append_typed_text(value: object, parts: list[object]) -> None:
+    """Emit exact builtin nodes directly; retain the original conversion fallback."""
+    if type(value) is tuple:
+        parts.append('{"type":"tuple","value":[')
+        for index, item in enumerate(value):
+            if index:
+                parts.append(",")
+            _append_typed_text(item, parts)
+        parts.append("]}")
+    elif value is None:
+        parts.append('{"type":"null","value":null}')
+    elif type(value) is bool:
+        parts.append('{"type":"bool","value":true}' if value else '{"type":"bool","value":false}')
+    elif type(value) is int:
+        parts.append(
+            '{"type":"int","value":' + json.encoder.encode_basestring_ascii(str(value)) + "}"
+        )
+    elif type(value) is str:
+        parts.append(
+            '{"type":"string","value":' + json.encoder.encode_basestring_ascii(value) + "}"
+        )
+    elif type(value) is bytes:
+        parts.append(
+            '{"type":"bytes","value":' + json.encoder.encode_basestring_ascii(value.hex()) + "}"
+        )
+    else:
+        # Convert fallback nodes in the original traversal order. Defer their
+        # JSON serialization until every conversion/read hook has completed.
+        parts.append(_typed_node(value))
+
+
+def _typed_fragment_text(part: object) -> str:
+    if type(part) is str:
+        return part
+    # The original fallback already converted these nodes. Emit only exact
+    # two-string nodes directly, after all original conversion hooks finish.
+    if (
+        type(part) is dict
+        and len(part) == 2
+        and "type" in part
+        and "value" in part
+        and type(part["type"]) is str
+        and type(part["value"]) is str
+    ):
+        return (
+            '{"type":'
+            + json.encoder.encode_basestring_ascii(part["type"])
+            + ',"value":'
+            + json.encoder.encode_basestring_ascii(part["value"])
+            + "}"
+        )
+    return _json_text(part)
+
+
 def canonical_json_text(value: object) -> str:
     """Encode supported values as deterministic, explicitly typed JSON."""
 
-    return _json_text(_typed_node(value))
+    parts: list[object] = []
+    _append_typed_text(value, parts)
+    return "".join(part if type(part) is str else _typed_fragment_text(part) for part in parts)
 
 
 def canonical_json_bytes(value: object) -> bytes:

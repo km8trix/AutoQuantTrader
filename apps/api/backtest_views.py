@@ -62,6 +62,7 @@ _LOCAL_SESSION_SCHEME = APIKeyCookie(
 class _AuthenticatedLocalOperator:
     operator_id: str
     csrf_token: str
+    expires_at: datetime
 
 
 class LocalOperatorSecurity:
@@ -157,6 +158,16 @@ class LocalOperatorSecurity:
         *,
         now: datetime,
     ) -> str:
+        return self.authenticate_with_expiry(session_cookie, csrf_token, now=now)[0]
+
+    def authenticate_with_expiry(
+        self,
+        session_cookie: str | None,
+        csrf_token: str,
+        *,
+        now: datetime,
+    ) -> tuple[str, datetime]:
+        """Verify the same local session and expose only its identity and expiry."""
         if not self._enabled:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -168,7 +179,7 @@ class LocalOperatorSecurity:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="backtest launch CSRF validation failed",
             )
-        return session.operator_id
+        return session.operator_id, session.expires_at
 
     def _disabled(self, reason: str) -> BacktestLaunchCapability:
         return BacktestLaunchCapability(
@@ -245,7 +256,11 @@ class LocalOperatorSecurity:
                 or expires_at - issued_at != int(_SESSION_LIFETIME.total_seconds())
             ):
                 raise ValueError("session claims are invalid")
-            return _AuthenticatedLocalOperator(operator_id=operator_id, csrf_token=csrf)
+            return _AuthenticatedLocalOperator(
+                operator_id=operator_id,
+                csrf_token=csrf,
+                expires_at=datetime.fromtimestamp(expires_at, UTC),
+            )
         except (
             UnicodeError,
             ValueError,

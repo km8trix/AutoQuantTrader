@@ -133,7 +133,7 @@ class ContractRecord:
 
     @property
     def semantic_sha256(self) -> str:
-        return content_digest((self.contract_version, semantic_value(self)))
+        return content_digest((self.contract_version, self))
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +173,13 @@ class CausalMark(ContractRecord):
     knowledge_at: datetime
     source_sha256: str
     quality: Literal["current", "last_known", "unavailable"] = "current"
-    basis: Literal["raw_close", "raw_execution", "synthetic_boundary"] = "raw_close"
+    basis: Literal[
+        "raw_close",
+        "raw_execution",
+        "synthetic_boundary",
+        "runtime_quote_ask_v1",
+        "runtime_quote_bid_v1",
+    ] = "raw_close"
 
     def __post_init__(self) -> None:
         super(CausalMark, self).__post_init__()

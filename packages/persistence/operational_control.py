@@ -738,7 +738,7 @@ def _head_values(record: _PersistedTransition) -> dict[str, object]:
 def _completion_rows_by_operation(
     connection: Connection,
     account_id: str,
-) -> dict[str, RowMapping]:
+) -> dict[str, OperationalControlRow]:
     rows = tuple(
         connection.execute(
             sa.select(phase5_operational_control_completions).where(
@@ -746,7 +746,13 @@ def _completion_rows_by_operation(
             )
         ).mappings()
     )
-    result: dict[str, RowMapping] = {}
+    return _completion_rows_index(rows)
+
+
+def _completion_rows_index(
+    rows: tuple[OperationalControlRow, ...],
+) -> dict[str, OperationalControlRow]:
+    result: dict[str, OperationalControlRow] = {}
     for row in rows:
         operation_id = _required_text(row, "operation_attempt_id")
         if operation_id in result:
@@ -769,6 +775,30 @@ def _verified_history_records(
         ).mappings()
     )
     completion_rows = _completion_rows_by_operation(connection, account_id)
+    head_row = (
+        connection.execute(
+            sa.select(phase5_operational_control_heads).where(
+                phase5_operational_control_heads.c.account_id == account_id
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return _verified_history_from_rows(
+        account_id=account_id,
+        transition_rows=transition_rows,
+        completion_rows=completion_rows,
+        head_row=head_row,
+    )
+
+
+def _verified_history_from_rows(
+    *,
+    account_id: str,
+    transition_rows: tuple[OperationalControlRow, ...],
+    completion_rows: Mapping[str, OperationalControlRow],
+    head_row: OperationalControlRow | None,
+) -> tuple[_PersistedTransition, ...]:
     records: list[_PersistedTransition] = []
     records_by_id: dict[str, _PersistedTransition] = {}
     current: OperationalControlTransition | None = None
@@ -875,15 +905,6 @@ def _verified_history_records(
             )
         completions[operation_id] = completion
 
-    head_row = (
-        connection.execute(
-            sa.select(phase5_operational_control_heads).where(
-                phase5_operational_control_heads.c.account_id == account_id
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
     if not records:
         if head_row is not None or completions:
             raise OperationalControlConflict(
@@ -900,6 +921,44 @@ def _verified_history_records(
         expected_head,
     )
     return tuple(records)
+
+
+def resolve_operational_control_rows(
+    *,
+    account_id: str,
+    transition_rows: tuple[OperationalControlRow, ...],
+    completion_rows: tuple[OperationalControlRow, ...],
+    head_row: OperationalControlRow | None,
+) -> OperationalControlTransition | None:
+    """Replay the original control reducer from detached, bounded captured rows.
+
+    This pure read grants no current-head authority. The caller must capture a
+    coherent complete inventory with SQL transfer bounds, leave its transaction,
+    resolve here, then recheck the exact immutable rows and current head in its
+    account transaction before using the result for any mutation.
+    """
+    if type(account_id) is not str or not account_id or account_id != account_id.strip():
+        raise OperationalControlError(
+            "operational control account ID must be non-empty and trimmed"
+        )
+    if type(transition_rows) is not tuple or type(completion_rows) is not tuple:
+        raise OperationalControlError("detached operational control rows require tuples")
+    if any(
+        _required_text(row, "account_id") != account_id
+        for row in (
+            *transition_rows,
+            *completion_rows,
+            *((head_row,) if head_row is not None else ()),
+        )
+    ):
+        raise OperationalControlConflict("detached operational control account differs")
+    records = _verified_history_from_rows(
+        account_id=account_id,
+        transition_rows=transition_rows,
+        completion_rows=_completion_rows_index(completion_rows),
+        head_row=head_row,
+    )
+    return None if not records else records[-1].transition
 
 
 def _verify_operational_control_integrity(connection: Connection) -> None:
