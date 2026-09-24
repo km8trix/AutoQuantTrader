@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -45,11 +45,72 @@ from packages.domain.forward_contracts import (
     ForwardQuote,
 )
 from packages.domain.personal_contracts import content_digest
+from packages.domain.research_dataset import ResearchCalendar, ResearchSession, research_digest
 from packages.domain.research_job_contracts import ResearchArtifactStore, ResearchRecordCodec
+from packages.market_data import ExchangeCalendar, ExchangeSession, SessionKind
 
 
 class ForwardCaptureError(ValueError):
     """Static capture failure codes; dependencies' diagnostics are never persisted."""
+
+
+def require_capture_research_calendar_binding(
+    request: ForwardCaptureRequest, calendar: ExchangeCalendar
+) -> None:
+    """Check the Tiingo-import research-calendar pin convention only.
+
+    The caller must choose this producer convention; other capture pins need not
+    use it. Hash the ResearchCalendar projection with string SessionKind values.
+    Equal copied content is not original-object or authenticated source authority.
+    This check does not grant capture admission. A source owner must separately
+    retain and recheck its original request graph and calendar provenance.
+    """
+
+    try:
+        if type(request) is not ForwardCaptureRequest or type(calendar) is not ExchangeCalendar:
+            raise ForwardCaptureError("CAPTURE_CALENDAR_INVALID")
+        request.__post_init__()
+        request.calendar.__post_init__()
+        if type(calendar.sessions) is not tuple or any(
+            type(session) is not ExchangeSession or type(session.kind) is not SessionKind
+            for session in calendar.sessions
+        ):
+            raise ForwardCaptureError("CAPTURE_CALENDAR_INVALID")
+        for session in calendar.sessions:
+            session.__post_init__()
+        calendar.__post_init__()
+        projected = ResearchCalendar(
+            calendar_id=calendar.calendar_id,
+            version=calendar.version,
+            venue=calendar.venue,
+            timezone=calendar.timezone,
+            sessions=tuple(
+                ResearchSession(
+                    venue=session.venue,
+                    session_label=session.session_label,
+                    opens_at=session.opens_at,
+                    closes_at=session.closes_at,
+                    kind=session.kind.value,
+                )
+                for session in calendar.sessions
+            ),
+        )
+        if (request.calendar.name, request.calendar.version, request.calendar.sha256) != (
+            projected.calendar_id,
+            projected.version,
+            research_digest(asdict(projected)),
+        ):
+            raise ForwardCaptureError("CAPTURE_CALENDAR_BINDING_DIFFERS")
+        selected = calendar.session_for_label(request.session)
+        if selected is None or (selected.opens_at, selected.closes_at) != (
+            request.session_open,
+            request.session_close,
+        ):
+            raise ForwardCaptureError("CAPTURE_CALENDAR_SESSION_DIFFERS")
+    except ForwardCaptureError:
+        raise
+    except Exception:
+        raise ForwardCaptureError("CAPTURE_CALENDAR_INVALID") from None
 
 
 _MAX_EPISODE_OBJECTS = 4096

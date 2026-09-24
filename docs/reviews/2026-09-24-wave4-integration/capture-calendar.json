@@ -1,0 +1,70 @@
+{
+  "date": "2026-09-24",
+  "digest_convention": {
+    "digest_source": "packages/domain/research_dataset.py:ResearchDatasetManifest.calendar_sha256",
+    "direct_exchange_asdict_is_different": "Canonical encoding tags SessionKind enum values; hashing asdict(ExchangeCalendar) directly must not substitute for this convention.",
+    "expression": "research_digest(asdict(projected_ResearchCalendar))",
+    "projection": "ExchangeCalendar fields to ResearchCalendar; each exact ExchangeSession becomes ResearchSession with kind=session.kind.value (plain str).",
+    "projection_source": "packages/adapters/market_data/tiingo_eod_import.py:parse_tiingo_research_dataset",
+    "scope": "Explicit opt-in imported research-calendar convention; ForwardCaptureRequest.calendar itself does not prescribe it. Existing fixture and historical conventions are unchanged.",
+    "test": "test_digest_matches_existing_tiingo_import_projection_and_manifest uses the existing pure Tiingo parser and actual ResearchDatasetManifest.calendar_sha256, asserts string session kinds and rejects direct ExchangeCalendar digest."
+  },
+  "evidence_sha256": {
+    "independent-source-review.json": "48b2e390edc2b79d1c2770bcb6fa274a189efc3b5074b799b9b06ba35b17f0a4",
+    "manifest.json": "3ae9929fde9c505337f0f013a07e2b660397e5964ec506dd83973be6e6967022",
+    "qualification-run-1/architecture-ownership.json": "9d301649fb53bb7e7ddc5243bdbbf56796890d87a43dadfd9b925ff4ffa74b35",
+    "qualification-run-1/architecture-result.json": "27f03a6c88e59e0088e78b5b284c523f3b01baabe03b1b43ea02f995a3a87b95",
+    "qualification-run-1/architecture.log": "33e3baa9c38d2715375d9f36a0814ff94ca426e31080e3e2db5ea3f1373f7e0d",
+    "qualification-run-1/format-ownership.json": "991eacfd1814e648049f3780e0bb723e0d3f790ada532a3b2997fb2f9985fd02",
+    "qualification-run-1/format-result.json": "c4be0c6154dd0eec5f6b52ef86e778df9efabbed3fb0db37340f6581ff7ad095",
+    "qualification-run-1/format.log": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938",
+    "qualification-run-1/junit.xml": "3ba20d1a6d906e4e4fcc8f62e2e9295da2679661b5f094249d49f9f55a131541",
+    "qualification-run-1/lint-ownership.json": "6e991ab3f73857968561d6a7746f1cf3443a171e345754de3500924cd489b4ff",
+    "qualification-run-1/lint-result.json": "58a4284f4cb6cceaf9dbc46e926a5bd34551c789af67447fcbc380dcc26b4a3b",
+    "qualification-run-1/lint.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "qualification-run-1/result.json": "ad68726831faf5bf91a81ca9ed0e11f6d5541fe7da6483232e3271dba9582631",
+    "qualification-run-1/tests-ownership.json": "8814ca2b4d4bc2a5c914a0b76bc3b74eab432d5b5a2f5c26fb8fe391ca24895f",
+    "qualification-run-1/tests-result.json": "7660a8b87ff91965d49f99372949eb212aa2e2975573da890de5caf4b7d17bea",
+    "qualification-run-1/tests.log": "88e97db1a4bc690509545a91b881bd42536aacb9b73fcb798ab98aa63db85eab",
+    "qualification-run-1/types-ownership.json": "cdd83d167925d58ec8541cfa626ad04e84def94583743280107bf5073e666137",
+    "qualification-run-1/types-result.json": "6aecb33efd9e192e552f4a2a9a1b4f982ede736dcb9baffa3a7ae4b1c9abec14",
+    "qualification-run-1/types.log": "5d4b6d285b77932e3d08212c3b4974d0a803f98ec60408ac6ccf6a063fa6c19e",
+    "run_qualification_v1.py": "de164ec754b52e27d40502d9a71abf486412d95feb29646d61e5ce1d4976cc76",
+    "selected-tests.json": "e02365afd3fd3abc44a53ecd1aec1c49e1276eb1403dab9da5a202b6a64b1711",
+    "source-freeze.json": "3237941a979a8a3db7c91d887fccace15b0097921d3e1c4b6922692f5c537987"
+  },
+  "independent_actual_audit_sha256": "e4ae85a296ac7960b57d0c6995d66b7cf4ebfee101cd12f00f24d5d2639d935b",
+  "limits": [
+    "Only supplied content consistency; equal copied content can pass and conveys no original-provider authority.",
+    "A future caller must authenticate the original calendar source/provenance and request graph, then select this exact producer digest convention; no resolver or source owner is added.",
+    "Winter, summer and half-day fixtures are synthetic compatibility examples, not official exchange calendar evidence.",
+    "Full calendar/session contracts and digest are re-evaluated on each invocation; no cache, persistence or owner capability.",
+    "No concurrency/TOCTOU or hostile arbitrary-object authority guarantee; future original owner must retain/recheck its graph and trusted sources.",
+    "Active provider capture remains blocked and Wave 4 actual captured-session/replay qualification remains open."
+  ],
+  "new_genuine_capture_admission": false,
+  "provider_requests": 0,
+  "schema": "aqt.capture-calendar-evidence/1",
+  "scope": "One non-authorizing helper and one personal_* unit-test file; no active capture caller, publisher, schema, service or provider changes.",
+  "source": {
+    "packages/application/personal_forward_capture.py": "9e4927b422f8888fe641ce6c0164ee217f626915d110fdc21c23e2c57fec46db",
+    "tests/unit/test_personal_capture_calendar_binding.py": "589d718f723e5b57b25185aed3ce89dbca5b2e5b0f671f94c090e154dfaf67d1"
+  },
+  "source_runtime_and_owned_cleanup_checks": "passed",
+  "static_checks": [
+    "format",
+    "lint",
+    "types",
+    "architecture"
+  ],
+  "status": "qualified_offline_pending_final_ci",
+  "tests": {
+    "errors": 0,
+    "existing": 62,
+    "failures": 0,
+    "new": 44,
+    "passed": 106,
+    "seconds": 1.996,
+    "skips": 0
+  }
+}

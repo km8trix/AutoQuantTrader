@@ -45,3 +45,12 @@ A finite synthetic benchmark verified all 768 outputs and measured lower convert
 The correction is ready for a new exact-head CI run on draft PR #55. The updated suite is expected to contain 4,416 cases. Actual captured-session replay, scoped provider/account qualification, the separate initializer approval and final CI/review/merge remain open. No provider request, initialization, order or deployment occurred.
 
 [Correction evidence](pure-dispatch.json) binds the source and independently reviewed results.
+
+
+### September 24 imported-calendar consistency prerequisite
+
+A new opt-in helper compares a capture request with the exact imported research-calendar pin and session open/close values. It uses the existing Tiingo projection, including string session kinds and the personal America/New_York calendar constraint. The caller must explicitly choose that digest convention. Equal copied content can pass this check and does not confer source authority. The genuine-source admission guard and all existing capture behavior remain unchanged.
+
+All 106 focused cases passed: 44 new calendar cases and 62 existing capture/import/publication guard cases. Formatting, lint, types and the architecture boundary also passed, with source/runtime and owned cleanup checks. Synthetic cases cover winter/summer offsets, half days, missing sessions and nested mutation. This completes a mechanical prerequisite; it does not qualify a real calendar, clock, provider or captured session. The implementation is held locally while the already-running correction CI finishes, so that run continues to test its original exact commit.
+
+[Calendar qualification evidence](capture-calendar.json) records the exact scope and bindings.
