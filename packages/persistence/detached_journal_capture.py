@@ -93,6 +93,13 @@ def detached_journal_value(value: object) -> object:
         return tuple(
             (str(key), detached_journal_value(item)) for key, item in sorted(value.items())
         )
+    # Keep Mapping precedence, including virtual/custom classification. Exact
+    # built-in tuple/scalar types cannot carry dataclass fields; only their
+    # redundant reflection is skipped, never a graph visit or bytes hash.
+    if type(value) is tuple:
+        return tuple(detached_journal_value(item) for item in value)
+    if value is None or type(value) is bool or type(value) is int or type(value) is str:
+        return value
     if is_dataclass(value) and not isinstance(value, type):
         return (
             type(value).__qualname__,
@@ -102,6 +109,4 @@ def detached_journal_value(value: object) -> object:
                 if f.name not in {"_owner", "_validated_values"}
             ),
         )
-    if type(value) is tuple:
-        return tuple(detached_journal_value(item) for item in value)
     return value

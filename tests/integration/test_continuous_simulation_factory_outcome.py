@@ -413,6 +413,28 @@ def _report_static_failure(phase, error):
             f"actual factory {phase} error: {type(original).__name__}: {str(original)[:200]}",
             flush=True,
         )
+        # Static code locations only; never inspect or print frame locals.
+        from pathlib import Path
+
+        project = Path(__file__).resolve().parents[2]
+        frame = original.__traceback__
+        locations = []
+        visited = 0
+        while frame is not None and visited < 64:
+            code = frame.tb_frame.f_code
+            path = Path(code.co_filename)
+            if path.is_relative_to(project):
+                locations.append(
+                    (
+                        path.relative_to(project).as_posix(),
+                        frame.tb_lineno,
+                        code.co_name,
+                    )
+                )
+            frame = frame.tb_next
+            visited += 1
+        for path, line, function in locations[-8:]:
+            print(f"actual factory {phase} frame: {path}:{line}:{function}", flush=True)
         original = original.__context__
 
 

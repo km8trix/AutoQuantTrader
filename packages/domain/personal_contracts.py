@@ -18,6 +18,18 @@ from packages.domain.canonical import canonical_json_bytes, canonical_persisted_
 
 
 def semantic_value(value: object) -> object:
+    # Exact builtins cannot carry dataclass fields; preserve the reflection
+    # path for every subclass, record and other value without caching results.
+    if type(value) is tuple:
+        return tuple(semantic_value(v) for v in value)
+    if (
+        value is None
+        or type(value) is str
+        or type(value) is int
+        or type(value) is bool
+        or type(value) is bytes
+    ):
+        return value
     if is_dataclass(value) and not isinstance(value, type):
         return (
             type(value).__module__ + "." + type(value).__qualname__,
