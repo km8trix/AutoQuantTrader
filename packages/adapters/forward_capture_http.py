@@ -157,6 +157,13 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
     def __repr__(self) -> str:
         return "TiingoForwardHTTPSGetTransport(<private>)"
 
+    def require_original_capture_binding(self, request: ForwardCaptureRequest) -> None:
+        """Local binding check before or after use; no source authority or I/O."""
+        self._require_original(request)
+        if self._token_loader is not self._original_token_loader:
+            raise ForwardCaptureHTTPError("ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED")
+        _remaining(self._deadline)
+
     def recheck_original_capture(self, request: ForwardCaptureRequest) -> None:
         """Extra local denial only; no token load, HTTP, or one-use reset."""
         self._require_original(request)
@@ -346,6 +353,14 @@ class EtradeForwardCaptureTransport(_BoundRequest):
         self._require_original(request)
         self._require_session()
         if not self._used or self._session._closed:
+            raise ForwardCaptureHTTPError("ORIGINAL_ETRADE_CAPTURE_SESSION_REQUIRED")
+        _remaining(self._deadline)
+
+    def require_original_capture_binding(self, request: ForwardCaptureRequest) -> None:
+        """Local binding check before or after use; no source authority or I/O."""
+        self._require_original(request)
+        self._require_session()
+        if self._session._closed:
             raise ForwardCaptureHTTPError("ORIGINAL_ETRADE_CAPTURE_SESSION_REQUIRED")
         _remaining(self._deadline)
 

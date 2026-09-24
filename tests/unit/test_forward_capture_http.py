@@ -144,6 +144,97 @@ def actual_session(*, loader=None, transport=None):
     return result, loaded
 
 
+def _binding_transport(provider, loads):
+    if provider == "tiingo":
+        return tiingo(loader=lambda: loads.append(1) or "fixture-token-only")
+    session, _ = actual_session(loader=lambda: loads.append(1))
+    request = fixture_request(evidence_class="provider_https_read")
+    return request, capture.EtradeForwardCaptureTransport(
+        request=request, session=session, deadline_monotonic=time.monotonic() + 1
+    )
+
+
+@pytest.mark.parametrize("provider", ["tiingo", "etrade"])
+def test_original_binding_check_before_and_after_use_has_no_io_or_attempt_effect(network, provider):
+    loads = []
+    request, transport = _binding_transport(provider, loads)
+    original_deadline = transport._deadline
+    for _ in range(2):
+        transport.require_original_capture_binding(request)
+    with pytest.raises(capture.ForwardCaptureHTTPError):
+        transport.recheck_original_capture(request)
+    assert not transport._used and not loads and not network["events"]
+    assert transport._deadline == original_deadline
+
+    response = transport.get(request, deadline_ms=1000)
+    assert response.body == b"{}" and response.request_sha256 == request.http_request_sha256
+    original_events, original_loads = tuple(network["events"]), tuple(loads)
+    transport.require_original_capture_binding(request)
+    transport.recheck_original_capture(request)
+    with pytest.raises(capture.ForwardCaptureHTTPError):
+        transport.get(request, deadline_ms=1000)
+    assert transport._used and transport._deadline == original_deadline
+    assert tuple(network["events"]) == original_events and tuple(loads) == original_loads
+
+
+@pytest.mark.parametrize("provider", ["tiingo", "etrade"])
+@pytest.mark.parametrize("fault", ["copy", "source", "deadline", "expired"])
+def test_original_binding_check_rejects_request_or_deadline_change_without_io(
+    network, monkeypatch, provider, fault
+):
+    loads = []
+    request, transport = _binding_transport(provider, loads)
+    supplied = request
+    if fault == "copy":
+        supplied = replace(request)
+    elif fault == "source":
+        object.__setattr__(request.source, "rights_reference", "changed-original")
+    elif fault == "deadline":
+        transport._deadline += 1
+    else:
+        monkeypatch.setattr(capture.time, "monotonic", lambda: transport._original_deadline)
+    with pytest.raises(capture.ForwardCaptureHTTPError, match=r"ORIGINAL|DEADLINE"):
+        transport.require_original_capture_binding(supplied)
+    assert not transport._used and not loads and not network["events"]
+
+
+def test_original_binding_check_rejects_tiingo_loader_substitution_without_loading(network):
+    loads = []
+    request, transport = _binding_transport("tiingo", loads)
+    transport._token_loader = lambda: loads.append(2) or "different-fixture-token"
+    with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE"):
+        transport.require_original_capture_binding(request)
+    assert not transport._used and not loads and not network["events"]
+
+
+@pytest.mark.parametrize(
+    "fault", ["session", "reference", "reference_fields", "store", "transport", "class", "closed"]
+)
+def test_original_binding_check_rejects_etrade_session_substitution_without_io(network, fault):
+    loads = []
+    request, transport = _binding_transport("etrade", loads)
+    session = transport._session
+    if fault == "session":
+        replacement, _ = actual_session()
+        replacement.reference, replacement.store, replacement.transport = transport._original
+        transport._session = replacement
+    elif fault == "reference":
+        session.reference = replace(session.reference)
+    elif fault == "reference_fields":
+        object.__setattr__(session.reference, "environment", etrade.EtradeEnvironment.SANDBOX)
+    elif fault == "store":
+        session.store = object()
+    elif fault == "transport":
+        session.transport = etrade.EtradeHTTPSGetTransport()
+    elif fault == "class":
+        session.transport.evidence_class = "synthetic_fixture"
+    else:
+        session.close()
+    with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_ETRADE"):
+        transport.require_original_capture_binding(request)
+    assert not transport._used and not loads and not network["events"]
+
+
 def test_tiingo_original_request_fixed_headers_body_limit_and_one_attempt(network):
     request, transport = tiingo()
     result = transport.get(request, deadline_ms=1000)

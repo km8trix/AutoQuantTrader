@@ -27,3 +27,10 @@ The September 20 Tiingo technical sample returned four HTTP 200 responses for DI
 - Final review, evidence binding and the authorized end-of-wave merge and exact merged-revision verification before Wave 5.
 
 No orders, deployment, trading activation, account initialization or provider requests are performed by applying this source checkpoint. CI uses disposable fixtures and service databases.
+
+
+### September 24 offline adapters and Linux CI finding
+
+Draft PR [#55](https://github.com/km8trix/AutoQuantTrader/pull/55) is open at the integrated baseline `47fab9c32108151e1d98a5e636579a22cb86813c`. The optional Chrony-to-StandardClock conversion passed 53 offline cases, format/lint/types and the architecture boundary check. Local original-binding checks for both capture HTTP adapters passed 85 cases, including four unchanged no-effect publication/source guards. [Adapter evidence](offline-adapters.json) binds the exact source and independent review. These additions do not qualify a host clock or admit genuine captures.
+
+The first Linux CI run exposed a retained-history startup failure: integrity verification exceeded the original 60-second lease at 60.190 seconds, followed by a separate lease-release cleanup failure. The failed result remains failed; source performance work is isolated and the lease limit is unchanged. Foundations, migrations, installed-wheel and browser jobs passed, while the full regression gate remains unresolved. The September 24 quote window expired without fresh OAuth or a provider request. Initializer approval, actual source ownership/captured-session replay and provider/account qualification remain open. Wave 4 is incomplete and no merge or Wave 5 start is authorized by these component passes.
