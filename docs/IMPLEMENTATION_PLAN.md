@@ -401,3 +401,14 @@ A new opt-in helper compares a capture request with the exact imported research-
 All 106 focused cases passed: 44 new calendar cases and 62 existing capture/import/publication guard cases. Formatting, lint, types and the architecture boundary also passed, with source/runtime and owned cleanup checks. Synthetic cases cover winter/summer offsets, half days, missing sessions and nested mutation. This completes a mechanical prerequisite; it does not qualify a real calendar, clock, provider or captured session. The implementation is held locally while the already-running correction CI finishes, so that run continues to test its original exact commit.
 
 [Calendar qualification evidence](reviews/2026-09-24-wave4-integration/capture-calendar.json) records the exact scope and bindings.
+
+
+### September 25 canonical fragment assembly correction
+
+The latest Linux run completed with 4,415 passed and one retained-restore failure at the unchanged 60-second lease. The failed run and separate cleanup failure remain recorded. A bounded local diagnostic identified repeated typed-JSON assembly as a material cost; its instrumented restore also failed and is not performance acceptance.
+
+The correction records fallback positions, preserves conversion and deferred serialization order, and joins completed string fragments directly. All 296 compatibility cases passed, including 12 new ordering, mutation and error-precedence cases, with format/lint/types. Two finite synthetic workloads verified 768 timed outputs and measured candidate/old median ratios of 0.732 for primitive tuples and 0.935 for mixed fallbacks. These are serializer measurements only.
+
+One fresh copy of existing synthetic C12 history restored in 41.345 seconds under the original 60/120/150/8/1 limits, with financial/source/artifact/venue preservation and complete cleanup. The calendar helper and serializer correction are ready for exact-revision Linux CI, expected to contain 4,472 cases. This local pass does not close the prior Linux failure. Actual captured-session replay, scoped provider/account qualification, specific initializer approval and final review/merge remain open. Wave 4 is incomplete.
+
+[Correction evidence](reviews/2026-09-24-wave4-integration/canonical-fragment-join.json) binds the exact source and independently reviewed results.

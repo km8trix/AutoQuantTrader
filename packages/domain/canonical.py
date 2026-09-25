@@ -149,14 +149,14 @@ def _typed_node(value: object) -> object:
     raise TypeError(f"unsupported canonical JSON value type: {type(value).__qualname__}")
 
 
-def _append_typed_text(value: object, parts: list[object]) -> None:
+def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int, object]]) -> None:
     """Emit exact builtin nodes directly; retain the original conversion fallback."""
     if type(value) is tuple:
         parts.append('{"type":"tuple","value":[')
         for index, item in enumerate(value):
             if index:
                 parts.append(",")
-            _append_typed_text(item, parts)
+            _append_typed_text(item, parts, deferred)
         parts.append("]}")
     elif value is None:
         parts.append('{"type":"null","value":null}')
@@ -177,7 +177,9 @@ def _append_typed_text(value: object, parts: list[object]) -> None:
     else:
         # Convert fallback nodes in the original traversal order. Defer their
         # JSON serialization until every conversion/read hook has completed.
-        parts.append(_typed_node(value))
+        converted = _typed_node(value)
+        deferred.append((len(parts), converted))
+        parts.append("")
 
 
 def _typed_fragment_text(part: object) -> str:
@@ -206,9 +208,12 @@ def _typed_fragment_text(part: object) -> str:
 def canonical_json_text(value: object) -> str:
     """Encode supported values as deterministic, explicitly typed JSON."""
 
-    parts: list[object] = []
-    _append_typed_text(value, parts)
-    return "".join(part if type(part) is str else _typed_fragment_text(part) for part in parts)
+    parts: list[str] = []
+    deferred: list[tuple[int, object]] = []
+    _append_typed_text(value, parts, deferred)
+    for position, converted in deferred:
+        parts[position] = _typed_fragment_text(converted)
+    return "".join(parts)
 
 
 def canonical_json_bytes(value: object) -> bytes:
