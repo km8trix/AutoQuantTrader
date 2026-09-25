@@ -125,6 +125,65 @@ jobs:
           --shard-count 16
           --shard-index ${{ matrix.shard_index }}
 
+  retained-restore-profile:
+    name: Diagnostic retained restore profile (failure stays failure)
+    needs: [backend-foundations, backend-tests]
+    # Collect Linux costs only when the required, unprofiled regression gate failed.
+    # This job neither replaces that gate nor participates in its aggregate.
+    if: ${{ always() && needs.backend-foundations.result == 'success' && needs.backend-tests.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      AQT_ENVIRONMENT: local
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12.13"
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Check architecture before importing project code
+        run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
+      - name: Install locked dependencies without executing project build code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+      - name: Profile the original retained restore test with unchanged limits
+        run: |
+          profile_directory="$RUNNER_TEMP/retained-restore-profile"
+          mkdir "$profile_directory"
+          set +e
+          env -i PATH="$GITHUB_WORKSPACE/.venv/bin:/usr/bin:/bin" \
+            PYTHONPATH="$GITHUB_WORKSPACE" PYTHONDONTWRITEBYTECODE=1 \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC TMPDIR="$RUNNER_TEMP" \
+            AQT_RETAINED_RESTORE_PROFILE_PATH="$profile_directory/profile.json" \
+            .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/retained-restore-profile-fixture" \
+            tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+          test_exit=$?
+          set -e
+          printf '{"schema":"retained-diagnostic-test-exit/1","diagnostic_only":true,"pytest_exit_code":%s}\n' "$test_exit" > "$profile_directory/test-exit.json"
+          printf 'Retained restore diagnostic pytest exit: **%s**. Instrumented evidence only; the required unprofiled result remains authoritative.\n' "$test_exit" >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_exit"
+      - name: Upload only sanitized profile and exact diagnostic test exit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: retained-restore-profile-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/retained-restore-profile/profile.json
+            ${{ runner.temp }}/retained-restore-profile/test-exit.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require a profile report from the diagnostic
+        if: ${{ always() }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/retained-restore-profile/profile.json" ]; then
+            printf 'No retained restore profile was produced. The diagnostic is incomplete.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
   backend:
     name: Standard Python foundations and retained financial regressions
     if: ${{ always() }}

@@ -150,36 +150,45 @@ def _typed_node(value: object) -> object:
 
 
 def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int, object]]) -> None:
-    """Emit exact builtin nodes directly; retain the original conversion fallback."""
+    """Visit tuple children in order; recurse only for nested exact tuples."""
     if type(value) is tuple:
         parts.append('{"type":"tuple","value":[')
-        for index, item in enumerate(value):
-            if index:
-                parts.append(",")
-            _append_typed_text(item, parts, deferred)
-        parts.append("]}")
-    elif value is None:
-        parts.append('{"type":"null","value":null}')
-    elif type(value) is bool:
-        parts.append('{"type":"bool","value":true}' if value else '{"type":"bool","value":false}')
-    elif type(value) is int:
-        parts.append(
-            '{"type":"int","value":' + json.encoder.encode_basestring_ascii(str(value)) + "}"
-        )
-    elif type(value) is str:
-        parts.append(
-            '{"type":"string","value":' + json.encoder.encode_basestring_ascii(value) + "}"
-        )
-    elif type(value) is bytes:
-        parts.append(
-            '{"type":"bytes","value":' + json.encoder.encode_basestring_ascii(value.hex()) + "}"
-        )
+        items = value
+        tuple_node = True
     else:
-        # Convert fallback nodes in the original traversal order. Defer their
-        # JSON serialization until every conversion/read hook has completed.
-        converted = _typed_node(value)
-        deferred.append((len(parts), converted))
-        parts.append("")
+        items = (value,)
+        tuple_node = False
+    for index, item in enumerate(items):
+        if index:
+            parts.append(",")
+        if type(item) is str:
+            parts.append(
+                '{"type":"string","value":' + json.encoder.encode_basestring_ascii(item) + "}"
+            )
+        elif type(item) is tuple:
+            _append_typed_text(item, parts, deferred)
+        elif item is None:
+            parts.append('{"type":"null","value":null}')
+        elif type(item) is bool:
+            parts.append(
+                '{"type":"bool","value":true}' if item else '{"type":"bool","value":false}'
+            )
+        elif type(item) is int:
+            parts.append(
+                '{"type":"int","value":' + json.encoder.encode_basestring_ascii(str(item)) + "}"
+            )
+        elif type(item) is bytes:
+            parts.append(
+                '{"type":"bytes","value":' + json.encoder.encode_basestring_ascii(item.hex()) + "}"
+            )
+        else:
+            # Complete conversion hooks in traversal order before serializing
+            # any fallback node, including a fallback reached from a scalar root.
+            converted = _typed_node(item)
+            deferred.append((len(parts), converted))
+            parts.append("")
+    if tuple_node:
+        parts.append("]}")
 
 
 def _typed_fragment_text(part: object) -> str:

@@ -329,10 +329,18 @@ def _configuration_for_history(pair, runtime):
 def _execute_retained_factory(history, config, monkeypatch):
     """One real-clock attempt; a timeout or lease expiry remains a test failure."""
     import json
+    import os
     import signal
     from time import perf_counter
 
     from apps.trader.continuous_simulation_factory import _ActualClock
+
+    profile = None
+    profile_output = os.environ.get("AQT_RETAINED_RESTORE_PROFILE_PATH")
+    if profile_output:
+        from tests.retained_restore_profile import RetainedRestoreProfile
+
+        profile = RetainedRestoreProfile(profile_output)
 
     pair, _runtime, original, previous_daily, old_batch, independent, _requests = history
     financial = pair.counts()
@@ -365,7 +373,15 @@ def _execute_retained_factory(history, config, monkeypatch):
             with pytest.raises(ValueError, match="SUCCESSFUL_DISPATCH_COMMIT"):
                 factory.delivery.publisher.require_completed(old_batch)
             print(f"actual factory graph ready: {perf_counter() - started:.3f}s", flush=True)
-            result = json.loads(factory.execute(operation_id="restore-original-retained-outcome"))
+            if profile is None:
+                result = json.loads(
+                    factory.execute(operation_id="restore-original-retained-outcome")
+                )
+            else:
+                encoded_result = profile.execute(
+                    factory.execute, operation_id="restore-original-retained-outcome"
+                )
+                result = json.loads(encoded_result)
             assert result["checkpoint_sha256"] == original.checkpoint.semantic_sha256
             assert result["commit_sha256"] == original.receipt.commit.semantic_sha256
             assert result["assignment_sha256"] == previous_daily.assignment.semantic_sha256
@@ -390,10 +406,14 @@ def _execute_retained_factory(history, config, monkeypatch):
             cleanup_error = caught
             _report_static_failure("cleanup", caught)
         finally:
-            assert pair.counts() == financial
-            assert pair.venue.read() == independent
-            if factory is not None:
-                assert factory.engine is None and factory.venue_engine is None
+            try:
+                assert pair.counts() == financial
+                assert pair.venue.read() == independent
+                if factory is not None:
+                    assert factory.engine is None and factory.venue_engine is None
+            finally:
+                if profile is not None:
+                    profile.write_report()
     if error is not None and cleanup_error is not None:
         raise BaseExceptionGroup("actual restore and cleanup both failed", [error, cleanup_error])
     if error is not None:
@@ -401,6 +421,8 @@ def _execute_retained_factory(history, config, monkeypatch):
     if cleanup_error is not None:
         raise cleanup_error
     assert result is not None
+    if profile is not None:
+        assert profile.report_written and profile.profile_valid, "RETAINED_PROFILE_REPORT_FAILED"
 
 
 def _report_static_failure(phase, error):

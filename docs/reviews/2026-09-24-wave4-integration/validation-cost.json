@@ -1,0 +1,153 @@
+{
+  "base_head": "5e6595c59067932dd277d910ae0a34a118d5dc9a",
+  "canonical_benchmark": {
+    "calls_per_batch": 32,
+    "measurements": [
+      {
+        "candidate_over_prior": 0.9210181460072233,
+        "median_extra_nanoseconds_per_call": -9117.828125,
+        "workload": "exact_primitives"
+      },
+      {
+        "candidate_over_prior": 0.9812805614216437,
+        "median_extra_nanoseconds_per_call": -9054.6875,
+        "workload": "mixed_fallbacks"
+      },
+      {
+        "candidate_over_prior": 1.2834537686586844,
+        "median_extra_nanoseconds_per_call": 83.96875,
+        "workload": "scalar_string"
+      },
+      {
+        "candidate_over_prior": 1.6679270096991616,
+        "median_extra_nanoseconds_per_call": 126.96875,
+        "workload": "scalar_none"
+      }
+    ],
+    "rounds": 6,
+    "scope": "Four finite synthetic serializer workloads with alternating implementation order. Imports, construction and equality verification excluded; allocations, result-list overhead and GC included.",
+    "tradeoff": "Tuple-heavy primitive and mixed workloads had lower medians. Scalar-root string and None were slower by about 84 ns and 127 ns per call. This is not a uniform speedup or startup prediction.",
+    "verified_timed_outputs": 1536
+  },
+  "changes": [
+    {
+      "path": "packages/domain/canonical.py",
+      "sha256": "77ff075768f76ce85829b18cde0c9684218f79e3d9245472e6088e69830fcf61",
+      "summary": "Assemble exact scalar children directly in the tuple loop; recurse for nested exact tuples and preserve fallback conversion and deferred serialization order."
+    },
+    {
+      "path": "packages/persistence/daily_runtime_risk.py",
+      "sha256": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+      "summary": "Handle exact tuples before scalar classification and dataclass discovery, retaining original seen identities, child retention and LIFO visitation."
+    }
+  ],
+  "date": "2026-09-25",
+  "evidence_sha256": {
+    "canonical_benchmark_measurements": "e4c2954945d9a830d5407c15d0cfdf20bf81e8b3de3a3dfc6d608b36574af048",
+    "canonical_benchmark_result": "ae11a9752c166357e1e2987508338e9bec164b9c20e991e8883421651d58ef84",
+    "canonical_source_proposal": "86b7cd21dee4f3367f8ba4f4425c3559af6178e6a031bc526d32a10897b1e757",
+    "focused_and_benchmark_independent_acceptance": "d5d0d08f64c7f5b1d9834d7ae705a06db8de41d32c31319542769c1ace15c015",
+    "focused_pending_junit": "3ff85e0fc7293c437b7aa007df054745e3dd1c2f227c08db1e9ae2e7d9e646ea",
+    "focused_result": "e34a15c8fa628f1f22750f0754bd74ef3f1d5ab6f825d0a784a8d76abaabe13f",
+    "focused_unit_junit": "821e8e0a689601f7ffe1aac84f71b581c6f3de904f1e2e81be5c16e3eca3d0b9",
+    "identity_benchmark_measurements": "7a402c8f0da5572e0abe5f44c11f872bf6a6446e1f634ca902717b0bde114b07",
+    "identity_benchmark_result": "2ed551293483423670903c1614144bdfc5ace5a60ead9afae68b329c620c601c",
+    "identity_source_proposal_v2": "05fd7f3e07f1383e90f3f4ba32699b4eae536da48bdbbd542ce1ca37e99a1c07",
+    "preserved_v1_failed_result": "d09300d8b1c115074b33eb131d2e41de3e81e865d3cc8af27db423e2c17334b1",
+    "preserved_v1_failure_audit": "c2bebfd41387f948562d69022e2b1ca7457b10161c30cbc599f2257204a79069",
+    "prior_linux_final_audit": "c0623a3961aa3c13f52c06f10796de9ed7674dc93bca50310f84b1f7e4028736",
+    "prior_linux_tree_verification": "ad5c055230dcd3671c520ace2531e0ad04da37f6e45fedab197409e0fbed8b5a",
+    "retained_candidate_manifest": "1b0e6e4cd6b0b49ee17a9c8bc1c1e7bf5ea4da4f4e8b2852f7b6089860ab4b8b",
+    "retained_child_result": "4bae7ba1e36c61b62662d8ebc2e8cc414e14b05955c6627103aa25ad7b952493",
+    "retained_independent_acceptance": "f327d7abe6b7c6a90e95ce0aa42da30c8f2f40e95d580081ed1aba921edb12d3",
+    "retained_ownership": "ab46972bd151f0c9bf6ba2685a6625d6f3fcfaef6ae369743e87f22c41036c86",
+    "retained_parent_result": "f51786c68c34955bd2a0a0fe82b5bcc0a26998e9e41e122bb3a7ab23310cce0e",
+    "retained_source_review": "225d453f9123f3d72ef4c8d9eab46113b6d237015176de6567d25ff558173ba6",
+    "source_freeze": "54321133a209f3a79c2a5346067a0fc9cc92e8066da8cc81a85ab70eb096b1f4",
+    "source_review": "46770fff0ae50a8321603d3cca98424139d1e18bc5318ddb041408ae4bffb189",
+    "v2_release_review": "ee2a1af0fcfda117502a5fb39746c4fd5c1bdeb1ab79130e7b749f5b693e7454"
+  },
+  "expected_new_ci": {
+    "added_compatibility_cases": 25,
+    "combined_final_count": 4523,
+    "combined_selection_sha256": "751f301dfe56ae32bef6e8754bae170165714140f8239cc66b544ae4daa7c169",
+    "diagnostic_helper_cases": 26,
+    "prior_base_cases": 4472,
+    "required_base_cases_before_separate_diagnostic_tests": 4497,
+    "scope": "Expected required suite after both qualified changes; not execution evidence."
+  },
+  "focused_qualification": {
+    "errors": 0,
+    "existing_unit": 309,
+    "failed": 0,
+    "format_lint_types": "passed",
+    "new_unit": 25,
+    "original_pending_fixture": 1,
+    "passed": 335,
+    "skipped": 0,
+    "source_files": 1612
+  },
+  "identity_benchmark": {
+    "calls_per_batch": 16,
+    "measurements": [
+      {
+        "candidate_over_prior": 0.7737429827534045,
+        "workload": "primitive_tuples"
+      },
+      {
+        "candidate_over_prior": 0.8453019476161602,
+        "workload": "mixed_record_graph"
+      }
+    ],
+    "rounds": 8,
+    "scope": "Two finite synthetic graphs with alternating implementation order. Every timed output checked outside timing for complete ordered object identities. No SQL or retained-startup measurement.",
+    "verified_timed_outputs": 512
+  },
+  "local_retained_restore": {
+    "attempt_seconds": 40.82140645902837,
+    "cleanup_seconds": 8,
+    "engines_disposed": true,
+    "lease_seconds": 60,
+    "operation_seconds": 120,
+    "parent_seconds": 150,
+    "reap_seconds": 1,
+    "scope": "One unprofiled in-process restore of a fresh copy of existing synthetic C12 history. Not a startup comparison, installed-worker result or Linux acceptance.",
+    "source_financial_artifact_venue_postchecks_passed": true,
+    "status": "passed"
+  },
+  "new_test": {
+    "cases": 25,
+    "path": "tests/unit/test_daily_identity_tuple_dispatch.py",
+    "sha256": "18045b4c16dc384fb4d4d52165f1210907d84fca11f8ecfdb1d29f5fe5b0951b"
+  },
+  "not_established": [
+    "Linux acceptance on the new revision or full Wave 4 completion.",
+    "Actual captured-session decision parity or source/clock/provider/account qualification.",
+    "Specific initializer approval, initializer qualification, trading or deployment authority.",
+    "Final review, merge and exact merged-revision verification; Wave 5 has not started."
+  ],
+  "preserved_contracts": [
+    "Exact canonical bytes/hashes, ordered object identities, alias/cycle behavior, mutation visibility and conversion/read/error order.",
+    "Subclass/dataclass/mapping precedence; no value cache, removed source/SQL/ownership checks or changed lease limit."
+  ],
+  "preserved_v1_failure": {
+    "errors": 2,
+    "phase": "types",
+    "status": "failed",
+    "summary": "Mypy could not narrow an object through the item_type alias at both tuple list.extend calls. Format/lint passed; unit and PENDING phases did not run. V2 uses a direct exact-type predicate without a runtime cast."
+  },
+  "prior_linux_ci": {
+    "errors": 0,
+    "failed": 1,
+    "head": "5e6595c59067932dd277d910ae0a34a118d5dc9a",
+    "passed": 4471,
+    "retained_attempt_seconds": 60.186,
+    "run_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36082402313",
+    "scope": "The original retained restore exceeded its unchanged 60-second lease during initial integrity; the separate expired-lease cleanup failure remains. Foundations/browser and fifteen shards passed. The full run remains failed.",
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0
+  },
+  "schema": "aqt.validation-cost-evidence/1",
+  "status": "qualified_local_pending_linux_ci"
+}

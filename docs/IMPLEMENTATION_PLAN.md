@@ -412,3 +412,19 @@ The correction records fallback positions, preserves conversion and deferred ser
 One fresh copy of existing synthetic C12 history restored in 41.345 seconds under the original 60/120/150/8/1 limits, with financial/source/artifact/venue preservation and complete cleanup. The calendar helper and serializer correction are ready for exact-revision Linux CI, expected to contain 4,472 cases. This local pass does not close the prior Linux failure. Actual captured-session replay, scoped provider/account qualification, specific initializer approval and final review/merge remain open. Wave 4 is incomplete.
 
 [Correction evidence](reviews/2026-09-24-wave4-integration/canonical-fragment-join.json) binds the exact source and independently reviewed results.
+
+
+### September 25 tuple validation cost correction
+
+Linux CI on `5e6595c` completed with 4,471 passed and one retained-restore failure at 60.186 seconds; the unchanged 60-second lease and separate expired-lease cleanup failure remain recorded. The new correction assembles scalar tuple children without recursive helper calls and dispatches exact tuples earlier in identity traversal. Canonical bytes, ordered identities, mutation/read/error order and all source, SQL and lease checks remain unchanged.
+
+All 335 focused checks passed: 309 existing unit cases, 25 new identity cases and one original PENDING publication/restore fixture, plus format/lint/types. The first proposal's two mypy errors are preserved; its unit/PENDING phases never ran. The corrected exact-type predicate needs no runtime cast.
+
+Finite benchmarks verified 1,536 serializer outputs and 512 identity outputs. Serializer candidate/prior median ratios were 0.921 for primitive tuples and 0.981 for mixed fallbacks, but scalar string and None controls were slower at 1.283 and 1.668 (about 84 ns and 127 ns extra per call). Identity ratios were 0.774 and 0.845. These measurements do not establish a uniform speedup or predict startup performance.
+
+One unprofiled fresh copy of existing synthetic C12 history restored in 40.821 seconds under the original 60/120/150/8/1 limits, with financial/source/artifact/venue preservation and complete cleanup. This local pass does not close the Linux failure. Together with 26 separately qualified diagnostic-helper cases, the next required CI suite is expected to contain 4,523 cases across 16 shards. Actual captured-session replay, provider/account qualification, specific initializer approval and final CI/review/merge remain open. Wave 4 is incomplete and Wave 5 has not started.
+
+[Correction evidence](reviews/2026-09-24-wave4-integration/validation-cost.json) binds the exact source and independently reviewed results.
+
+
+The optional Linux diagnostic profiles only the original factory execution and runs after a required backend regression failure. Required tests remain unprofiled, original limits and failures remain authoritative, and diagnostic artifacts contain bounded static code metadata and timings only. All 26 finite reporter and fake-lifecycle checks passed, along with architecture/format/lint. The earlier assertion-message test failure is preserved and its test-only correction was rechecked. No actual retained history was rerun for instrumentation. [Diagnostic evidence](reviews/2026-09-24-wave4-integration/linux-retained-profile.json) records the exact scope.

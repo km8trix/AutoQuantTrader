@@ -995,6 +995,15 @@ class SqlDailyRuntimeRisk:
         retained: list[object] = []
         while pending:
             item = pending.pop()
+            if type(item) is tuple:
+                # Exact tuples have no dataclass or mapping hooks. Keep their
+                # original identity visit and child order without reflection.
+                if id(item) in seen:
+                    continue
+                seen.add(id(item))
+                retained.extend(item)
+                pending.extend(item)
+                continue
             # Parent fields already retain scalar identities. These exact immutable
             # built-in leaves have no graph children; subclasses use the old path.
             item_type = type(item)
@@ -1015,8 +1024,6 @@ class SqlDailyRuntimeRisk:
             seen.add(id(item))
             if is_dataclass(item) and not isinstance(item, type):
                 nested = tuple(getattr(item, f.name) for f in fields(item))
-            elif type(item) is tuple:
-                nested = item
             elif isinstance(item, Mapping):
                 nested = tuple(v for pair in item.items() for v in pair)
             else:
