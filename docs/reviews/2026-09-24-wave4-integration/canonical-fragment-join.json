@@ -1,0 +1,236 @@
+{
+  "benchmark": {
+    "measurements": [
+      {
+        "batch_duration_ns": {
+          "candidate": [
+            3697333,
+            3686583,
+            3694292,
+            3708375,
+            3689209,
+            3690625
+          ],
+          "old": [
+            5200292,
+            5049042,
+            5023125,
+            5042083,
+            5025584,
+            5053750
+          ]
+        },
+        "candidate_old_ratio": 0.731822963247408,
+        "median_batch_ns": {
+          "candidate": 3692458.5,
+          "old": 5045562.5
+        },
+        "orders": [
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ],
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ],
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ]
+        ],
+        "output_bytes": 23964,
+        "output_sha256": "336326e7b4d0499c2cfb939a6f1ce0444bfa437ab9291a852c3b28cb71c91514",
+        "verified_outputs": 384,
+        "workload": "exact_primitives"
+      },
+      {
+        "batch_duration_ns": {
+          "candidate": [
+            15378458,
+            15366208,
+            15403416,
+            15358208,
+            15390291,
+            15501625
+          ],
+          "old": [
+            16555959,
+            16470375,
+            16483750,
+            16427916,
+            16454084,
+            16417959
+          ]
+        },
+        "candidate_old_ratio": 0.9345255756518277,
+        "median_batch_ns": {
+          "candidate": 15384374.5,
+          "old": 16462229.5
+        },
+        "orders": [
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ],
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ],
+          [
+            "old",
+            "candidate"
+          ],
+          [
+            "candidate",
+            "old"
+          ]
+        ],
+        "output_bytes": 25518,
+        "output_sha256": "6812c0de57369d335888e28bdb5b4d7b4dea0d0782bd49e36e8070e897b5e320",
+        "verified_outputs": 384,
+        "workload": "mixed_fallbacks"
+      }
+    ],
+    "schema": "canonical-fragment-synthetic-benchmark/1",
+    "scope": "Two finite synthetic serializer workloads; imports, construction and equality verification excluded. Allocations, result-list overhead and GC included. No performance threshold, retained startup or Linux inference."
+  },
+  "changes": {
+    "path": "packages/domain/canonical.py",
+    "sha256": "05d82e15c5971cab41dad1b22770c25ca7148fe1dae6fafe0a6aab401111edbb",
+    "summary": "Record fallback positions during conversion, serialize them in original order after all conversion hooks, then join the completed string list directly.",
+    "tradeoff": "Additional O(F) position metadata for F fallback fragments; no value cache or skipped traversal."
+  },
+  "date": "2026-09-25",
+  "evidence_sha256": {
+    "benchmark_measurements": "527124d286b0fa771f3074b9032f845a3d4070132fa7240a419b7308e3db3fea",
+    "benchmark_result": "e3e276ff3cef602c2c8d89de64abe5db6b4ed018692fc37fa32fd8ec27b65923",
+    "focused_and_benchmark_independent_acceptance": "d61e7ed04d43d5f7732fe79ff139f5394bc23e7ad9bb6e7432c6b67d9936575a",
+    "focused_junit": "6019bdaf163c5bbf96b5600dd2e81c686020fa3a480e492951de22ae40e221bc",
+    "focused_result": "badc50733127b8e9c4035a166d976c2b0c88b6329ad2434c53230ea85deaffa1",
+    "prior_linux_final_audit": "ae1a139cd0140ef69464d2ea679e66fcd99d6a2832a08c6d192c96220dda5541",
+    "profile_diagnostic_1_audit": "6b0e995c114a2752e85a3cc9b9ef109fa1304b6c8c1ae2913c7e2ff032cd1889",
+    "profile_diagnostic_2_audit": "24baa2c224a473c21dbc6e1cd3220f88403c8e9c73b1aa7378b2057754440739",
+    "retained_candidate_manifest": "365450927492d4f30aaf5d82961e26514809df33bf21e4c0cb34681e4f7d09a8",
+    "retained_child_result": "74fefcdc84959311f5e177cddac6bdb16922d45beeb31364b02cdb7d04cc7052",
+    "retained_independent_acceptance": "83a41208d2eef418760f4a16b704f4426c9ba3a25d6c0284509887601c32f1c4",
+    "retained_ownership": "4dcd88320e942d20ab37f4e8bbb018272ea378392544575f0700d36c57a6a898",
+    "retained_parent_result": "7bab7eb3bf228be243f8db4ebe7b7587341196bc7baf1f0202ea297122a50441",
+    "retained_source_review": "cc5d1c88e3c43b007eb8b0069e2acadfd8fb109227acd5de6881468d7db193c7",
+    "source_freeze": "fe435216fce3c1c06e1338e457b4cc02cd0674286f7a6a63cd1e08a6b6e4c275",
+    "source_proposal": "c8b4ae4dbd3f6d4832ecbf9be47663bf32498a086722c5e7741017c3334f3fe4",
+    "source_review": "7f1992f51cd5d316601dde97f0deb9d57ceae0dd9d19b11393691f20caa94c99"
+  },
+  "expected_new_ci": {
+    "counts": [
+      266,
+      263,
+      294,
+      297,
+      306,
+      269,
+      298,
+      277,
+      248,
+      281,
+      300,
+      277,
+      299,
+      241,
+      304,
+      252
+    ],
+    "new_nodes": [
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value0]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value1]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value2]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value3]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value4]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_root_nested_and_separated_fallbacks_preserve_complete_wire_identity[value5]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_repeated_aliases_preserve_each_conversion_and_later_nested_mutation",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_first_fallback_serialization_can_mutate_later_fallback_output",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_first_serialization_error_wins_after_all_conversion_hooks[False]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_first_serialization_error_wins_after_all_conversion_hooks[True]",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_later_conversion_error_precedes_earlier_pending_serialization_error",
+      "tests/unit/test_personal_canonical_fragment_join.py::test_failed_call_does_not_leave_pending_output_for_later_calls"
+    ],
+    "schema": "fragment-inclusive-ci-expectation/1",
+    "scope": "Expected only after calendar and fragment source push. Not execution evidence.",
+    "total": 4472
+  },
+  "focused_qualification": {
+    "errors": 0,
+    "existing": 284,
+    "failed": 0,
+    "format_lint_types": "passed",
+    "new": 12,
+    "passed": 296,
+    "skipped": 0,
+    "source_files": 1611
+  },
+  "local_retained_restore": {
+    "attempt_seconds": 41.345066874986514,
+    "cleanup_seconds": 8,
+    "engines_disposed": true,
+    "lease_seconds": 60,
+    "operation_seconds": 120,
+    "parent_seconds": 150,
+    "reap_seconds": 1,
+    "scope": "One fresh copy of existing synthetic C12 history, restored in process. Not a startup before/after comparison, installed-worker result or Linux acceptance.",
+    "source_financial_artifact_venue_postchecks_passed": true,
+    "status": "passed"
+  },
+  "new_test": {
+    "cases": 12,
+    "path": "tests/unit/test_personal_canonical_fragment_join.py",
+    "sha256": "b0379a21ff0422dc28e6aa927c70db981a6c9a3cb0b513650b3438f0aaa133dc"
+  },
+  "not_established": [
+    "Linux acceptance on the new revision.",
+    "Actual captured-session parity or source/clock/provider/account qualification.",
+    "Initializer, trading or deployment authority."
+  ],
+  "preserved_contracts": [
+    "Exact canonical bytes and hashes, per-call mutation checks, conversion/serialization read and error order.",
+    "All source, SQL, ownership, financial and lease guards; no limit changes."
+  ],
+  "prior_linux_ci": {
+    "errors": 0,
+    "failed": 1,
+    "head": "96cbe3f9efafcce87c35b20ee6ebf1f67a5b77ae",
+    "passed": 4415,
+    "retained_attempt_seconds": 60.196,
+    "run_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36013127243",
+    "scope": "Failed at the unchanged lease guard; original cleanup failure remains separately recorded. Foundations/browser and fifteen shards passed.",
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0
+  },
+  "profiling": {
+    "diagnostic_1": "Reporting exceeded its entry bound; no function timing evidence exists.",
+    "diagnostic_2": "321 selected rows from 24471 entries. One builtin label contained an address despite the preparation claim; original preserved and a separate derived report sanitized only that label.",
+    "scope": "Instrumented whole-child diagnostic; both restores failed. Used to identify repeated fragment assembly cost, not to establish startup performance."
+  },
+  "schema": "aqt.canonical-fragment-join-evidence/1",
+  "status": "qualified_local_pending_linux_ci"
+}

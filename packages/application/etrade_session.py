@@ -13,9 +13,12 @@ import hashlib
 import json
 import math
 import os
+import queue
 import secrets
+import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as wall_time
@@ -38,10 +41,12 @@ from packages.adapters.broker.etrade_readonly import (
     REQUEST_DEADLINE_SECONDS,
     EtradeCredentialStore,
     EtradeGetTransport,
+    EtradeHTTPSGetTransport,
     EtradeReadCredentials,
     EtradeReadError,
     EtradeReadOperation,
     EtradeReadRequest,
+    EtradeReadResponse,
     EtradeSecretReference,
     require_utc,
     sign_account_get,
@@ -432,7 +437,52 @@ class EtradeReadOnlySession:
             raise EtradeReadError("TOKEN_INACTIVE_SUPERVISED_RENEWAL_REQUIRED")
 
     def _get(self, request: EtradeReadRequest) -> dict[str, Any]:
+        return self._get_with_response(request)[0]
+
+    def read_quote_response(
+        self,
+        symbols: tuple[str, ...],
+        *,
+        deadline_monotonic: float | None = None,
+        max_response_bytes: int = MAX_RESPONSE_BYTES,
+    ) -> EtradeReadResponse:
+        """Bounded quote GET retaining the same session checks and private journal."""
+        request = EtradeReadRequest(
+            self.reference.environment,
+            EtradeReadOperation.QUOTES,
+            query=(("detailFlag", "ALL"),),
+            symbols=symbols,
+        )
+        return self._get_with_response(
+            request,
+            deadline_monotonic=deadline_monotonic,
+            max_response_bytes=max_response_bytes,
+        )[1]
+
+    def _get_with_response(
+        self,
+        request: EtradeReadRequest,
+        *,
+        deadline_monotonic: float | None = None,
+        max_response_bytes: int = MAX_RESPONSE_BYTES,
+    ) -> tuple[dict[str, Any], EtradeReadResponse]:
+        request.__post_init__()
         now, started = self._now()
+        bounded = deadline_monotonic is not None or max_response_bytes != MAX_RESPONSE_BYTES
+        budget_started = time.monotonic() if bounded else started
+        deadline = budget_started + REQUEST_DEADLINE_SECONDS
+        if deadline_monotonic is not None:
+            if (
+                type(deadline_monotonic) not in (int, float)
+                or not math.isfinite(deadline_monotonic)
+                or not 0 < deadline_monotonic - budget_started <= REQUEST_DEADLINE_SECONDS
+            ):
+                raise EtradeReadError("REQUEST_DEADLINE_INVALID")
+            deadline = min(deadline, deadline_monotonic)
+        if type(max_response_bytes) is not int or not 0 < max_response_bytes <= MAX_RESPONSE_BYTES:
+            raise EtradeReadError("RESPONSE_LIMIT_INVALID")
+        if bounded and type(self.transport) is not EtradeHTTPSGetTransport:
+            raise EtradeReadError("EXACT_BOUNDED_HTTPS_TRANSPORT_REQUIRED")
         # Local conservative budget; it is not an assertion of provider quota.
         self._request_times = [at for at in self._request_times if started - at < 60]
         if len(self._request_times) >= 10:
@@ -444,22 +494,33 @@ class EtradeReadOnlySession:
         received: datetime | None = None
         credentials = None
         try:
-            credentials = self.store.resolve(self.reference)
+            credentials = (
+                self._resolve_before(deadline) if bounded else self.store.resolve(self.reference)
+            )
             self._check_token(credentials, now)
             nonce = self.nonce()
             if nonce in self._nonce_history:
                 raise EtradeReadError("OAUTH_NONCE_REUSED")
             self._nonce_history.add(nonce)
             authorization = sign_account_get(request, credentials, at=now, nonce=nonce)
-            remaining = REQUEST_DEADLINE_SECONDS - (self.monotonic() - started)
+            remaining = deadline - (time.monotonic() if bounded else self.monotonic())
             if remaining <= 0:
                 raise EtradeReadError("READ_DEADLINE_EXCEEDED")
-            response = self.transport.get(
-                request, authorization=authorization, deadline_seconds=remaining
-            )
+            if bounded:
+                assert type(self.transport) is EtradeHTTPSGetTransport
+                response = self.transport.get_bounded(
+                    request,
+                    authorization=authorization,
+                    deadline_monotonic=deadline,
+                    max_response_bytes=max_response_bytes,
+                )
+            else:
+                response = self.transport.get(
+                    request, authorization=authorization, deadline_seconds=remaining
+                )
             del authorization
             received, finished = self._now()
-            if finished - started >= REQUEST_DEADLINE_SECONDS:
+            if (time.monotonic() if bounded else finished) >= deadline:
                 raise EtradeReadError("READ_DEADLINE_EXCEEDED")
             self._check_token(credentials, received)
             if response.request_digest != request.digest:
@@ -471,7 +532,7 @@ class EtradeReadOnlySession:
                 raise EtradeReadError("PROVIDER_THROTTLED_NEW_OWNER_READ_REQUIRED")
             if response.status not in (200, 204):
                 raise EtradeReadError("READ_HTTP_FAILED")
-            if type(response.body) is not bytes or len(response.body) > MAX_RESPONSE_BYTES:
+            if type(response.body) is not bytes or len(response.body) > max_response_bytes:
                 raise EtradeReadError("RESPONSE_BODY_INVALID")
             if response.status == 204:
                 if (
@@ -511,9 +572,11 @@ class EtradeReadOnlySession:
                 _digest(response.body),
             )
             self.journal.append(evidence, response.body)
+            if bounded and time.monotonic() >= deadline:
+                raise EtradeReadError("READ_DEADLINE_EXCEEDED")
             self.pages.append(evidence)
             self._last_activity = received
-            return decoded
+            return decoded, response
         except Exception as error:
             code = str(error) if isinstance(error, EtradeReadError) else "READ_DEPENDENCY_FAILED"
             evidence = EtradePageEvidence(
@@ -540,6 +603,46 @@ class EtradeReadOnlySession:
         finally:
             if credentials is not None:
                 credentials.close()
+
+    def _resolve_before(self, deadline: float) -> EtradeReadCredentials:
+        """A late private credential read is closed and cannot dispatch a GET."""
+        result: queue.Queue[EtradeReadCredentials | None] = queue.Queue(maxsize=1)
+        lock = threading.Lock()
+        cancelled = False
+        store, reference = self.store, self.reference
+
+        def resolve() -> None:
+            try:
+                value = store.resolve(reference)
+            except Exception:
+                value = None
+            with lock:
+                if cancelled:
+                    if value is not None:
+                        value.close()
+                else:
+                    result.put(value)
+
+        threading.Thread(target=resolve, daemon=True).start()
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EtradeReadError("READ_DEADLINE_EXCEEDED")
+            value = result.get(timeout=remaining)
+            if value is None:
+                raise EtradeReadError("SECRET_STORE_UNAVAILABLE")
+            return value
+        except queue.Empty:
+            raise EtradeReadError("READ_DEADLINE_EXCEEDED") from None
+        finally:
+            with lock:
+                cancelled = True
+                # Close a result published during timeout/cancellation, while
+                # leaving a successfully removed result owned by the caller.
+                with suppress(queue.Empty):
+                    abandoned = result.get_nowait()
+                    if abandoned is not None:
+                        abandoned.close()
 
     def discover_accounts(self) -> tuple[EtradeDiscoveredAccount, ...]:
         self._binding = None

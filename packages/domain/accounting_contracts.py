@@ -51,19 +51,24 @@ class SettlementCalendar(ContractRecord):
 @dataclass(frozen=True, slots=True)
 class ExecutionPolicy(ContractRecord):
     settlement_calendar: SettlementCalendar
-    model_id: Literal["next-regular-open-proxy-v1", "synthetic-events-v1"] = (
-        "next-regular-open-proxy-v1"
-    )
+    model_id: Literal[
+        "next-regular-open-proxy-v1",
+        "synthetic-events-v1",
+        "observed-facts-v1",
+        "stateful-venue-facts-v1",
+    ] = "next-regular-open-proxy-v1"
     slippage_bps: Decimal = Decimal("5")
     fee_per_share: Decimal = Decimal("0.01")
     price_quantum: Decimal = Decimal("0.0000000001")
-    settlement_model: Literal["dated-us-equity-standard-settlement-v1"] = (
+    settlement_model: Literal["dated-us-equity-standard-settlement-v1", "observed-only-v1"] = (
         "dated-us-equity-standard-settlement-v1"
     )
-    correction_settlement: Literal["explicit-or-receipt-trade-date-v1"] = (
+    correction_settlement: Literal["explicit-or-receipt-trade-date-v1", "explicit-only-v1"] = (
         "explicit-or-receipt-trade-date-v1"
     )
-    terminal_model: Literal["observed-model-day-expiry-v1"] = "observed-model-day-expiry-v1"
+    terminal_model: Literal["observed-model-day-expiry-v1", "observed-only-v1"] = (
+        "observed-model-day-expiry-v1"
+    )
     financing_policy: Literal["cash-funded-long-only/1"] = "cash-funded-long-only/1"
 
     def __post_init__(self) -> None:
@@ -72,6 +77,16 @@ class ExecutionPolicy(ContractRecord):
         require_amount(self.fee_per_share, "per-share fee", nonnegative=True)
         if self.slippage_bps >= 10000 or self.price_quantum != Decimal("0.0000000001"):
             raise ValueError("unsupported cost model")
+        observed = self.model_id in ("observed-facts-v1", "stateful-venue-facts-v1")
+        if any(
+            value != observed
+            for value in (
+                self.settlement_model == "observed-only-v1",
+                self.correction_settlement == "explicit-only-v1",
+                self.terminal_model == "observed-only-v1",
+            )
+        ):
+            raise ValueError("observed accounting requires all explicit observation policies")
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,9 +240,133 @@ class InstallCommitment(ContractRecord):
     commitment: Commitment
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RegisterVenueSubmission(ContractRecord):
+    """An outbound packet registered against independent simulated venue funds.
+
+    Original risk and dispatch references are provenance. They cannot supply
+    coordinator, provider or owner authority to this simulation-only command.
+    """
+
+    account_id: str
+    submission: OrderSubmission
+    source_commitment: Commitment
+    source_risk_admission_sha256: str
+    source_dispatch_sha256: str
+    venue_model_sha256: str
+    runtime_environment: Literal["stateful_simulation"] = "stateful_simulation"
+
+    def __post_init__(self) -> None:
+        super(RegisterVenueSubmission, self).__post_init__()
+        require_text(self.account_id, "venue account")
+        for name in (
+            "source_risk_admission_sha256",
+            "source_dispatch_sha256",
+            "venue_model_sha256",
+        ):
+            require_digest(getattr(self, name), name)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReleaseRuntimeUnsent(ContractRecord):
+    """Canonical local disposition after a durable never-dispatched proof.
+
+    These references carry provenance, not authority. The coordinator must
+    authenticate the complete attempt/claim history under its account fence
+    before publishing this accounting transition and its matching hold release.
+    A broker cancellation or absence observation is a different operation.
+    """
+
+    account_id: str
+    commitment_id: str
+    expected_commitment_sha256: str
+    source_state_sha256: str
+    attempt_history_sha256: str
+    locked_unsent_proof_sha256: str
+    proof_at: datetime
+    reason: Literal["expired", "revoked", "policy_cutover"]
+    owner_command_sha256: str | None = None
+    runtime_environment: Literal["stateful_simulation"] = "stateful_simulation"
+    version: Literal["personal-runtime-unsent-release/1"] = "personal-runtime-unsent-release/1"
+
+    def __post_init__(self) -> None:
+        super(ReleaseRuntimeUnsent, self).__post_init__()
+        require_text(self.account_id, "runtime account")
+        require_text(self.commitment_id, "runtime commitment")
+        for name in (
+            "expected_commitment_sha256",
+            "source_state_sha256",
+            "attempt_history_sha256",
+            "locked_unsent_proof_sha256",
+        ):
+            require_digest(getattr(self, name), name)
+        if self.owner_command_sha256 is not None:
+            require_digest(self.owner_command_sha256, "unsent owner command")
+        if self.reason != "expired" and self.owner_command_sha256 is None:
+            raise ValueError("revocation/cutover requires a retained explicit owner command")
+
+
 @dataclass(frozen=True, slots=True)
 class ActivateCommitment(ContractRecord):
     commitment_id: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RuntimeActivationTerms(ContractRecord):
+    """Exact replacement terms; retained activation/dispatch records supply provenance."""
+
+    commitment_id: str
+    expected_commitment_sha256: str
+    reserved_cash: Decimal
+    reserved_sell_quantity: Decimal
+    approved_price: Decimal
+    remaining_fee_budget: Decimal
+    activation_sha256: str
+    dispatch_sha256: str
+
+    def __post_init__(self) -> None:
+        super(RuntimeActivationTerms, self).__post_init__()
+        require_text(self.commitment_id, "runtime commitment")
+        for name in ("expected_commitment_sha256", "activation_sha256", "dispatch_sha256"):
+            require_digest(getattr(self, name), name)
+        for name in ("reserved_cash", "remaining_fee_budget"):
+            require_amount(getattr(self, name), name, nonnegative=True)
+        require_amount(self.reserved_sell_quantity, "runtime shares", nonnegative=True, whole=True)
+        require_amount(self.approved_price, "runtime approved price", positive=True)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ActivateRuntimeCommitments(ContractRecord):
+    """Atomic local reserve activation, without a venue acknowledgement or permit."""
+
+    account_id: str
+    source_state_sha256: str
+    source_snapshot_sha256: str
+    original_policy_sha256: str
+    decision_sha256: str
+    evidence_sha256: str
+    checked_at: datetime
+    expires_at: datetime
+    terms: tuple[RuntimeActivationTerms, ...]
+    runtime_environment: Literal["stateful_simulation"] = "stateful_simulation"
+    version: Literal["personal-runtime-activation/1"] = "personal-runtime-activation/1"
+
+    def __post_init__(self) -> None:
+        super(ActivateRuntimeCommitments, self).__post_init__()
+        require_text(self.account_id, "runtime account")
+        for name in (
+            "source_state_sha256",
+            "source_snapshot_sha256",
+            "original_policy_sha256",
+            "decision_sha256",
+            "evidence_sha256",
+        ):
+            require_digest(getattr(self, name), name)
+        ids = tuple(term.commitment_id for term in self.terms)
+        if not 1 <= len(ids) <= 4 or ids != tuple(sorted(set(ids))):
+            raise ValueError("runtime activation requires one to four sorted unique commitments")
+        if self.checked_at >= self.expires_at:
+            raise ValueError("runtime activation validity is empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,7 +408,10 @@ class ControlCommand(ContractRecord):
 
 type AccountingPayload = (
     InstallCommitment
+    | RegisterVenueSubmission
+    | ReleaseRuntimeUnsent
     | ActivateCommitment
+    | ActivateRuntimeCommitments
     | ExecutionObservation
     | BrokerOrderEvent
     | OrderCancelRequest

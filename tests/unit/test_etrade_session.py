@@ -1047,8 +1047,13 @@ def test_https_transport_pins_host_get_query_and_reads_connection_close_body(
             return self.remaining.pop(0)
 
         def getheader(self, name: str, default: str) -> str:
+            if name == "Content-Encoding":
+                return "identity"
             assert name == "Content-Type"
             return "application/json"
+
+        def close(self) -> None:
+            events.append("close-response")
 
     class Connection:
         def __init__(self, host: str, *, timeout: float, context: Context) -> None:

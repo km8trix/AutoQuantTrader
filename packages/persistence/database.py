@@ -6,9 +6,10 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, Engine, create_engine, make_url
@@ -164,12 +165,224 @@ from packages.persistence.sqlite_config import (
     enforce_sqlite_foreign_keys,
 )
 
-EXPECTED_SCHEMA_REVISION = "0039_personal_research"
+EXPECTED_SCHEMA_REVISION = "0040_personal_continuous"
+PERSONAL_RESEARCH_REVISION = "0039_personal_research"
 _TABLE_PROBE_BATCH_SIZE = 64
 
 
 class DatabaseSchemaNotReady(RuntimeError):
     """The durable store is reachable but not at the required operational schema."""
+
+
+MAX_CONTINUOUS_INTEGRITY_ROWS = 65_536
+MAX_CONTINUOUS_INTEGRITY_BYTES = 128 * 1024 * 1024
+CONTINUOUS_INTEGRITY_DEPENDENCY_TABLES = (
+    phase2_account_leases,
+    phase2_account_lease_heads,
+    phase2_account_lease_releases,
+    phase5_operational_control_transitions,
+    phase5_operational_control_completions,
+    phase5_operational_control_heads,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ContinuousIntegritySnapshot:
+    """One detached W4 SQL snapshot, not an account execution authority.
+
+    Every declared table is present, including empty tables, in declaration order;
+    its immutable rows are in primary-key order. A concrete reader must validate
+    these exact rows and authenticate any additional retained dependencies outside
+    SQL. Changed dependencies must fail or trigger a fresh coherent retry.
+    """
+
+    revision: str
+    tables: Mapping[str, tuple[Mapping[str, Any], ...]]
+    dependencies: Mapping[str, tuple[Mapping[str, Any], ...]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+
+class ContinuousIntegrityReader(Protocol):
+    def validate_snapshot(self, snapshot: ContinuousIntegritySnapshot) -> None:
+        """Validate actual source/account/hold restoration; return only on success."""
+        ...
+
+
+def _combined_validation(*checks: Callable[[], None] | None) -> Callable[[], None] | None:
+    selected = tuple(check for check in checks if check is not None)
+    if not selected:
+        return None
+
+    def validate() -> None:
+        for check in selected:
+            check()
+
+    return validate
+
+
+def _continuous_field_check(connection: Connection, column: sa.Column[Any]) -> tuple[Any, Any]:
+    """SQL-side type/size preflight before any retained field reaches Python."""
+    sqlite = connection.dialect.name == "sqlite"
+    if isinstance(column.type, sa.LargeBinary):
+        limit = (
+            16 * 1024
+            if column.name in {"key_payload", "canonical_payload"}
+            else 256 * 1024
+            if column.table.name == "personal_journal_entries"
+            else 1024 * 1024
+        )
+        length = sa.func.length(column)
+        valid = sa.and_(length > 0, length <= limit)
+        if sqlite:
+            valid = sa.and_(valid, sa.func.typeof(column) == "blob")
+    else:
+        text_value = sa.cast(column, sa.Text())
+        length = (
+            sa.func.length(sa.cast(text_value, sa.LargeBinary()))
+            if sqlite
+            else sa.func.octet_length(text_value)
+        )
+        if isinstance(column.type, sa.String):
+            if column.type.length is None:
+                if column.table not in CONTINUOUS_INTEGRITY_DEPENDENCY_TABLES:
+                    raise DatabaseSchemaNotReady("continuous SQL column has no transfer bound")
+                valid = length <= 1024 * 1024
+            else:
+                valid = sa.func.length(column) <= column.type.length
+            if sqlite:
+                valid = sa.and_(valid, sa.func.typeof(column) == "text")
+        elif isinstance(column.type, (sa.DateTime, sa.Date)):
+            valid = length <= 64
+            if sqlite:
+                valid = sa.and_(valid, sa.func.typeof(column) == "text")
+        elif isinstance(column.type, sa.Boolean):
+            valid = sa.cast(column, sa.Integer()).in_((0, 1))
+            if sqlite:
+                valid = sa.and_(valid, sa.func.typeof(column) == "integer")
+        elif isinstance(column.type, sa.Integer):
+            valid = column.between(-(2**63), 2**63 - 1)
+            if sqlite:
+                valid = sa.and_(valid, sa.func.typeof(column) == "integer")
+        elif (
+            isinstance(column.type, sa.Numeric)
+            and column.table in CONTINUOUS_INTEGRITY_DEPENDENCY_TABLES
+        ):
+            valid = length <= 128
+            if sqlite:
+                valid = sa.and_(valid, sa.func.typeof(column).in_(("integer", "real")))
+        else:
+            raise DatabaseSchemaNotReady("continuous SQL column has no transfer bound")
+    valid = (
+        sa.or_(column.is_(None), valid) if column.nullable else sa.and_(column.is_not(None), valid)
+    )
+    return valid, sa.func.coalesce(length, 0)
+
+
+def _capture_continuous_integrity_snapshot(
+    connection: Connection,
+    *,
+    tables: tuple[sa.Table, ...],
+) -> ContinuousIntegritySnapshot | None:
+    """Capture financial rows and their original lease/control dependencies coherently.
+
+    The six existing dependency tables are separate from the 16 W4 tables and
+    consume the same combined row/byte allowance. These detached values confer
+    no receipt ownership. No codec, object I/O or reader callback runs here.
+    """
+    rows: dict[str, tuple[Mapping[str, Any], ...]] = {}
+    dependencies: dict[str, tuple[Mapping[str, Any], ...]] = {}
+    row_count = 0
+    byte_count = 0
+    try:
+        for index, table in enumerate((*tables, *CONTINUOUS_INTEGRITY_DEPENDENCY_TABLES)):
+            if index == len(tables) and not row_count:
+                return None
+            remaining = MAX_CONTINUOUS_INTEGRITY_ROWS - row_count
+            checks = tuple(_continuous_field_check(connection, c) for c in table.c)
+            invalid = sa.or_(*(sa.not_(valid) for valid, _ in checks))
+            lengths = sum((length for _, length in checks), sa.literal(0))
+            # Project only scalar preflight values from the row-limited query.
+            preflight = (
+                sa.select(
+                    sa.case((invalid, 1), else_=0).label("invalid"),
+                    lengths.label("bytes"),
+                )
+                .select_from(table)
+                .limit(remaining + 1)
+                .subquery()
+            )
+            count, bad, size = connection.execute(
+                sa.select(
+                    sa.func.count(),
+                    sa.func.coalesce(sa.func.sum(preflight.c.invalid), 0),
+                    sa.func.coalesce(sa.func.sum(preflight.c.bytes), 0),
+                ).select_from(preflight)
+            ).one()
+            row_count += int(count)
+            byte_count += int(size)
+            if (
+                bad
+                or row_count > MAX_CONTINUOUS_INTEGRITY_ROWS
+                or byte_count > MAX_CONTINUOUS_INTEGRITY_BYTES
+            ):
+                raise DatabaseSchemaNotReady("continuous SQL snapshot exceeds type or size bounds")
+            for constraint in table.foreign_key_constraints:
+                target = constraint.referred_table.alias()
+                match = sa.and_(*(e.parent == target.c[e.column.name] for e in constraint.elements))
+                missing = connection.execute(
+                    sa.select(sa.literal(1))
+                    .select_from(table.outerjoin(target, match))
+                    .where(
+                        *(element.parent.is_not(None) for element in constraint.elements),
+                        next(iter(target.primary_key)).is_(None),
+                    )
+                    .limit(1)
+                ).first()
+                if missing is not None:
+                    raise DatabaseSchemaNotReady(
+                        "continuous SQL history contains an orphan reference"
+                    )
+            selected = tuple(
+                MappingProxyType(dict(row))
+                for row in connection.execute(
+                    sa.select(table).order_by(*table.primary_key.columns).limit(remaining + 1)
+                ).mappings()
+            )
+            if len(selected) != count:
+                raise DatabaseSchemaNotReady("continuous SQL snapshot inventory changed")
+            (rows if index < len(tables) else dependencies)[table.name] = selected
+    except DatabaseSchemaNotReady:
+        raise
+    except Exception:
+        raise DatabaseSchemaNotReady("continuous SQL snapshot capture failed") from None
+    return ContinuousIntegritySnapshot(
+        EXPECTED_SCHEMA_REVISION, MappingProxyType(rows), MappingProxyType(dependencies)
+    )
+
+
+def _capture_continuous_validation(
+    connection: Connection,
+    *,
+    tables: tuple[sa.Table, ...],
+    reader: ContinuousIntegrityReader | None,
+) -> Callable[[], None] | None:
+    """Keep actual retained restoration outside this coherent SQL capture."""
+    snapshot = _capture_continuous_integrity_snapshot(connection, tables=tables)
+    if snapshot is None:
+        return None
+    if reader is None or not callable(getattr(reader, "validate_snapshot", None)):
+        raise DatabaseSchemaNotReady("nonempty continuous history requires an integrity reader")
+
+    def validate() -> None:
+        try:
+            reader.validate_snapshot(snapshot)
+        except Exception:
+            raise DatabaseSchemaNotReady(
+                "continuous retained integrity verification failed"
+            ) from None
+
+    return validate
 
 
 def _verify_sealed_replay_integrity(connection: Connection) -> None:
@@ -1340,7 +1553,10 @@ def _capture_personal_research_validation(
                 missing = connection.execute(
                     sa.select(sa.literal(1))
                     .select_from(table.outerjoin(target, matches))
-                    .where(next(iter(target.primary_key.columns)).is_(None))
+                    .where(
+                        *(element.parent.is_not(None) for element in constraint.elements),
+                        next(iter(target.primary_key)).is_(None),
+                    )
                     .limit(1)
                 ).first()
                 if missing is not None:
@@ -1416,14 +1632,21 @@ def verify_operational_schema(
     require_phase_zero_facts: bool = True,
     expected_revision: str = EXPECTED_SCHEMA_REVISION,
     research_codec: ResearchRecordCodec | None = None,
+    continuous_integrity: ContinuousIntegrityReader | None = None,
 ) -> None:
-    """Fail closed unless migrations and every Phase 0 operational table are readable."""
+    """Check the exact revision, inherited integrity and configured W4 restoration.
+
+    Nonempty W4 history requires a concrete continuous_integrity reader. Its
+    detached validation grants no account execution authority and must authenticate
+    required retained dependencies against this call's exact captured rows.
+    """
 
     validate_research = _verify_operational_schema_snapshot(
         engine,
         require_phase_zero_facts=require_phase_zero_facts,
         expected_revision=expected_revision,
         research_codec=research_codec,
+        continuous_integrity=continuous_integrity,
     )
     if validate_research is not None:
         validate_research()
@@ -1457,8 +1680,9 @@ def _verify_operational_schema_snapshot(
     require_phase_zero_facts: bool,
     expected_revision: str,
     research_codec: ResearchRecordCodec | None,
+    continuous_integrity: ContinuousIntegrityReader | None,
 ) -> Callable[[], None] | None:
-    """Run existing SQL checks and return detached W3 validation, never readiness."""
+    """Run inherited SQL checks; return detached W3/W4 validation, never readiness."""
 
     validate_research = None
     if expected_revision not in {
@@ -1466,14 +1690,21 @@ def _verify_operational_schema_snapshot(
         "0036_phase6_time_anchors",
         "0037_phase3_fixture_worker",
         "0038_phase4_etrade_oauth",
+        PERSONAL_RESEARCH_REVISION,
         EXPECTED_SCHEMA_REVISION,
     }:
         raise DatabaseSchemaNotReady("requested database revision is not supported")
-    if expected_revision == EXPECTED_SCHEMA_REVISION:
+    if expected_revision in {PERSONAL_RESEARCH_REVISION, EXPECTED_SCHEMA_REVISION}:
         from packages.persistence.research_catalog import SqlResearchCatalog  # noqa: F401
         from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
         from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
         from packages.persistence.research_workflow_v2 import SqlResearchWorkflow  # noqa: F401
+
+    if expected_revision == EXPECTED_SCHEMA_REVISION:
+        from packages.persistence.applied_reconciliation_schema import APPLIED_RECONCILIATION_TABLES
+        from packages.persistence.continuous_account_schema import CONTINUOUS_ACCOUNT_TABLES
+        from packages.persistence.daily_runtime_risk_schema import DAILY_RUNTIME_TABLES
+        from packages.persistence.durable_journal_schema import JOURNAL_TABLES
 
     from packages.adapters.broker.alpaca_paper_account_activity_runtime import (
         AlpacaPaperAccountActivityRuntimeError,
@@ -1585,6 +1816,7 @@ def _verify_operational_schema_snapshot(
     if expected_revision in {
         "0037_phase3_fixture_worker",
         "0038_phase4_etrade_oauth",
+        PERSONAL_RESEARCH_REVISION,
         EXPECTED_SCHEMA_REVISION,
     }:
         from packages.persistence.fixture_segment_worker import (
@@ -1592,7 +1824,11 @@ def _verify_operational_schema_snapshot(
             _verify_fixture_segment_integrity,
         )
 
-    if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
+    if expected_revision in {
+        "0038_phase4_etrade_oauth",
+        PERSONAL_RESEARCH_REVISION,
+        EXPECTED_SCHEMA_REVISION,
+    }:
         from packages.persistence.etrade_oauth_coordinator import (
             EtradeOAuthCoordinatorError,
             _verify_etrade_oauth_coordinator_integrity,
@@ -1741,6 +1977,7 @@ def _verify_operational_schema_snapshot(
                 "0036_phase6_time_anchors",
                 "0037_phase3_fixture_worker",
                 "0038_phase4_etrade_oauth",
+                PERSONAL_RESEARCH_REVISION,
                 EXPECTED_SCHEMA_REVISION,
             }:
                 required_tables += (
@@ -1750,6 +1987,7 @@ def _verify_operational_schema_snapshot(
             if expected_revision in {
                 "0037_phase3_fixture_worker",
                 "0038_phase4_etrade_oauth",
+                PERSONAL_RESEARCH_REVISION,
                 EXPECTED_SCHEMA_REVISION,
             }:
                 required_tables += (
@@ -1758,13 +1996,25 @@ def _verify_operational_schema_snapshot(
                     phase3_fixture_segment_job_events,
                     phase3_fixture_segment_job_heads,
                 )
-            if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
+            if expected_revision in {
+                "0038_phase4_etrade_oauth",
+                PERSONAL_RESEARCH_REVISION,
+                EXPECTED_SCHEMA_REVISION,
+            }:
                 required_tables += (
                     phase4_etrade_oauth_session_events,
                     phase4_etrade_oauth_session_heads,
                 )
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
+            if expected_revision in {PERSONAL_RESEARCH_REVISION, EXPECTED_SCHEMA_REVISION}:
                 required_tables += (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                continuous_tables = (
+                    *JOURNAL_TABLES,
+                    *APPLIED_RECONCILIATION_TABLES,
+                    *DAILY_RUNTIME_TABLES,
+                    *CONTINUOUS_ACCOUNT_TABLES,
+                )
+                required_tables += continuous_tables
             _probe_required_tables(connection, required_tables)
 
             try:
@@ -1939,6 +2189,7 @@ def _verify_operational_schema_snapshot(
             if expected_revision in {
                 "0037_phase3_fixture_worker",
                 "0038_phase4_etrade_oauth",
+                PERSONAL_RESEARCH_REVISION,
                 EXPECTED_SCHEMA_REVISION,
             }:
                 try:
@@ -1947,17 +2198,26 @@ def _verify_operational_schema_snapshot(
                     raise DatabaseSchemaNotReady(
                         "Phase 3 fixture-segment integrity verification failed"
                     ) from error
-            if expected_revision in {"0038_phase4_etrade_oauth", EXPECTED_SCHEMA_REVISION}:
+            if expected_revision in {
+                "0038_phase4_etrade_oauth",
+                PERSONAL_RESEARCH_REVISION,
+                EXPECTED_SCHEMA_REVISION,
+            }:
                 try:
                     _verify_etrade_oauth_coordinator_integrity(connection)
                 except EtradeOAuthCoordinatorError as error:
                     raise DatabaseSchemaNotReady(
                         "Phase 4 E*TRADE OAuth coordinator integrity verification failed"
                     ) from error
-            if expected_revision == EXPECTED_SCHEMA_REVISION:
+            if expected_revision in {PERSONAL_RESEARCH_REVISION, EXPECTED_SCHEMA_REVISION}:
                 validate_research = _capture_personal_research_validation(
                     connection, codec=research_codec
                 )
+            if expected_revision == EXPECTED_SCHEMA_REVISION:
+                validate_continuous = _capture_continuous_validation(
+                    connection, tables=continuous_tables, reader=continuous_integrity
+                )
+                validate_research = _combined_validation(validate_research, validate_continuous)
             if not require_phase_zero_facts:
                 _verify_data_plane_integrity(connection)
                 return validate_research

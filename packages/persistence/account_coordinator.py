@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from types import TracebackType
+from types import MappingProxyType, TracebackType
 from typing import Any, TypeVar, cast
 
 import sqlalchemy as sa
@@ -443,13 +443,36 @@ def verify_account_lease_history(
     return latest
 
 
+MAX_COMMITTED_ACCOUNT_OBSERVATIONS = 65_536
+
+
+@dataclass(frozen=True, slots=True)
+class CommittedAccountObservations:
+    """Original SQL head data for one inspection; never a fence or execution permit."""
+
+    original_head: Mapping[str, Any]
+
+
+@dataclass(slots=True)
+class _CommittedObservationState:
+    owner: SqlAccountCoordinator
+    thread_id: int
+    fence: AccountFence
+    view: CommittedAccountObservations
+    original: Mapping[str, Any]
+    expected: Mapping[str, Any]
+    count: int = 0
+    failed: bool = False
+
+
 class _SqlAccountCoordinatorState:
-    __slots__ = ("effect_connection", "effect_in_progress", "lock")
+    __slots__ = ("effect_connection", "effect_in_progress", "lock", "observations")
 
     def __init__(self) -> None:
         self.effect_connection: Connection | None = None
         self.effect_in_progress = False
         self.lock = threading.RLock()
+        self.observations: _CommittedObservationState | None = None
 
 
 class SqlAccountCoordinatorAuthority:
@@ -497,6 +520,44 @@ class SqlAccountCoordinatorAuthority:
             return state
 
 
+def _rollback_failed_write(connection: Connection) -> None:
+    """Clean both transaction layers while preserving the original failure.
+
+    A deferred SQLite constraint can fail COMMIT after SQLAlchemy deactivates
+    its Transaction. Its rollback then becomes a no-op although sqlite3 still
+    owns the writes. Never return that physical transaction to the pool.
+    """
+    proxy = None
+    try:
+        if not connection.closed and not connection.invalidated:
+            proxy = connection.connection
+        connection.rollback()
+        if proxy is not None:
+            driver = proxy.driver_connection
+            if driver is not None:
+                if connection.dialect.name == "sqlite":
+                    active = getattr(driver, "in_transaction", None)
+                    if type(active) is not bool:
+                        raise AccountCoordinatorError("SQLITE_TRANSACTION_STATE_UNAVAILABLE")
+                    if active:
+                        driver.rollback()
+                    if getattr(driver, "in_transaction", None) is not False:
+                        raise AccountCoordinatorError("SQLITE_ROLLBACK_LEFT_ACTIVE_TRANSACTION")
+                else:
+                    driver.rollback()
+    except BaseException:
+        # Invalidation closes/discards the connection if rollback itself fails.
+        # Cleanup must not replace the original COMMIT/body exception.
+        try:
+            connection.invalidate()
+        except BaseException:
+            if proxy is not None:
+                with suppress(BaseException):
+                    proxy.detach()
+                with suppress(BaseException):
+                    proxy.close()
+
+
 @contextmanager
 def _write_transaction(engine: Engine) -> Iterator[Connection]:
     """Open a write-serializing transaction for either supported backend."""
@@ -506,15 +567,19 @@ def _write_transaction(engine: Engine) -> Iterator[Connection]:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
                 yield connection
-            except BaseException:
-                connection.rollback()
-                raise
-            else:
                 connection.commit()
+            except BaseException:
+                _rollback_failed_write(connection)
+                raise
             return
         if connection.dialect.name == "postgresql":
-            with connection.begin():
+            connection.begin()
+            try:
                 yield connection
+                connection.commit()
+            except BaseException:
+                _rollback_failed_write(connection)
+                raise
             return
         raise AccountCoordinatorError(
             f"SQL coordinator does not support dialect {connection.dialect.name!r}"
@@ -1114,8 +1179,94 @@ class SqlAccountCoordinator:
             trusted_not_before=checked_at,
         )
 
+    def _observation_row(self, connection: Connection) -> Mapping[str, Any]:
+        row = connection.execute(self._head_statement(lock=True)).mappings().one_or_none()
+        if row is None:
+            raise AccountLeaseOwnershipLost("original observed account head is missing")
+        return MappingProxyType(dict(row))
+
+    def _require_observations(
+        self, view: CommittedAccountObservations
+    ) -> _CommittedObservationState:
+        state = self._state.observations
+        if (
+            type(view) is not CommittedAccountObservations
+            or state is None
+            or state.owner is not self
+            or state.thread_id != threading.get_ident()
+            or state.view is not view
+            or view.original_head is not state.original
+            or state.failed
+        ):
+            raise AccountCoordinatorError("original active coordinator observation scope required")
+        return state
+
+    @contextmanager
+    def inspect_committed_observations(
+        self, fence: AccountFence, *, original_head: Mapping[str, Any]
+    ) -> Iterator[CommittedAccountObservations]:
+        """Track only this coordinator/thread's successful ordinary revalidations.
+
+        Initial rows must equal the caller's coherent snapshot exactly. Every
+        observation keeps the same lease and generation, uses the unchanged
+        trusted-clock validation, and advances the private expected row only
+        after successful COMMIT. The bounded scope is closed on every exit.
+        """
+        with self._state.lock:
+            if self._state.observations is not None or self._state.effect_in_progress:
+                raise AccountCoordinatorError("account observation scope is already active")
+            with self._authority._engine.connect() as connection:
+                if connection.dialect.name == "postgresql":
+                    connection = connection.execution_options(isolation_level="REPEATABLE READ")
+                    connection.begin()
+                else:
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
+                try:
+                    initial = self._observation_row(connection)
+                    if initial != original_head:
+                        raise AccountCoordinatorError("original observed account head changed")
+                    self.revalidate_for_commit_in_transaction(connection, fence)
+                finally:
+                    connection.rollback()
+            view = CommittedAccountObservations(initial)
+            state = _CommittedObservationState(
+                self, threading.get_ident(), fence, view, initial, initial
+            )
+            self._state.observations = state
+        try:
+            yield view
+        finally:
+            with self._state.lock:
+                if self._state.observations is state:
+                    self._state.observations = None
+
+    def recheck_committed_observations_in_transaction(
+        self, connection: Connection, view: CommittedAccountObservations
+    ) -> Mapping[str, Any]:
+        """Return only the exact owned final row after coherent SQL readback."""
+        if connection.engine is not self._authority._engine or not connection.in_transaction():
+            raise AccountCoordinatorError("same-engine active observation transaction required")
+        with self._state.lock:
+            state = self._require_observations(view)
+            if self._observation_row(connection) != state.expected:
+                state.failed = True
+                raise AccountCoordinatorError("unowned committed account observation changed")
+            return state.expected
+
     def revalidate(self, fence: AccountFence) -> AccountFenceReceipt:
         with self._state.lock:
+            tracked = self._state.observations
+            if tracked is not None:
+                self._require_observations(tracked.view)
+                if (
+                    fence != tracked.fence
+                    or tracked.count >= MAX_COMMITTED_ACCOUNT_OBSERVATIONS
+                    or self._state.effect_connection is not None
+                ):
+                    tracked.failed = True
+                    raise AccountCoordinatorError(
+                        "committed account observation scope bound differs"
+                    )
             now = self._trusted_now()
             connection = self._state.effect_connection
             if connection is not None:
@@ -1126,20 +1277,47 @@ class SqlAccountCoordinator:
                 )
             rejection: AccountCoordinatorError | None = None
             receipt: AccountFenceReceipt | None = None
-            with _write_transaction(self._authority._engine) as write_connection:
-                try:
-                    receipt = self.revalidate_in_transaction(
-                        write_connection,
-                        fence,
-                        checked_at=now,
-                    )
-                except AccountCoordinatorError as error:
-                    rejection = error
-            if rejection is not None:
-                raise rejection
-            if receipt is None:
-                raise AccountCoordinatorError("fence validation produced no receipt")
-            return receipt
+            observed: Mapping[str, Any] | None = None
+            try:
+                with _write_transaction(self._authority._engine) as write_connection:
+                    if tracked is not None:
+                        self.recheck_committed_observations_in_transaction(
+                            write_connection, tracked.view
+                        )
+                    try:
+                        receipt = self.revalidate_in_transaction(
+                            write_connection,
+                            fence,
+                            checked_at=now,
+                        )
+                    except AccountCoordinatorError as error:
+                        rejection = error
+                    if tracked is not None and rejection is None:
+                        observed = self._observation_row(write_connection)
+                        if (
+                            observed.keys() != tracked.expected.keys()
+                            or any(
+                                observed[key] != value
+                                for key, value in tracked.expected.items()
+                                if key != "updated_at"
+                            )
+                            or observed["updated_at"] < tracked.expected["updated_at"]
+                        ):
+                            raise AccountCoordinatorError("committed account observation differs")
+                if rejection is not None:
+                    raise rejection
+                if receipt is None:
+                    raise AccountCoordinatorError("fence validation produced no receipt")
+                if tracked is not None:
+                    if observed is None:
+                        raise AccountCoordinatorError("committed account observation is missing")
+                    tracked.expected = observed
+                    tracked.count += 1
+                return receipt
+            except BaseException:
+                if tracked is not None:
+                    tracked.failed = True
+                raise
 
     def run_fenced(
         self,

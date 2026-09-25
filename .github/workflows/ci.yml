@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Standard Python foundations and retained financial regressions
+  backend-foundations:
+    name: Standard Python foundations and installed-wheel checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -57,8 +57,6 @@ jobs:
         run: |
           .venv/bin/alembic upgrade head
           .venv/bin/alembic check
-      - name: Foundation suite with an explicit disposable PostgreSQL database
-        run: .venv/bin/python -B scripts/run_personal_tests.py --postgres-url postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
       - name: Build conventional wheel with pinned build dependencies
         run: uv build --wheel --no-sources --build-constraints build_support/native_build_constraints.txt --require-hashes --out-dir "$RUNNER_TEMP/personal-wheel"
       - name: Verify and run installed wheel outside source checkout
@@ -81,6 +79,126 @@ jobs:
           env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/research-installed/bin/python" -I -B "$GITHUB_WORKSPACE/scripts/verify_personal_research_jobs.py" --python "$RUNNER_TEMP/research-installed/bin/python" --output-dir "$RUNNER_TEMP/installed-durable-research-checks"
       - name: Validate historical Compose definitions without activation
         run: docker compose --env-file /dev/null -f infra/compose/compose.yaml config --quiet
+
+  backend-tests:
+    name: Retained financial regressions (shard index ${{ matrix.shard_index }} of 16)
+    needs: backend-foundations
+    runs-on: ubuntu-latest
+    # CI budget only; final Linux shard timings still require qualification.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      AQT_ENVIRONMENT: local
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: autoquant
+          POSTGRES_PASSWORD: autoquant
+          POSTGRES_DB: autoquant_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U autoquant -d autoquant_test"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12.13"
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Check architecture before importing project code
+        run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
+      - name: Install locked dependencies without executing project build code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+      - name: Exact retained suite shard with an explicit disposable PostgreSQL database
+        run: >-
+          .venv/bin/python -B scripts/run_personal_tests.py
+          --postgres-url postgresql+psycopg://autoquant:autoquant@localhost:5432/autoquant_test
+          --shard-count 16
+          --shard-index ${{ matrix.shard_index }}
+
+  retained-restore-profile:
+    name: Diagnostic retained restore profile (failure stays failure)
+    needs: [backend-foundations, backend-tests]
+    # Collect Linux costs only when the required, unprofiled regression gate failed.
+    # This job neither replaces that gate nor participates in its aggregate.
+    if: ${{ always() && needs.backend-foundations.result == 'success' && needs.backend-tests.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "0"
+      AQT_ENVIRONMENT: local
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12.13"
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Check architecture before importing project code
+        run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
+      - name: Install locked dependencies without executing project build code
+        run: uv sync --all-groups --locked --no-install-project --no-build
+      - name: Profile the original retained restore test with unchanged limits
+        run: |
+          profile_directory="$RUNNER_TEMP/retained-restore-profile"
+          mkdir "$profile_directory"
+          set +e
+          env -i PATH="$GITHUB_WORKSPACE/.venv/bin:/usr/bin:/bin" \
+            PYTHONPATH="$GITHUB_WORKSPACE" PYTHONDONTWRITEBYTECODE=1 \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC TMPDIR="$RUNNER_TEMP" \
+            AQT_RETAINED_RESTORE_PROFILE_PATH="$profile_directory/profile.json" \
+            .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/retained-restore-profile-fixture" \
+            tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+          test_exit=$?
+          set -e
+          printf '{"schema":"retained-diagnostic-test-exit/1","diagnostic_only":true,"pytest_exit_code":%s}\n' "$test_exit" > "$profile_directory/test-exit.json"
+          printf 'Retained restore diagnostic pytest exit: **%s**. Instrumented evidence only; the required unprofiled result remains authoritative.\n' "$test_exit" >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_exit"
+      - name: Upload only sanitized profile and exact diagnostic test exit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: retained-restore-profile-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/retained-restore-profile/profile.json
+            ${{ runner.temp }}/retained-restore-profile/test-exit.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require a profile report from the diagnostic
+        if: ${{ always() }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/retained-restore-profile/profile.json" ]; then
+            printf 'No retained restore profile was produced. The diagnostic is incomplete.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  backend:
+    name: Standard Python foundations and retained financial regressions
+    if: ${{ always() }}
+    needs: [backend-foundations, backend-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every foundation and test shard to succeed
+        env:
+          FOUNDATIONS_RESULT: ${{ needs.backend-foundations.result }}
+          TESTS_RESULT: ${{ needs.backend-tests.result }}
+        run: |
+          if [ "$FOUNDATIONS_RESULT" != success ] || [ "$TESTS_RESULT" != success ]; then
+            exit 1
+          fi
 
   frontend:
     name: Browser regressions
