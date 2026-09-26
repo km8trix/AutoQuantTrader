@@ -54,3 +54,12 @@ transfer ownership. This cooperating-process contract is not a hostile-code sand
 proof of freshness, health-history evidence, or host qualification. Preserve separate
 acceptance for each boundary. The focused 92-case evidence and review corrections are
 in the [dated assessment](reviews/2026-09-26-autonomy/README.md).
+
+**Measured-health extension:** compose a fresh private `StandardClock` in an opt-in
+owner, preserving the existing reducer rather than duplicating health mathematics.
+Weak callback bindings and original state/observation checks retain history across
+samples, including failures. This intentionally couples the owner to the reducer's
+private state shape; changes need joint review and the independent behavior-comparison
+tests. Historical verification does not read clocks, renew a measurement, qualify a
+host or implement the capture clock port. Genuine integration waits for authentic
+qualified-source inputs instead of introducing unused authority wrappers.

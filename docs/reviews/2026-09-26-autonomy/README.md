@@ -189,3 +189,24 @@ pass remains valid only as local evidence and does not satisfy A2.
 the result. The workflow's other shards and failure-only diagnostic are allowed
 to finish without cancellation. Investigate narrow pure-helper costs; preserve
 every original ownership/provenance/SQL/fence check and all resource limits.
+
+### A3.2b original measured health history
+
+The optional `PersonalMeasuredClock` owns a fresh `StandardClock` and binds each
+health result to its actual original Chrony conversion. It rejects changed private
+history, copied owners/tokens, callback replacement and interleaved sampling. Weak
+callback/registry ownership allows cleanup. Existing health/recovery semantics are
+compared against a separate ordinary `StandardClock` with the same synthetic inputs.
+
+Review reproduced an older valid source observation being substituted during a
+final local callback. The [original failing regression](measured-clock-pending-reproduction.txt)
+is retained; explicit pending-observation/call-count guards fix the association.
+**186 focused cases passed** (94 new), along with architecture, scoped static checks
+and independent review. [Source-bound evidence](personal-measured-clock-evidence.json)
+records exact commands, prior type-check failure and limits. Historical ownership
+is not currentness, host qualification, re-arm or genuine capture admission.
+
+At the completed offline A3 checkpoint, full Ruff formatting/lint (1,021 files),
+mypy (419 source files) and architecture checks pass. Collection through the actual
+sanitized standard runner finds **4,757 cases** in 12.81 s without collection errors.
+This includes all new component regressions; no test body runs in collection mode.

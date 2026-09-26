@@ -20,7 +20,7 @@ credentials, start live services or authorize provider traffic.
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
 | A2 — retained restore within original limits | Local candidate passes; approved draft CI pending | Existing W4 integration |
-| A3 — genuine capture bridge contract and offline guards | A3.1 and A3.2a locally validated; A3.2b health linkage next | Existing capture/clock/calendar boundaries |
+| A3 — genuine capture bridge contract and offline guards | Offline scope locally complete; publication/CI pending | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
 | B1 — restricted protocol implementation | Blocked | W4 merged and verified |
@@ -126,7 +126,7 @@ selection validation using existing records; keep genuine publication denied.
   original behavior preserved, discovered ownership defects and corrections recorded.
   Linux acceptance of the pending commit is still required before integration.
 
-### A3.2b — retain measured health history (next offline task)
+### A3.2b — retain measured health history (locally validated)
 
 - **Objective:** bind a health result to its actual measured observations from startup.
 - **Scope:** inspect and implement the smallest opt-in owner consistent with existing
@@ -135,12 +135,13 @@ selection validation using existing records; keep genuine publication denied.
 - **Dependencies:** A3.2a; source-backed interface review before implementation.
 - **Acceptance criteria:** arbitrary or simulated healthy snapshots cannot qualify;
   60-second startup/recovery and 30-second age/cadence policies remain unchanged;
-  local current sampling cannot renew a measurement or invoke its external source;
+  historical verification invokes no clock/source callback and makes no currentness claim;
   copies, field/callback replacement, regression, suspend and epoch faults reject.
 - **Validation commands:** existing clock tests above and new selected `test_personal_*`
   cases; architecture, Ruff and mypy. All time and source callbacks are synthetic.
-- **Completion criteria:** reviewed ownership and adverse/freshness evidence, or
-  a concrete unresolved architectural choice recorded before dependent work.
+- **Completion criteria:** reviewed ownership and unchanged reducer-policy evidence,
+  with 186 focused cases (94 new) passing; preserve the original pending-observation
+  substitution failure and its correction.
   This component alone cannot satisfy actual host qualification or A3.4 admission.
 
 ### A3.3a — preserve Tiingo binding and deadline through cleanup (locally validated)

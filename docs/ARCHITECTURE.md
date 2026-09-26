@@ -41,8 +41,11 @@ reading and its converted measurement. Its optional owner registry rejects copie
 owners/observations, changed records and source bindings without another read.
 This is process-local conversion evidence only: unchanged historical observations
 remain verifiable, and injected fixture runners remain possible. `StandardClock`
-still owns health classification; measured health-history linkage, actual host
-qualification and the genuine capture-clock producer remain unfinished.
+still owns health classification. Optional `PersonalMeasuredClock` composes a fresh
+private reducer and retains its original source conversions and history. Its inert
+verification proves historical process ownership only; arbitrary/prewarmed clocks,
+simulated sources, copied owners and changed history reject. Actual host qualification,
+capture-time currentness and the genuine capture-clock producer remain unfinished.
 
 ### API, persistence and configuration
 

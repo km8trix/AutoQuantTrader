@@ -87,7 +87,7 @@ Ask for a consequential choice only if implementation would require departing fr
 ## Implementation findings after the initial proposal
 
 A3.1 now supplies the pure Tiingo selection check, and A3.2a retains the original
-Chrony conversion. A3.2b adds historical measured-health ownership under review.
+Chrony conversion. A3.2b adds locally validated historical measured-health ownership.
 These are mechanical components; none consumes an authentic host qualification or
 turns the collector's genuine-class guard into admission.
 
