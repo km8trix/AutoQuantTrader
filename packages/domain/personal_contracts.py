@@ -21,7 +21,20 @@ def semantic_value(value: object) -> object:
     # Exact builtins cannot carry dataclass fields; preserve the reflection
     # path for every subclass, record and other value without caching results.
     if type(value) is tuple:
-        return tuple(semantic_value(v) for v in value)
+        converted: list[object] = []
+        for item in value:
+            item_type = type(item)
+            if (
+                item is None
+                or item_type is str
+                or item_type is int
+                or item_type is bool
+                or item_type is bytes
+            ):
+                converted.append(item)
+            else:
+                converted.append(semantic_value(item))
+        return tuple(converted)
     if (
         value is None
         or type(value) is str

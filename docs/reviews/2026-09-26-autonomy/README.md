@@ -99,3 +99,25 @@ A safe collection-only run through the actual sanitized personal runner collecte
 the 4,523-case baseline plus 14 restored sharding cases, before A2 additions. No
 test body ran during collection. Collection is inventory evidence, not a passing
 full regression. A0 and A1 are complete; A2 remains open.
+
+### A2 local candidate
+
+A narrow exact-scalar tuple conversion removes recursive calls for immutable
+leaves while preserving tuple allocation, subclass/dataclass fallback, traversal,
+mutation, error/read order and canonical hashes. No cache, financial rule,
+source/SQL/fence check or limit changed. Independent review found no correctness
+issue. **233 focused compatibility tests** (15 new) pass, along with Ruff, full
+mypy (417 files), architecture and API contract checks.
+
+The original unprofiled signed retained-outcome test passed in **245.87 s**;
+fixture setup took 196.124 s and restore completed in **46.681 s** under the
+unchanged 60-second lease. Its original result/preservation/cleanup assertions
+passed. [Bound source evidence](semantic-tuple-evidence.json),
+[original log](retained-local.log) and [finite benchmark](semantic-tuple-benchmark.json)
+record scope. This local result does not close the previous Linux failure or
+establish a before/after startup speed comparison. The microbenchmark also has
+a slower scalar control; it is not a uniform speedup claim.
+
+Automatic approval review rejected GitHub publication because explicit repository
+egress authorization was required. No push occurred. Local work remains valid;
+exact-revision Linux CI and Wave 4 closeout remain incomplete.
