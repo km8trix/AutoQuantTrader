@@ -1,0 +1,87 @@
+{
+  "scope": "Offline semantic conversion compatibility repair; no production credentials, providers, SQL, authority, lease, fence, timeout or risk-limit changes.",
+  "source": {
+    "path": "packages/domain/personal_contracts.py",
+    "before_sha256": "0525ffa5ac23c22c2c266ab7e62efe7d22663f1b572d04f56d6f0ac7160578e6",
+    "after_sha256": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "before_snapshot": "semantic-stopiteration-before-source.py",
+    "before_commit": "2ab0504"
+  },
+  "tests": {
+    "path": "tests/unit/test_personal_semantic_stopiteration.py",
+    "sha256": "437d998fb8616e6e0b26925cd3c0ad7628656ccba48733e40f2c03350bcd6962",
+    "new_case_count": 49,
+    "existing_oracle_path": "tests/unit/test_personal_semantic_dispatch.py",
+    "existing_oracle_sha256": "39427fdfe7f39bc7b209904ebbc44d9a6cee0e0ab7a1b9559ebd09d2da99621f"
+  },
+  "findings": [
+    "Eager tuple/dataclass loops propagated StopIteration and its subclasses directly where the original recursive generator produced RuntimeError('generator raised StopIteration') with original cause/context and suppressed context.",
+    "Eager converted-result lists remained reachable from exception tracebacks, delaying release of previously converted temporary objects beyond the caller's exception handler; reproduced for ordinary LookupError too.",
+    "Root reflection/prefix/fields evaluation belongs outside the child generator boundary; direct root failures retain original raw type, while nested failures receive the generator boundary.",
+    "A separate scalar helper was rejected before implementation because its nonexact fallback would add live recursion frames. Final repair restores direct literal generator recursion."
+  ],
+  "repair": "Restore literal recursive generator expressions for exact tuples and dataclass fields, including expression evaluation of the dataclass prefix before fields(). Retain existing top-level exact builtin scalar/tuple dispatch. Withdraw eager tuple/dataclass child scalar-recursion bypass optimizations; do not manually emulate PEP479 or retain converted-result lists in tracebacks.",
+  "validation": {
+    "environment": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC",
+    "python": "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+    "before_command": "python -B -m pytest -q --tb=short tests/unit/test_personal_semantic_stopiteration.py",
+    "before_result": "29 failed, 14 passed in 0.28s",
+    "before_log": "semantic-stopiteration-regression-before.txt",
+    "before_count_limitation": "This run covered the initial 43 cases. Six explicit failing-temporary-record and transient-field-metadata lifetime cases were appended afterward; they were not part of the before-fix count.",
+    "finite_comparison": [
+      "semantic-stopiteration-probe.py",
+      "semantic-stopiteration-before.json"
+    ],
+    "after_command": "python -B -m pytest -q --tb=short tests/unit/test_personal_semantic_stopiteration.py tests/unit/test_personal_semantic_dispatch.py tests/unit/test_personal_contract_semantics.py tests/unit/test_canonical.py tests/unit/test_personal_canonical_tuple_dispatch.py tests/unit/test_personal_canonical_deferred_dispatch.py tests/unit/test_personal_canonical_fragment_join.py tests/unit/test_personal_codec.py tests/unit/test_personal_codec_primitive_dispatch.py",
+    "after_result": "324 passed in 1.19s, including all 49 new cases",
+    "after_log": "semantic-stopiteration-after-all.txt",
+    "scoped_static": "ruff check and ruff format --check packages/domain/personal_contracts.py tests/unit/test_personal_semantic_stopiteration.py passed; git diff --check passed",
+    "root_reported_static": "Architecture check passed; mypy apps packages passed for 419 source files. Root ran these independently.",
+    "independent_review": "spec_plan_audit reviewed final frozen source and all 49 new cases; no actionable finding. Its earlier 136-case independent run predates the last six new lifetime cases; the 324-case final run supplies those results.",
+    "root_full_static": {
+      "architecture": "passed",
+      "ruff_check": "passed",
+      "ruff_format": "1023 files already formatted",
+      "mypy": "419 source files passed",
+      "api_contracts": "current",
+      "diff_check": "passed"
+    },
+    "standard_collection": {
+      "result": "4848 tests collected in 13.55s; 49 new semantic cases and 13 new terminal-probe cases included",
+      "method": "Run unchanged run_personal_tests.main with a temporary subprocess wrapper adding only --collect-only; no test body executed.",
+      "limitation": "Inventory only. Existing Starlette/httpx deprecation warning; dependencies unchanged."
+    }
+  },
+  "performance": {
+    "status": "No measured performance claim for this repair. Eager leaf recursion bypass optimizations withdrawn for compatibility; retained acceptance remains open.",
+    "prepared_only": "semantic-generator-benchmark.py was prepared but not executed while root's retained gate runs. It is not acceptance evidence.",
+    "remaining": "Same-source Linux repeat failure remains open. SQL/canonical/inline-generator candidates were rejected; factory proof proposal awaits owner decision."
+  },
+  "retained_gate": {
+    "test": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+    "command": "python -B -m pytest -q -s -p no:cacheprovider <test>",
+    "environment": "Same sanitized environment above; no diagnostic plugin or profiling.",
+    "result": "1 passed in 242.87s",
+    "fixture_setup_seconds": 194.504,
+    "restore_seconds": 45.425,
+    "log": "semantic-generator-retained.txt",
+    "limits": "Original 60s lease, 120s operation and original preservation/cleanup assertions unchanged.",
+    "limitation": "Local exact-source pass; not Linux acceptance or before/after performance proof."
+  },
+  "changes_frozen": true,
+  "committed_by_subagent": false,
+  "worker_gate": {
+    "command": "python -B -m pytest -q -p no:cacheprovider tests/integration/test_continuous_simulation_worker.py tests/integration/test_continuous_process_lifecycle.py",
+    "environment": "Same sanitized environment; scoped process inspection permission for owned fixture children.",
+    "result": "19 passed in 60.95s",
+    "log": "semantic-generator-worker.txt",
+    "supervisor_sha256": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+    "limits": "Original worker, restart financial-history, receipt, fence, process and cleanup assertions unchanged."
+  },
+  "evidence_sha256": {
+    "semantic-generator-retained.txt": "a38a99fdd3a874ba91215af17c2f62bae1940345b3128a61cf552719228f4cd0",
+    "semantic-generator-worker.txt": "dda1a2b2e6e882c0c515f5d9a3ca7f4dc98d6040153844c111080f5778144a9d",
+    "semantic-stopiteration-regression-before.txt": "6c6a9fed2ae69d2c961183cd6093a7aeb85df1e0ff8826cad2a1ebde46608378",
+    "semantic-stopiteration-after-all.txt": "165fc43fb3541b160685be0ad77ed7c5f8b1abcd7ae15b8c01f0e276e080b2ef"
+  }
+}
