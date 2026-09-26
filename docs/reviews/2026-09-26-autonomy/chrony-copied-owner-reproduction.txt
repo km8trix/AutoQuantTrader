@@ -1,0 +1,21 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_copied_owner_cannot_verify_original_observation[copy] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b2b8bf0>
+clone = <function copy at 0x10a48e020>
+
+    @pytest.mark.parametrize("clone", [copy.copy, replace])
+    def test_copied_owner_cannot_verify_original_observation(monkeypatch, clone):
+        bridge, calls = stub_read(monkeypatch, reading())
+        observation = bridge.read_observation(BASE, 10_000_000_000)
+        copied_owner = clone(bridge)
+        assert copied_owner == bridge
+>       with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.standard_clock_chrony.ChronyStandardTimeError'>
+
+tests/unit/test_personal_standard_clock_chrony.py:402: Failed
+=========================== short test summary info ============================
+FAILED tests/unit/test_personal_standard_clock_chrony.py::test_copied_owner_cannot_verify_original_observation[copy]
+1 failed in 0.11s

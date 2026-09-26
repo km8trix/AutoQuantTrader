@@ -36,6 +36,14 @@ The integrated continuous simulation flow is retained forward observations and c
 
 `personal_forward_capture.py` and `forward_capture_publication.py` retain bounded raw read evidence and normalized observations with original timestamps, expiry, calendar/session bindings and evidence class. Synthetic fixture captures and genuine HTTPS reads are separate classes. Fresh non-fixture publication currently rejects with `CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED`; the calendar content-check helper alone supplies no admission authority. The optional `personal_tiingo_capture_selection.py` additionally matches existing profile/authorization/calendar content and request scope; it returns no token and does not authenticate source-reference provenance. Replaying receipt-time data does not create historical point-in-time provenance, provider rights, quote freshness or clock qualification.
 
+`ChronyStandardTimeSource.read_observation` can retain the exact bounded source
+reading and its converted measurement. Its optional owner registry rejects copied
+owners/observations, changed records and source bindings without another read.
+This is process-local conversion evidence only: unchanged historical observations
+remain verifiable, and injected fixture runners remain possible. `StandardClock`
+still owns health classification; measured health-history linkage, actual host
+qualification and the genuine capture-clock producer remain unfinished.
+
 ### API, persistence and configuration
 
 The local API exposes `/health/live`, `/health/ready`, and `/api/v1` read models. Personal research routes under `/api/v1/research/personal` cover catalog, runs, launch/cancel, reports, bounded row pages/export, comparison and experiment registration. Mutating launch/cancel/registration requires the local signed session cookie, CSRF token and idempotency key. Readiness checks schema/persistence, not permission to trade. Local authentication requires explicit loopback origins and binding (or the explicit trusted loopback container proxy); CORS wildcard and accidental public local-auth binding are rejected. The default placeholder secret is a local-development setting, not a remote deployment credential.

@@ -142,3 +142,18 @@ scope, nested mutation, copied-content limitations and no-effect denial. Ruff,
 architecture and mypy (418 files) passed; independent review found no actionable
 issue. [Evidence and source hashes](tiingo-selection-evidence.json) retain the
 exact scope. Held locally while CI continues on `b6e4815`.
+
+### A3.2a original clock conversion
+
+The optional Chrony observation retains its original reading and measurement under
+a weak original-owner registry. Legacy calls use the unchanged conversion body
+without registering evidence. Verification performs no source read or local clock
+sampling and deliberately makes no currentness or healthy-history claim.
+
+**92 focused clock cases passed** (39 new), with independent review, architecture,
+formatting/lint and scoped mypy passing. Review discovered copied-owner acceptance
+from shared registries and an unpinned authority descriptor. Both were corrected;
+the [copied-owner failure reproduction](chrony-copied-owner-reproduction.txt) and
+[final source-bound evidence](chrony-observation-evidence.json) preserve that history.
+Tests use only injected callbacks and synthetic parser input. Measured health
+history, actual host qualification and capture admission remain unfinished.

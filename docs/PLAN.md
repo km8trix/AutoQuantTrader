@@ -20,7 +20,7 @@ credentials, start live services or authorize provider traffic.
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
 | A2 — retained restore within original limits | Local candidate passes; approved draft CI pending | Existing W4 integration |
-| A3 — genuine capture bridge contract and offline guards | A3.1 locally validated; A3.2 conversion evidence in progress | Existing capture/clock/calendar boundaries |
+| A3 — genuine capture bridge contract and offline guards | A3.1 and A3.2a locally validated; A3.2b health linkage next | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
 | B1 — restricted protocol implementation | Blocked | W4 merged and verified |
@@ -110,6 +110,38 @@ selection validation using existing records; keep genuine publication denied.
 - **Completion criteria:** reviewed contract and offline regression evidence, or
   an explicit narrowly stated consequential choice recorded as a blocker. This
   milestone does not grant provider access or source qualification.
+
+### A3.2a — retain the original clock conversion (locally validated)
+
+- **Objective:** retain the exact reading that produced a standard measurement.
+- **Scope:** optional `ChronyStandardObservation` and original-owner verification;
+  preserve the legacy conversion call, error codes, deadlines and health policy.
+- **Dependencies:** existing bounded Chrony source and mechanical standard bridge.
+- **Acceptance criteria:** one source read; exact reading/measurement association;
+  copies, foreign owners, mutations and changed callbacks fail without new reads;
+  weak ownership cleanup; no currentness, host qualification or capture authority.
+- **Validation commands:** clean pytest on `tests/unit/test_personal_standard_clock_chrony.py`
+  and `tests/unit/test_standard_clock.py`; architecture, Ruff, mypy, diff checks.
+- **Completion criteria:** independent review and all 92 focused cases pass,
+  original behavior preserved, discovered ownership defects and corrections recorded.
+  Linux acceptance of the pending commit is still required before integration.
+
+### A3.2b — retain measured health history (next offline task)
+
+- **Objective:** bind a health result to its actual measured observations from startup.
+- **Scope:** inspect and implement the smallest opt-in owner consistent with existing
+  `StandardClock`; retain original source/clock/epoch bindings and health history.
+  Keep capture admission denied and runtime profiles unchanged.
+- **Dependencies:** A3.2a; source-backed interface review before implementation.
+- **Acceptance criteria:** arbitrary or simulated healthy snapshots cannot qualify;
+  60-second startup/recovery and 30-second age/cadence policies remain unchanged;
+  local current sampling cannot renew a measurement or invoke its external source;
+  copies, field/callback replacement, regression, suspend and epoch faults reject.
+- **Validation commands:** existing clock tests above and new selected `test_personal_*`
+  cases; architecture, Ruff and mypy. All time and source callbacks are synthetic.
+- **Completion criteria:** reviewed ownership and adverse/freshness evidence, or
+  a concrete unresolved architectural choice recorded before dependent work.
+  This component alone cannot satisfy actual host qualification or A3.4 admission.
 
 ## A4 — actual Wave 4 source/account/session acceptance
 

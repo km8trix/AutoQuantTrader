@@ -36,3 +36,21 @@ STATUS after meaningful progress; never copy old authorization or a local pass
 into current operational acceptance. Work in an isolated branch to preserve the
 original integration checkout and its preexisting architecture edit. This changes
 no trading authority, financial policy, schema or runtime behavior.
+
+## 2026-09-26 — separate clock conversion ownership from qualification
+
+**Decision:** add optional original reading-to-measurement evidence to the existing
+Chrony bridge. Preserve its legacy call and leave `StandardClock` health rules,
+runtime profiles and genuine-capture denial unchanged.
+
+**Rationale:** the bridge's source ID identifies authority configuration rather than
+an individual reading. A later capture-clock owner needs the actual conversion
+association; a matching hash or freely reconstructed healthy record cannot supply it.
+The repository already uses process-local original-object registries for this purpose.
+
+**Consequences/constraints:** verification checks the original weakly referenced owner,
+records and source bindings without another source or clock read. Copies cannot
+transfer ownership. This cooperating-process contract is not a hostile-code sandbox,
+proof of freshness, health-history evidence, or host qualification. Preserve separate
+acceptance for each boundary. The focused 92-case evidence and review corrections are
+in the [dated assessment](reviews/2026-09-26-autonomy/README.md).
