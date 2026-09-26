@@ -126,3 +126,19 @@ The owner subsequently explicitly approved pushing `codex/autonomous-development
 to `km8trix/AutoQuantTrader` and opening a draft PR against the Wave 4 integration
 branch for Linux CI. This resolves publication permission only. Full repository
 Ruff formatting (1,017 files) and lint also pass after the local candidate.
+
+### A3.1 mechanical Tiingo selection
+
+Added an optional in-memory matcher for the existing request, acquisition profile,
+reviewed authorization and pinned calendar. It reuses the existing bounded codecs,
+authorization date meanings and research-calendar convention. It returns no token
+or permission and is not wired into genuine capture admission. Equal copies can
+pass this content check; original identity/rights/account/clock provenance remains
+unproved. A successful genuine-shaped match still reaches the unchanged capture
+denial before any clock, HTTP or artifact effect.
+
+**216 focused cases passed** (49 new), including date/window equality, reviewed
+scope, nested mutation, copied-content limitations and no-effect denial. Ruff,
+architecture and mypy (418 files) passed; independent review found no actionable
+issue. [Evidence and source hashes](tiingo-selection-evidence.json) retain the
+exact scope. Held locally while CI continues on `b6e4815`.

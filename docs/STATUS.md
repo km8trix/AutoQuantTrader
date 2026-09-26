@@ -1,26 +1,39 @@
 # Current status
 
-Updated 2026-09-26. Read this with [PLAN.md](PLAN.md) and [SPEC.md](SPEC.md).
+Updated 2026-09-26. Read with [PLAN](PLAN.md), [SPEC](SPEC.md) and [TESTING](TESTING.md).
 
-- **Current milestone:** A2 retained-restore repair; product Wave 4 remains incomplete.
-- **Current task:** publish the approved draft branch for A2 Linux CI; continue A3.1 offline source-selection validation.
-- **Checkout:** `codex/autonomous-development`, based on integration `b1156ba`.
-  This is an isolated checkout under `Documents/AutoQuantTrader/autonomous-development`.
-  The original integration checkout and its architecture edit are preserved.
-- **Completed:** tracked repository inventory; parallel source/spec/test audits;
-  verified active branch and latest CI; architecture check passed; independent review and all 74 current-document links pass. A1 now passes all 32 runner/sharding tests, formatting and lint; 14 existing cases are restored to standard CI coverage. Archived the
-  previous agent handoff at [previous-agent-handoff.md](reviews/2026-09-26-autonomy/previous-agent-handoff.md).
-- **In progress:** A2 Linux acceptance is pending the approved draft PR CI. Local validation: 233 compatibility + 32 runner/sharding tests; original retained test passed in 245.87 s with 46.681 s restore under the unchanged 60 s lease. Ruff, mypy (417 files), architecture, API contracts and independent review pass. A3 contract investigation is complete; inert offline components are next.
-- **Known failure:** [integration CI 36096804829](https://github.com/km8trix/AutoQuantTrader/actions/runs/36096804829)
-  at `b1156ba` failed the retained factory outcome test in shard 7 and its separate
-  diagnostic. Required restore expired at 60.310 seconds; lease release failed separately. Foundations, installed wheels, migrations, browser and other 15 shards
-  passed. Prior lease-expiry failures remain failures; full Wave 4 is not accepted.
-- **Blockers:** actual captured-session parity and source admission; fresh authorized
-  OAuth and account/quote qualification; separately scoped initializer approval;
-  exact-revision Linux acceptance/review/merge. No live authority.
-- **Next actions:** A0/A1 complete; owner explicitly approved branch publication and a draft PR on 2026-09-26; push and inspect CI; require exact-revision Linux acceptance before closing A2. Continue A3 offline components with genuine capture still denied.
-- **Local test runtime:** verified Python is `Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python`; commands and portable environment setup are in TESTING. Do not use the old broken checkout `.venv`.
+- **Current milestone:** A2 Linux retained-restore acceptance; product Wave 4 incomplete.
+- **Current task:** inspect [CI 36222039834](https://github.com/km8trix/AutoQuantTrader/actions/runs/36222039834)
+  for draft [PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56), testing
+  `b6e481547b0f2de63d56961e91ddf7c487ecdc84`; continue A3.2 source-owned clock conversion evidence.
+- **Checkout:** `codex/autonomous-development`, isolated under
+  `Documents/AutoQuantTrader/autonomous-development`, based on integration `b1156ba`.
+  Original integration checkout and its preexisting architecture edit are preserved.
+- **Completed:** A0 operating docs/source audit and A1 runner repair. All 74 current-doc
+  local links passed; 14 excluded sharding regressions restored. A2 local candidate:
+  233 compatibility + 32 runner/sharding tests pass; original retained test passes
+  in 245.87 s, with 46.681 s restore under unchanged 60 s lease. Full Ruff (1,017
+  files), mypy (417 source files), architecture/API contracts and independent review pass.
+- **Work in progress:** A2 CI; A3.2 opt-in source-owned conversion evidence. A3.1 passed 216 focused tests (49 new), Ruff, architecture, mypy (418 files) and independent review; it is held locally until the current CI result is recorded. The
+  [A3 contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)
+  identifies remaining source/clock/transport ownership slices. Genuine capture
+  remains denied and no runtime/profile/authority change is made by those helpers.
+- **Known failures:** prior [b1156ba CI](https://github.com/km8trix/AutoQuantTrader/actions/runs/36096804829)
+  expired during retained restore at 60.310 s; lease release failed separately.
+  Its foundations/browser/other 15 shards passed. Local candidate success does not
+  close that Linux failure. Earlier failed evidence is retained.
+- **Blockers:** actual captured-session parity and genuine source/clock qualification;
+  scoped fresh OAuth/account/quote evidence; separately recorded initializer
+  approval; exact-revision Linux acceptance/review/merge. No live authority.
+- **Next actions:** finish focused A3.2 checks and review; read CI failure details if any and
+  fix without changing limits. Keep pending local additions off the remote branch
+  until this CI result is recorded. A2 closes only with required Linux gates;
+  W4 closes only after all source/account/session gates and verified GitHub closeout.
+- **Publication authorization:** owner explicitly approved pushing this branch and
+  opening the draft PR. The initial automatic-review egress block is resolved;
+  this approval does not authorize merge, deployment, provider effects or trading.
 
-No provider request, runtime activation, credential use, order or deployment is
-part of this development pass. Detailed assessment/evidence belongs under
-`docs/reviews/2026-09-26-autonomy/`; do not grow this file into a chronological log.
+Local verified Python: `Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python`.
+Use TESTING's clean environment, not the old broken checkout `.venv`. Detailed
+commands, source hashes and limits are in the [assessment](reviews/2026-09-26-autonomy/README.md).
+No credentials, provider request, order, runtime activation or deployment occurred.

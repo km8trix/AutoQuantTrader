@@ -20,7 +20,7 @@ credentials, start live services or authorize provider traffic.
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
 | A2 — retained restore within original limits | Local candidate passes; approved draft CI pending | Existing W4 integration |
-| A3 — genuine capture bridge contract and offline guards | Contract investigated; A3.1 offline component in progress | Existing capture/clock/calendar boundaries |
+| A3 — genuine capture bridge contract and offline guards | A3.1 locally validated; A3.2 conversion evidence in progress | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
 | B1 — restricted protocol implementation | Blocked | W4 merged and verified |
