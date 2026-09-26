@@ -44,10 +44,29 @@ def semantic_value(value: object) -> object:
     ):
         return value
     if is_dataclass(value) and not isinstance(value, type):
-        return (
-            type(value).__module__ + "." + type(value).__qualname__,
-            tuple((f.name, semantic_value(getattr(value, f.name))) for f in fields(value)),
-        )
+        prefix = type(value).__module__ + "." + type(value).__qualname__
+        converted_fields: list[tuple[str, object]] = []
+        for f in fields(value):
+            name = f.name
+            item = getattr(value, f.name)
+            item_type = type(item)
+            if (
+                item is None
+                or item_type is str
+                or item_type is int
+                or item_type is bool
+                or item_type is bytes
+            ):
+                converted_fields.append((name, item))
+            else:
+                del item_type
+                converted_item = semantic_value(item)
+                # A getter may return a temporary record whose release mutates
+                # the next field. Keep the original recursive-expression lifetime.
+                del item
+                converted_fields.append((name, converted_item))
+                del converted_item
+        return prefix, tuple(converted_fields)
     if type(value) is tuple:
         return tuple(semantic_value(v) for v in value)
     return value
