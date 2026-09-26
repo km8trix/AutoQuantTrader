@@ -1,0 +1,50 @@
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001_phase0, Create the Phase 0 risk, order, fill, and ledger tables.
+INFO  [alembic.runtime.migration] Running upgrade 0001_phase0 -> 0002_risk_reservations, Add atomic account guards and single-use risk reservations.
+INFO  [alembic.runtime.migration] Running upgrade 0002_risk_reservations -> 0003_submission_attempts, Record the durable risk-authorization to order-submission handoff.
+INFO  [alembic.runtime.migration] Running upgrade 0003_submission_attempts -> 0004_point_in_time_data, Add point-in-time market data catalog
+INFO  [alembic.runtime.migration] Running upgrade 0004_point_in_time_data -> 0005_market_data_admission, Add fail-closed market-data admission evidence
+INFO  [alembic.runtime.migration] Running upgrade 0005_market_data_admission -> 0006_replay_run_manifests, Add sealed-success replay run manifests
+INFO  [alembic.runtime.migration] Running upgrade 0006_replay_run_manifests -> 0007_phase2_durability, Add the independent Phase 2 durable execution foundation.
+INFO  [alembic.runtime.migration] Running upgrade 0007_phase2_durability -> 0008_phase2_research, Add the Phase 2C durable fixture-research workflow.
+INFO  [alembic.runtime.migration] Running upgrade 0008_phase2_research -> 0009_lease_revision_chain, Add gap-free lease revisions and authenticated capacity ordering.
+INFO  [alembic.runtime.migration] Running upgrade 0009_lease_revision_chain -> 0010_phase3_governance, Add durable bounded Phase 3 experiment governance.
+INFO  [alembic.runtime.migration] Running upgrade 0010_phase3_governance -> 0011_phase4_broker_ingress, Add the durable pre-decode Phase 4 broker ingress journal.
+INFO  [alembic.runtime.migration] Running upgrade 0011_phase4_broker_ingress -> 0012_phase4_request_budget, Add durable Phase 4 broker request permits and account-local heads.
+INFO  [alembic.runtime.migration] Running upgrade 0012_phase4_request_budget -> 0013_phase4_account_binding, Add durable authenticated Alpaca paper account bindings.
+INFO  [alembic.runtime.migration] Running upgrade 0013_phase4_account_binding -> 0014_phase4_asset_binding, Add durable authenticated Alpaca paper asset bindings.
+INFO  [alembic.runtime.migration] Running upgrade 0014_phase4_asset_binding -> 0015_phase4_lookup_observation, Add authenticated Alpaca paper UNKNOWN lookup observations.
+INFO  [alembic.runtime.migration] Running upgrade 0015_phase4_lookup_observation -> 0016_phase4_unknown_schedule, Add durable bounded UNKNOWN lookup scheduling.
+INFO  [alembic.runtime.migration] Running upgrade 0016_phase4_unknown_schedule -> 0017_phase4_reconciliation, Add non-applying lookup reconciliation evidence.
+INFO  [alembic.runtime.migration] Running upgrade 0017_phase4_reconciliation -> 0018_phase4_broker_inbox, Add source-scoped broker inbox admission evidence.
+INFO  [alembic.runtime.migration] Running upgrade 0018_phase4_broker_inbox -> 0019_phase4_order_snapshots, Add restart-safe authenticated Alpaca paper order snapshot pages.
+INFO  [alembic.runtime.migration] Running upgrade 0019_phase4_order_snapshots -> 0020_phase4_order_view_cmp, Add durable authenticated Alpaca paper order-view comparisons.
+INFO  [alembic.runtime.migration] Running upgrade 0020_phase4_order_view_cmp -> 0021_phase4_position_snapshots, Add single-use authenticated Alpaca paper position snapshots.
+INFO  [alembic.runtime.migration] Running upgrade 0021_phase4_position_snapshots -> 0022_phase4_position_view_cmp, Add durable authenticated Alpaca paper position-view comparisons.
+INFO  [alembic.runtime.migration] Running upgrade 0022_phase4_position_view_cmp -> 0023_phase4_position_transition, Add durable position-pair transition admission.
+INFO  [alembic.runtime.migration] Running upgrade 0023_phase4_position_transition -> 0024_phase4_order_transition, Add durable order-pair page transition admission.
+INFO  [alembic.runtime.migration] Running upgrade 0024_phase4_order_transition -> 0025_phase5_operational_control, Add the durable Phase 5 operational-control spine.
+INFO  [alembic.runtime.migration] Running upgrade 0025_phase5_operational_control -> 0026_phase5_advanced_risk, Add durable Phase 5B advanced-risk policy and evidence bindings.
+INFO  [alembic.runtime.migration] Running upgrade 0026_phase5_advanced_risk -> 0027_phase5_critical_alerts, Add durable Phase 5D critical-alert delivery evidence.
+INFO  [alembic.runtime.migration] Running upgrade 0027_phase5_critical_alerts -> 0028_phase5_strategy_supervision, Add durable Phase 5C strategy-supervision results.
+INFO  [alembic.runtime.migration] Running upgrade 0028_phase5_strategy_supervision -> 0029_phase4_account_activities, Add authenticated durable Alpaca paper account-activity traversal.
+INFO  [alembic.runtime.migration] Running upgrade 0029_phase4_account_activities -> 0030_phase5_adv_outcomes, Add restart-safe atomic Phase 5B batch outcome receipts.
+INFO  [alembic.runtime.migration] Running upgrade 0030_phase5_adv_outcomes -> 0031_phase5_strategy_claims, Add durable pre-run strategy invocation claims.
+INFO  [alembic.runtime.migration] Running upgrade 0031_phase5_strategy_claims -> 0032_phase5_alert_fail_control, Add local atomic critical-alert total-failure control receipts.
+INFO  [alembic.runtime.migration] Running upgrade 0032_phase5_alert_fail_control -> 0033_phase4_activity_comparison, Add durable authenticated Alpaca paper account-activity comparisons.
+INFO  [alembic.runtime.migration] Running upgrade 0033_phase4_activity_comparison -> 0034_phase6_trusted_time, Add durable provider-neutral trusted-time evidence.
+INFO  [alembic.runtime.migration] Running upgrade 0034_phase6_trusted_time -> 0035_phase6_time_uncertainty, Bind trusted-time samples to conservative source uncertainty.
+INFO  [alembic.runtime.migration] Running upgrade 0035_phase6_time_uncertainty -> 0036_phase6_time_anchors, Add immutable external trusted-time head anchor evidence.
+INFO  [alembic.runtime.migration] Running upgrade 0036_phase6_time_anchors -> 0037_phase3_fixture_worker, Add the bounded Phase 3F fixture-segment worker.
+INFO  [alembic.runtime.migration] Running upgrade 0037_phase3_fixture_worker -> 0038_phase4_etrade_oauth, Add durable E*TRADE OAuth replay/session-head coordination.
+INFO  [alembic.runtime.migration] Running upgrade 0038_phase4_etrade_oauth -> 0039_personal_research, Add bounded personal research jobs, artifacts and immutable trial registration.
+INFO  [alembic.runtime.migration] Running upgrade 0039_personal_research -> 0040_personal_continuous, Add continuous simulation journals, reconciliation and daily account state.
+genuine signed daily admission retained
+genuine original activation source retained
+genuine outcome C/B publication retained
+genuine retained-outcome fixture setup: 176.562s
+actual factory graph ready: 0.028s
+actual factory restore result: completed; elapsed=41.963s
+.
+1 passed in 221.29s (0:03:41)

@@ -210,3 +210,30 @@ At the completed offline A3 checkpoint, full Ruff formatting/lint (1,021 files),
 mypy (419 source files) and architecture checks pass. Collection through the actual
 sanitized standard runner finds **4,757 cases** in 12.81 s without collection errors.
 This includes all new component regressions; no test body runs in collection mode.
+
+### A2 second local candidate: field conversion and scalar emission
+
+The next minimal changes avoid exact-scalar recursive calls in dataclass fields
+and build three canonical scalar fragments with one string allocation. They keep
+JSON escaping, builtin conversion, original field-name/read order, fallback hooks,
+fresh tuple allocation and all ownership/SQL/lease checks. Independent review
+reproduced a temporary-object lifetime difference in the initial field loop;
+explicit release before the next getter restores the original behavior.
+
+[Field compatibility and failure evidence](semantic-field-evidence.json),
+[original failure output](semantic-field-release-before-fix.txt),
+[independent reproduction](semantic-field-lifetime-repro.txt), and
+[scalar emission evidence](canonical-leaf-evidence.json) record the narrow scope.
+The combined seven-file gate passes **262 cases** (21 new field cases, 8 new scalar
+cases). Independent reviews and full static/API checks pass. Converter benchmark
+ratios are candidate time divided by prior time, not startup speed: actual-contract
+field fixtures measure 0.8015; non-scalar and tuple-field controls are slower.
+
+The unchanged unprofiled retained test passes locally in **221.29 s**, with
+176.562 s fixture setup and **41.963 s restore** under the original 60-second lease.
+All preservation and cleanup assertions pass. [Bound evidence](retained-after-field-leaf-evidence.json)
+and [original output](retained-after-field-leaf.txt) identify the exact source.
+This is another local candidate; Linux acceptance remains open and no limit changed.
+
+Final candidate collection finds **4,786 cases** in 12.98 s. The existing
+Starlette/httpx deprecation warning remains; no dependency change was made.
