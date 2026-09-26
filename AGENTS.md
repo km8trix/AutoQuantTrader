@@ -1,110 +1,92 @@
-# AutoQuantTrader continuation instructions
+# AutoQuantTrader operating instructions
 
-Planning baseline reviewed 2026-09-08 against code at `107fa79`.
+## Start and resume
 
-## Canonical documents and location
+- Run `git status --short --branch` and `git log -5 --oneline`; preserve unrelated changes.
+- Read `docs/SPEC.md`, `docs/STATUS.md`, `docs/PLAN.md`, then relevant architecture,
+  testing, decisions, source and tests. The repository is durable memory.
+- Work in the selected feature checkout. The surrounding AutoQuantTrader directory
+  contains old worktrees and private artifacts; do not infer the active revision
+  from its name. Do not bulk-read `.env`, credentials or runtime directories.
+- `docs/PLAN.md` breaks the existing `docs/IMPLEMENTATION_PLAN.md` wave roadmap
+  into resumable tasks. Frozen `docs/contracts/personal-v1/` requirements and the
+  dated account amendment remain authoritative; historical ADRs describe their
+  own scope. See `docs/DECISIONS.md` for precedence.
 
-- The active repository is `/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader`.
-- Read `docs/IMPLEMENTATION_PLAN.md` for current work and accepted evidence; read `docs/ARCHITECTURE.md` for the target design.
-- Those are the only current plan and architecture. `docs/reviews/2026-09-08-design-review.md` explains the consolidation and static code findings. Historical ADRs/runbooks are scoped implementation records, not competing roadmaps.
-- Do not resume the former Phase 2A/2B checkpoint or infer accepted work from an old phase/wave title. Inspect current revision, worktree status and the plan's status table before acting.
+## Execute autonomously
 
-## Current handoff
+Read spec/status/plan → select highest-priority unblocked task → implement → test
+→ inspect results → fix failures → retest → update docs/status → commit a focused
+change when appropriate → continue to the next unblocked task.
 
-Waves 0/1 closed through GitHub PR #52, merged as ec63ca793ed4fe8a68397dc752000e102741da59. PR CI passed 1,271 Python tests with PostgreSQL plus browser/migration/packaging checks. Root verified the merged tree matches the tested PR and all 140 bound artifacts. Post-merge CI also passed; exact results are recorded in docs/reviews/2026-09-09-wave2/wave1-merged-verification.json.
+Preserve existing working behavior unless the specification requires a change.
+Prefer root-cause fixes and small, independently verifiable changes. Do not
+rewrite working systems, relax tests, extend safety limits, or turn a skip into
+acceptance. A task is complete only when its acceptance criteria and applicable
+validation pass. Record commands, outcomes, skips and remaining limitations.
 
-Wave 2 is complete through GitHub PR #53, merged as 6ea218addaa38d1c36c69b6a7ffbe564d701f834. PR CI passed 1,640 Python tests including PostgreSQL plus browser, migration and installed-wheel process checks. Post-merge CI also passed. Root verified the exact tested/merged tree and all 83 bound artifacts; read docs/reviews/2026-09-09-wave3/wave2-merged-verification.json.
+Continue without asking permission for routine reversible engineering. Ask only
+for unresolved consequential product/architecture choices, conflicting
+requirements, missing necessary credentials/access, irreversible actions, live
+capital effects, or a blocker after reasonable investigation. Continue independent
+work while a dependency is blocked. Do not infer approval from elapsed time.
 
-Wave 3 closed through GitHub PR #54, merged as e1bcea18eaa18ad144bc3b03a4891d11ecdd9b06. PR CI passed 1,999 Python tests including PostgreSQL and Linux, 139 browser and 33 bundle cases, migrations and installed-worker checks. Root verified the exact tested/merged tree and all 147 bound artifacts; read docs/reviews/2026-09-10-wave4/wave3-merged-verification.json. Post-merge CI also passed all gates, including 1,999 Python tests.
+Keep `docs/STATUS.md` concise and update it after each meaningful task, failed
+validation or handoff. Put detailed evidence under `docs/reviews/`; record
+significant decisions in `docs/DECISIONS.md`. Correct inaccurate spec/plan/architecture
+as verified facts emerge. Never overwrite earlier failed evidence with a pass.
 
-Wave 4 is in progress on codex/personal-v1-w4-integration from the verified W3 merge. Read canonical plan section 19 and docs/reviews/2026-09-10-wave4/README.md. Root owns canonical engine continuation, shared accounting/attempt/schema integration and composition. A owns applied reconciliation, B account coordination/runtime daily risk, C stateful simulation/forward observations, with exact bounded initial delegation recorded in section 19. At most three additional workers globally; no nested workers. Complete actual session capture/replay, independent venue reconciliation, fault/concurrency/financial checks and the GitHub closeout before W5. Old manifests bind historical accepted revisions and must not be rewritten as W4 evidence.
+## Safety and architecture
 
-September 12 resumed offline integration is summarized in docs/reviews/2026-09-10-wave4/offline-progress-2026-09-12.md. Finite session, full fill/restart/repeated reconciliation, interrupted-send recovery and cooperative Stop checks pass within their modeled-source limits. The 1,841.52-second full-session/signed-owner baseline preceded a reviewed pure hashing improvement. The broad unit check passed 2,488 cases with one Linux-only skip before capture integration. The reviewed original-expiry/SQL capture publisher and 16-shard CI runner are now integrated; 331 capture/downstream checks passed with four PostgreSQL-only skips, and all static and browser checks passed. Two offline wheel builds were byte-identical and installed research/HALTED-genesis checks passed. A temporary Unix-socket-only PostgreSQL 16.15 cluster passed migrations and schema checks and shut down cleanly; all 23 PostgreSQL integration cases then passed after two SQL compatibility fixes and fixture isolation corrections. Those five reviewed files are adopted in staging; full static checks pass (981 formatted files and 415 typed source files). The separate factory outcome-owner candidate remains unadopted: its genuine C12 restore failed after 61.95 seconds, and a copied-history diagnostic then stopped at the expired-lease acquisition guard. The genuine cleanly released C12 snapshot is verified and durably archived. One bounded restore diagnostic located lease expiry after60.327seconds in the initial integrity traversal, during repeated B reads; cleanup failed separately and both engines were disposed. A separate scoped B-reuse candidate passed37 focused checks and independent review. The combined factory/reuse candidate passed full static checks, then failed after 60.049 seconds at the unchanged lease guard during initial integrity; neither correction is adopted into staging. A separate original worker Stop Event seam passed all 31 process tests and is adopted in staging, with full static checks passing (982 formatted files and 415 typed source files). It adds no active launcher. One reviewed eight-span diagnostic produced valid timing data but failed at lease expiry after 60.525 seconds during initial integrity, before the failed B recheck's table/source readbacks. Its 66 full daily-graph checks used 24.974 seconds of selected exclusive time; C reference checks used 2.952 seconds. These are instrumented enclosing costs, not isolated fingerprint costs or a performance improvement. All wrappers were restored and original source/history checks passed; lease release failed separately, while both engines and the child/group were cleaned up. The subsequent 13-span diagnostic was also valid but failed at initial integrity's final fence after 63.811 seconds, following its original row checks. All 24 scoped borrows and 37 B rechecks returned; the later factory restore remained unreached. Selected exclusive time was 9.125 seconds for attempt-source validation, 7.110 for descriptor checks and 4.633 for B identity scans; these are enclosing method costs, not isolated fingerprint timings. Original source/history and resource cleanup checks passed, with lease release failing separately. The narrow resolved-attempt fingerprint change passed 22 pure/PENDING compatibility checks in 14.54 seconds and independent review; its three files are adopted in staging. It removes only a redundant semantic traversal after unchanged complete detachment. Exact byte/hash/error/read-order proof and all 1,582 run pins passed; the child was reaped with no timeout or cleanup fault. This does not qualify retained history, full startup or performance. The separate factory candidate now returns the same original account result after fixed full-schema verification, final original source/object/SQL/fence checks and successful cleanup. The second factory restore is removed through an explicit contract change: intervening later state is rejected rather than adopted. Both underlying index guards remain. All 37 distinct focused cases have passing evidence across three controlled runs:16 A and3 B cases before test-only failures, then the 18 corrected or unreached cases passed in 25.13 seconds. Independent AST/dependency review binds the unchanged 19 cases to final source. The failures were a slotted-instance test patch and an invalid equality between separately sampled receipt/head timestamps; both are preserved. All 1,585 source pins and child cleanup checks passed on every run. The handoff has explicit narrower object-count limits and is not yet adopted. The next retained C12 run failed after 62.340 seconds with FACTORY_HANDOFF_UNKNOWN_MUTABLE_VALUE while sealing the restored graph, before the final integrity readbacks. Lease release failed separately after expiry. All source, financial-state, venue and artifact postchecks passed; both engines and the child/group were cleaned up. Source review identified an unsupported reachable SQLAlchemy Case expression in the original retained hold-revision selector, without establishing that it was the first rejected leaf in that run. A separate correction supports that exact bounded expression, removes a redundant venue fingerprint traversal and avoids descending exact immutable scalar leaves during B identity scans. The combined candidate passed 95 checks in 47.53 seconds: 92 pure compatibility cases and three actual PENDING/retained-venue fixtures. All 1,591 source pins remained unchanged and child/group cleanup passed. Those checks qualify the original CASE-bearing restored graph and finite byte/hash/field-read compatibility. Full static checks passed (994 formatted files and 415 typed source files). The subsequent unchanged-limit C12 run passed graph sealing and reached initial integrity's final lease check, then failed after 60.424 seconds at expiry; the later post-schema handoff remains unreached. Original financial/source/venue/artifact checks and process cleanup passed, with lease release failing separately. Root independently verified all 55 failed-run evidence bindings. Full retained-history startup and the unchanged 60-second lease gate remain open; the corrections remain unadopted. A further isolated correction removes the redundant semantic traversal at both fully detached account-reference fingerprint sites and moves the unchanged exact-tuple encoder branch earlier. Both index guards and all owner/source/object/SQL/fence checks remain. The combined candidate passed 290 checks in 50.23 seconds: 267 pure cases and 23 actual fixtures, including the original reference creation, heartbeat/restart, alias, mutation and final SQL boundaries. All 1,594 source pins and child/group cleanup checks passed. Full static checks also passed (997 formatted files and 415 typed source files). Independent review verified the exact seven source/test changes from the previous candidate; no retained startup or performance success is inferred. The separate two-line CI selection correction passed all 18 existing runner cases and is adopted in staging so the existing attempt fingerprint regression runs in CI. The subsequent original-limit retained C12 attempt reached the final factory lease check and failed after 61.984 seconds. The unchanged source path establishes that full schema verification, the original integrity handoff, the later fresh daily read and signed-assignment/HALTED/Stop checks returned; result encoding was not reached. Original financial/source/venue/artifact checks and child/group cleanup passed, while expired-lease release failed separately. Root independently verified all 119 failed-run audit bindings. The production corrections remain isolated and unadopted. This later failure boundary does not establish a performance improvement or successful startup. The final fresh daily read serves a separate currentness window and remains unchanged; a bounded pure type-lookup experiment is next, with no further history run released. Complete retained-history/process/resource/provider acceptance and the final integration/Linux checks remain open. Source implementation is still isolated in staging. The initializer patch is unapplied pending its specific owner approval, and the Tiingo retention-plan question is pending. Do not treat either as answered by continued offline work. The fixed worker remains HALTED restore/integrity only.
+- Live trading, real orders/positions/funds, authentication weakening, risk
+  increases and simulation-to-live transitions require explicit owner approval.
+  Never use production credentials for testing. Development defaults to offline fixtures.
+- Never print or commit secrets, provider payloads or private session paths.
+  Provider reads, OAuth and deployment remain separately scoped operations.
+- Strategies emit targets; portfolio/risk authorize intents. Preserve exact
+  accounting, causal availability and later-event fills, durable attempts before
+  I/O, UNKNOWN on ambiguity, account leases/fencing and authoritative reconciliation.
+- Startup remains HALTED and trading authority false. Healthy services, successful
+  builds, fixture results and data hashes do not confer execution permission.
+- Preserve one canonical causal engine. Domain/pure code cannot import effect
+  authority; packages cannot import application composition roots.
+- Treat execution, sizing, leverage, stops, limits, kill switches, adapters and
+  credentials as safety-critical: require adverse/restart/concurrency tests and
+  documented limits before acceptance. Backtests imply no future profitability.
+- Do not casually change frozen contracts, ledger/schema migrations, lease or
+  timeout bounds, native/signing/seal machinery, CI gates, historical evidence,
+  generated API contracts or lockfiles. Inspect owners/callers and migration
+  requirements first. Never remove old worktrees or activate native services as cleanup.
+- At most three additional workers globally; no nested workers. Assign exclusive
+  files and coordinate shared schema/accounting changes.
 
-The previous temporary Python environment lost its virtual-environment configuration on September 13. It was preserved, and all original 897 source and 149 retained-fixture inputs were rehashed unchanged. A fresh persistent environment at `/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv` was restored offline from the exact locked cached wheels without installing the project. All 53 distributions and 4,832 hashed RECORD entries were verified; use this environment for subsequent qualification. No provider credentials or private data were read.
+## Validation (from this checkout)
 
-The account amendment permits explicitly selected dedicated CASH or MARGIN accounts, while strategy funding remains cash-funded, long-only and without borrowing. Production read traversal passed; sandbox balance identity remains blocked. Currency, liability/restriction/cash semantics, quote rights/freshness, actual quotas, recovery identities and reconciliation remain connected-execution gates. Trading authority is false. W4 implementation starts with offline fixtures. Earlier authorized account reads and Tiingo access retain their scope; fresh OAuth, actual quote rights/entitlement/freshness and account semantics remain qualification gates. Never display keys, tokens, private session paths or provider payloads. Owner authorization for earlier reads does not authorize orders or deployment.
+See `docs/TESTING.md` for clean-environment commands and prerequisites. Run the
+architecture check before project imports. Reuse a verified Python 3.12 runtime;
+never source `.env` or start the application stack to validate a code change.
 
-September 20 recovery: the former temporary workspace files are gone. Exact accepted integration (1,583 files), R9 (1,594), and R10-R1/R2 (1,602 each) sources are now recovered under `/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-recovery/2026-09-19`, with a complete durable source checkpoint. The original complete R2 manifest hash matches, and the persistent Python runtime was reverified. R10 remains unadopted; the last retained-history attempt is recorded as failed, with its detailed output unavailable. Read [the recovery record](docs/reviews/2026-09-10-wave4/recovery-2026-09-20.md) before continuing. Do not use missing temporary paths or infer success from recovered source.
+| Check | Command with prepared dependencies |
+|---|---|
+| Architecture | `.venv/bin/python -I -B scripts/check_personal_architecture.py` |
+| Formatting | `.venv/bin/ruff format --check .` (apply: `.venv/bin/ruff format <changed-paths>`) |
+| Lint | `.venv/bin/ruff check .` |
+| Types | `.venv/bin/mypy apps packages` |
+| Standard tests | `.venv/bin/python -B scripts/run_personal_tests.py` |
+| PostgreSQL tests | Same runner with `--postgres-url "$AQT_DISPOSABLE_TEST_DB"` (disposable DB only) |
+| API contracts | `.venv/bin/python -B -m scripts.generate_api_contracts --check` |
+| Browser | `make frontend-check` (lint, typecheck, tests, bundle tests, build) |
+| Wheel | `uv build --wheel --no-sources --build-constraints build_support/native_build_constraints.txt --require-hashes --out-dir "$AQT_BUILD_OUTPUT"` |
+| Compose model | `make compose-check` (configuration only) |
+| Documentation | `git diff --check` plus local link/command review |
 
-## Working constraints
+`make check` is the broader wrapper, but may synchronize dependencies. Raw `pytest`
+selects historical/native suites too; use the standard runner or scoped tests with
+sanitized environment. A PostgreSQL skip is not concurrency acceptance. Use focused
+checks for small changes; require affected financial/integration gates for behavior
+changes and exact-revision Linux CI for release. Fix new failures before dependent work.
 
-- Preserve unrelated uncommitted changes and historical evidence. Do not merge or delete old worktrees automatically.
-- Keep secrets and private data out of logs, artifacts and Git. Do not read `.env` or private runtime artifacts simply to infer readiness.
-- Use repository-owned fixtures for offline tests. Provider requests, new subscriptions, infrastructure activation and live actions require appropriate owner authorization; planning is not authorization for those effects.
-- Work on an isolated feature branch for changes. Run checks proportionate to the change, including financial/transactional tests when those boundaries change. Documentation-only planning needs document/link/diff checks, not service startup or the entire trading suite.
-- The owner requests a standing end-of-wave workflow: after all wave exit gates pass, commit the reviewed in-scope changes, push the feature branch, open a GitHub PR, satisfy required CI/review checks, merge through GitHub, verify the merged revision, and start the next eligible wave through this orchestration task. No repeated approval is needed for this workflow. Preserve unrelated work and do not bypass branch protection, force-push, or treat an incomplete wave as closed. Trading/deployment remain separately scoped; CI, restart or code merge cannot enable them.
-
-## Accepted evidence and limits
-
-W1 integrated gate: 1,264 Python tests passed, 7 PostgreSQL tests skipped; Ruff format/lint, mypy 291 files, API contracts, standard architecture and Compose model passed. Two standard wheel builds were byte-identical; installed CLI start/duplicate/SIGTERM/restart behavior passed outside the checkout. The real 20-bar Tiingo sample remains exploratory current-vintage data with explicit 20:00 ET historical-availability assumptions, not PIT or full-study-period evidence. W0 frozen contracts/old worktree history remain unchanged; the dated amendment supplies the current account scope revision.
-
-No financial schemas/migrations, deployed resources, native lifecycle or trading changed. Browser code is unchanged; W1 PR CI passed the browser regressions. The previous .venv launcher remains preserved/broken; use the runbook's separate environment or exact temporary verification environment in evidence. OAuth daily expiry is conservatively 2026-09-10T04:00:00Z with a two-hour idle admission window. Never rewrite activity times to prolong access. New supervised renewal publishes a private reference and preserves original issuance and expiry.
-
-
-### Latest recovered qualification status
-
-The isolated R13d personal-profile regression completed all 4,292 cases across 16 serial groups: 4,281 passed, ten failed and one Linux-only case skipped. All 23 PostgreSQL cases passed every phase; source/runtime checks and process cleanup passed. The original failed result remains unchanged. The six stale-schema failures and four fixture setup errors are addressed by five test-only changes in R13f; all 43 affected/guard cases passed across 129 phases in the required order. Its static check exposed one formatting-only assertion change; R13g preserves the same complete test AST and all other files. The R13g format/lint checks now both pass. PostgreSQL shut down cleanly through its original owner, with independent terminal verification. Checkpoints 23 and 24 are archived and independently verified; completed regression and correction records are retained in the persistent recovery directory. The latest candidate remains isolated and unadopted. Linux, active-session/captured-replay and provider acceptance, specific initializer approval, Tiingo capture eligibility and GitHub closeout remain open; trading remains disabled.
-
-The owner confirms Tiingo Power, current E*TRADE paperwork, permitted retention and approved technical quote qualification. The support quote reader passed all 60 offline cases and the Sunday zero-request guard. Actual production qualification awaits fresh supervised OAuth and the reviewed September 21, 09:35–09:40 Eastern window. See the newest recovery-record decision; the separate initializer approval remains pending.
-
-The bounded Tiingo EOD technical qualification passed on September 20: four HTTP 200 requests for DIA/IWM/QQQ/SPY over September 14–18, twenty rows and all thirteen fields. A separate offline process reloaded the same retained capture with matching manifest/semantic/qualification hashes and zero network calls. All 44 wrapper cases passed after one fixture-only correction; source/runtime checks and owned cleanup passed. This is current-vintage receipt-time sample qualification, not PIT, ongoing quota, broker semantics or integrated Wave 4 captured-session/replay acceptance. The new recovery-record entry binds the sanitized evidence. Monday E*TRADE qualification and the separate initializer gate remain open.
-
-
-### September 24 integration checkpoint
-
-The reviewed R13g implementation has now been adopted into the Wave 4 feature branch: 249 exact source, migration, test and CI files over the verified Wave 3 merge. The existing canonical documents and historical evidence were preserved. See [the integration checkpoint](docs/reviews/2026-09-24-wave4-integration/README.md) for the source bindings and validation scope. The next GitHub PR is a draft to qualify this exact revision with the 16-shard Linux/PostgreSQL workflow, foundations, installed-wheel checks and browser regressions. No new full local regression or wheel build was needed solely for the accepted test corrections. Wave 4 remains incomplete: actual captured-session decision parity, scoped provider/account qualification, the separately approved initializer work and final review/merge verification are still required. The September 21 quote window has expired; a separately reviewed September 24 window requires fresh same-day production OAuth. Prior failed results remain failed and trading stays disabled.
-
-
-### September 24 offline adapters and Linux CI finding
-
-Draft PR [#55](https://github.com/km8trix/AutoQuantTrader/pull/55) is open at the integrated baseline `47fab9c32108151e1d98a5e636579a22cb86813c`. The optional Chrony-to-StandardClock conversion passed 53 offline cases, format/lint/types and the architecture boundary check. Local original-binding checks for both capture HTTP adapters passed 85 cases, including four unchanged no-effect publication/source guards. [Adapter evidence](docs/reviews/2026-09-24-wave4-integration/offline-adapters.json) binds the exact source and independent review. These additions do not qualify a host clock or admit genuine captures.
-
-The first Linux CI run exposed a retained-history startup failure: integrity verification exceeded the original 60-second lease at 60.190 seconds, followed by a separate lease-release cleanup failure. The failed result remains failed; source performance work is isolated and the lease limit is unchanged. Foundations, migrations, installed-wheel and browser jobs passed, while the full regression gate remains unresolved. The September 24 quote window expired without fresh OAuth or a provider request. Initializer approval, actual source ownership/captured-session replay and provider/account qualification remain open. Wave 4 is incomplete and no merge or Wave 5 start is authorized by these component passes.
-
-
-### September 24 retained conversion correction
-
-The baseline Linux run completed with 4,291 passed, one failed and zero skipped tests. The single retained-factory failure exceeded the unchanged 60-second lease; the failed run remains recorded. Two narrow conversion changes now dispatch exact built-in tuples and scalars before redundant dataclass reflection, preserving bytes hashing, mapping precedence, subclass behavior and all existing source, SQL and lease checks. The focused qualification passed 284 cases (76 new and 208 existing), plus formatting, lint and type checks.
-
-A finite synthetic benchmark verified all 768 outputs and measured lower converter costs on that fixture only. One fresh copy of the existing synthetic C12 history then restored successfully in 43.601 seconds with the original 60-second lease, 120-second operation and 150-second parent limits. Financial records, source artifacts and independent venue data were preserved, and owned cleanup passed. This is a local restore result, not a startup performance comparison or Linux acceptance. Bounded static code locations were added to the existing CI failure reporter without changing its test, lease or timing logic.
-
-The correction is ready for a new exact-head CI run on draft PR #55. The updated suite is expected to contain 4,416 cases. Actual captured-session replay, scoped provider/account qualification, the separate initializer approval and final CI/review/merge remain open. No provider request, initialization, order or deployment occurred.
-
-[Correction evidence](docs/reviews/2026-09-24-wave4-integration/pure-dispatch.json) binds the source and independently reviewed results.
-
-
-### September 24 imported-calendar consistency prerequisite
-
-A new opt-in helper compares a capture request with the exact imported research-calendar pin and session open/close values. It uses the existing Tiingo projection, including string session kinds and the personal America/New_York calendar constraint. The caller must explicitly choose that digest convention. Equal copied content can pass this check and does not confer source authority. The genuine-source admission guard and all existing capture behavior remain unchanged.
-
-All 106 focused cases passed: 44 new calendar cases and 62 existing capture/import/publication guard cases. Formatting, lint, types and the architecture boundary also passed, with source/runtime and owned cleanup checks. Synthetic cases cover winter/summer offsets, half days, missing sessions and nested mutation. This completes a mechanical prerequisite; it does not qualify a real calendar, clock, provider or captured session. The implementation is held locally while the already-running correction CI finishes, so that run continues to test its original exact commit.
-
-[Calendar qualification evidence](docs/reviews/2026-09-24-wave4-integration/capture-calendar.json) records the exact scope and bindings.
-
-
-### September 25 canonical fragment assembly correction
-
-The latest Linux run completed with 4,415 passed and one retained-restore failure at the unchanged 60-second lease. The failed run and separate cleanup failure remain recorded. A bounded local diagnostic identified repeated typed-JSON assembly as a material cost; its instrumented restore also failed and is not performance acceptance.
-
-The correction records fallback positions, preserves conversion and deferred serialization order, and joins completed string fragments directly. All 296 compatibility cases passed, including 12 new ordering, mutation and error-precedence cases, with format/lint/types. Two finite synthetic workloads verified 768 timed outputs and measured candidate/old median ratios of 0.732 for primitive tuples and 0.935 for mixed fallbacks. These are serializer measurements only.
-
-One fresh copy of existing synthetic C12 history restored in 41.345 seconds under the original 60/120/150/8/1 limits, with financial/source/artifact/venue preservation and complete cleanup. The calendar helper and serializer correction are ready for exact-revision Linux CI, expected to contain 4,472 cases. This local pass does not close the prior Linux failure. Actual captured-session replay, scoped provider/account qualification, specific initializer approval and final review/merge remain open. Wave 4 is incomplete.
-
-[Correction evidence](docs/reviews/2026-09-24-wave4-integration/canonical-fragment-join.json) binds the exact source and independently reviewed results.
-
-
-### September 25 tuple validation cost correction
-
-Linux CI on `5e6595c` completed with 4,471 passed and one retained-restore failure at 60.186 seconds; the unchanged 60-second lease and separate expired-lease cleanup failure remain recorded. The new correction assembles scalar tuple children without recursive helper calls and dispatches exact tuples earlier in identity traversal. Canonical bytes, ordered identities, mutation/read/error order and all source, SQL and lease checks remain unchanged.
-
-All 335 focused checks passed: 309 existing unit cases, 25 new identity cases and one original PENDING publication/restore fixture, plus format/lint/types. The first proposal's two mypy errors are preserved; its unit/PENDING phases never ran. The corrected exact-type predicate needs no runtime cast.
-
-Finite benchmarks verified 1,536 serializer outputs and 512 identity outputs. Serializer candidate/prior median ratios were 0.921 for primitive tuples and 0.981 for mixed fallbacks, but scalar string and None controls were slower at 1.283 and 1.668 (about 84 ns and 127 ns extra per call). Identity ratios were 0.774 and 0.845. These measurements do not establish a uniform speedup or predict startup performance.
-
-One unprofiled fresh copy of existing synthetic C12 history restored in 40.821 seconds under the original 60/120/150/8/1 limits, with financial/source/artifact/venue preservation and complete cleanup. This local pass does not close the Linux failure. Together with 26 separately qualified diagnostic-helper cases, the next required CI suite is expected to contain 4,523 cases across 16 shards. Actual captured-session replay, provider/account qualification, specific initializer approval and final CI/review/merge remain open. Wave 4 is incomplete and Wave 5 has not started.
-
-[Correction evidence](docs/reviews/2026-09-24-wave4-integration/validation-cost.json) binds the exact source and independently reviewed results.
-
-
-The optional Linux diagnostic profiles only the original factory execution and runs after a required backend regression failure. Required tests remain unprofiled, original limits and failures remain authoritative, and diagnostic artifacts contain bounded static code metadata and timings only. All 26 finite reporter and fake-lifecycle checks passed, along with architecture/format/lint. The earlier assertion-message test failure is preserved and its test-only correction was rechecked. No actual retained history was rerun for instrumentation. [Diagnostic evidence](docs/reviews/2026-09-24-wave4-integration/linux-retained-profile.json) records the exact scope.
+Existing end-of-wave closeout remains: after all exit gates pass, commit/push,
+open a PR, satisfy CI/review, merge through GitHub and verify the merged revision
+before the next wave. No force push or bypassing protection; incomplete Wave 4
+cannot be closed by documentation or component passes.
