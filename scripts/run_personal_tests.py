@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 _REGRESSIONS = [
+    "pytest_sharding",
     "config",
     "canonical",
     "accounting",
