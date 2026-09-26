@@ -237,3 +237,14 @@ This is another local candidate; Linux acceptance remains open and no limit chan
 
 Final candidate collection finds **4,786 cases** in 12.98 s. The existing
 Starlette/httpx deprecation warning remains; no dependency change was made.
+
+### Prior CI closed before publishing the revised candidate
+
+Run 36222039834 is complete: foundations/browser and 15 regression shards pass;
+required shard 7 and its aggregate fail. The separate instrumented diagnostic
+also fails at 60.562 s and reports a valid bounded profile. The
+[profile summary](linux-b6e4815-profile-summary.json) preserves source/artifact
+identity and the largest self costs. Canonical tuple emission (5.38 million calls)
+and semantic conversion (3.09 million calls) remain substantial measured costs.
+Inclusive timings overlap and cannot establish a startup speed claim. The revised
+candidate is published only after preserving this complete failed run.

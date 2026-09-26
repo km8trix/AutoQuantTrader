@@ -7,7 +7,7 @@ Updated 2026-09-26. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
 - **Current task:** repair the confirmed Linux failure through measured, behavior-preserving
   pure serialization changes. The combined reviewed field/leaf candidate passed the original local retained
   test: 41.963 s restore under the unchanged 60 s lease (221.29 s total). The
-  prior CI diagnostic must finish before publishing this next candidate.
+  prior CI and diagnostic are now complete; publish this next candidate for Linux acceptance.
 - **Checkout:** `codex/autonomous-development` under
   `Documents/AutoQuantTrader/autonomous-development`, based on integration `b1156ba`.
   The integration checkout and its preexisting one-line architecture edit remain intact.
@@ -19,11 +19,12 @@ Updated 2026-09-26. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
   Independent reviews passed. Full Ruff (1,021 files), mypy (419 files), architecture,
   and standard-runner collection (4,786 cases) pass. Collection is not test execution.
 - **Work in progress:** A2 reviewed pure-helper candidate (262 focused passes),
-  completed local retained validation and remaining prior-run Linux gates for
+  completed local retained validation; publish the new candidate to
   [PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56),
   [run 36222039834](https://github.com/km8trix/AutoQuantTrader/actions/runs/36222039834)
-  at `b6e481547b0f2de63d56961e91ddf7c487ecdc84`. A3 additions are held locally so
-  this run and its diagnostic can finish. Capture admission and runtime profiles stay unchanged.
+  at `b6e481547b0f2de63d56961e91ddf7c487ecdc84` is complete: foundations/browser
+  and15shards passed, shard7 and the diagnostic failed. Revised A2/A3 additions
+  are committed and ready for the next run. Capture admission and runtime profiles stay unchanged.
 - **Known failures:** original retained restore failed on Linux at **61.200 s** in final
   fence revalidation; lease release also failed. Shard 7: one failure/280 passes.
   [Failure evidence](reviews/2026-09-26-autonomy/linux-b6e4815-retained-failure.json).
@@ -34,9 +35,8 @@ Updated 2026-09-26. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
   producer and authentic rights/calendar/account/quote inputs; scoped fresh OAuth
   and capture window where applicable; separate initializer approval. W4 merge
   and later waves depend on those gates. No live authority exists.
-- **Next actions:** inspect the new diagnostic, review and validate the narrow A2
-  candidate (local retained pass now recorded), then publish reviewed local
-  additions after recording the current CI result. Fix failures without removing
+- **Next actions:** publish the reviewed candidate, inspect its exact-revision CI and fix
+  any failures. Original local retained acceptance and the prior diagnostic are recorded. Fix failures without removing
   checks or changing lease/time/resource limits. Current-head CI is still required.
 - **Continuation/authorization:** owner approved this branch push and draft PR,
   not merge/deployment/provider effects. Automatic approval review rejected a proposed

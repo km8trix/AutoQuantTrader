@@ -19,7 +19,7 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Local candidate passes; approved draft CI pending | Existing W4 integration |
+| A2 — retained restore within original limits | Linux b6e4815 failed; revised local candidate ready | Existing W4 integration |
 | A3 — genuine capture bridge contract and offline guards | Offline scope locally complete; publication/CI pending | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |

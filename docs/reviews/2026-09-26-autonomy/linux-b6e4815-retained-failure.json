@@ -15,6 +15,7 @@
   "shard_passed": 280,
   "shard_failed": 1,
   "shard_deselected": 4271,
-  "diagnostic_profile": "awaiting existing failure-only workflow job; never substitutes for required gate",
-  "limitations": "Local 46.681-second result remains local only. Other shards still running at recording time. No limit or authority change."
+  "diagnostic_profile": "completed and failed separately at60.562s; valid bounded profile summary in linux-b6e4815-profile-summary.json",
+  "limitations": "Local46.681-second result remained local only. Current run is complete; required failure remains failure. No limit or authority change.",
+  "final_other_required_gates": "foundations, browser and other15shards passed; aggregatefailed"
 }
