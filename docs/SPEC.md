@@ -63,7 +63,7 @@ Software acceptance requires deterministic economics, isolation, recovery, causa
 
 ## Intended outcomes still requiring qualification
 
-1. Complete Wave 4 on its exact revision: stateful-session acceptance; actual authorized captured-session decision parity; scoped account/source qualification; approved initializer work; review and merged-revision verification. The revised retained-history startup passed Linux CI within existing bounds; see STATUS for the accepted revision.
+1. Complete Wave 4 on its exact revision: stateful-session acceptance; actual authorized captured-session decision parity; scoped account/source qualification; approved initializer work; review and merged-revision verification. Retained-history startup passed one Linux run within existing bounds but failed its same-source repeat; current restore/worker acceptance is reopened in STATUS.
 2. After Wave 4, complete live-disabled restricted E*TRADE protocol code, durable operational controls, supervised recovery, backup/restore, alerts and fault drills (Wave 5).
 3. Freeze the strategy/risk/runtime candidate and gather separately labeled actual-observation simulation and authorized broker protocol/read/preview evidence. The established forward plan requires at least four calendar weeks and 20 intended market sessions plus fault quotas (Wave 6).
 4. Only after the dossier and new explicit owner authorization, perform a minimum-size live canary in a specified account/window/financial envelope (Wave 7). Unattended personal operation needs a separate approved operating envelope, host and recovery evidence (Wave 8).

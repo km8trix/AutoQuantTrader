@@ -19,7 +19,7 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Complete on a8b9229; all 16 Linux/PostgreSQL shards pass | Existing W4 integration |
+| A2 — retained restore within original limits | Reopened: same-source 02a8ee6 repeat fails restore and worker probe | Existing W4 integration |
 | A3 — genuine capture bridge contract and offline guards | Complete offline scope; genuine admission stays denied | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
@@ -81,9 +81,26 @@ credentials, start live services or authorize provider traffic.
   disposable PostgreSQL across all 16 CI shards; inspect `gh run view <run-id>`.
 - **Completion criteria:** independent review of the narrow change, local retained
   preservation/cleanup evidence and successful exact-revision Linux/PostgreSQL CI.
-  The full a8b9229 CI pass closes this milestone; original failed evidence remains.
+  The a8b9229 full pass is preserved, but the same-source 02a8ee6 repeat failure
+  reopens acceptance. Diagnose both restore cost and worker probe lifecycle before
+  another exact-revision gate; a rerun alone is not a root-cause repair.
   A synthetic microbenchmark or a local restore alone is insufficient. If only a
   change to ownership/lease semantics could help, stop for the consequential decision.
+
+### A2.1 — recurring restore and worker probe failures
+
+- **Objective:** repair failures seen after the first full Linux pass.
+- **Scope:** original retained restore cost and the fixed worker's `probe_stalled`
+  result; distinguish concrete reproduced defects from unproven CI hypotheses.
+- **Dependencies:** preserved run 36228369058 logs/profile and unchanged source.
+- **Acceptance criteria:** original restore, restart/history and cleanup assertions
+  pass under unchanged lease, operation, probe and process bounds. New adverse tests
+  cover any lifecycle change; retain all original probes and ownership checks.
+- **Validation commands:** TESTING's clean pytest command on the original retained
+  outcome and fixed worker integration tests; focused new regressions, full static
+  checks and exact-revision Linux/PostgreSQL CI. Coordinate expensive fixtures.
+- **Completion criteria:** measured/reproduced root-cause repair, independent review
+  and passing applicable gates; record previous pass and repeat failure separately.
 
 ## A3 — genuine capture bridge contract and offline guards
 

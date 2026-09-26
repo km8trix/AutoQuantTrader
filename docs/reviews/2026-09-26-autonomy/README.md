@@ -1,7 +1,7 @@
 # Autonomous-development assessment — 2026-09-26
 
-**Current outcome:** A0–A3 are complete; all 4,786 selected Linux/PostgreSQL tests
-and required CI gates passed. See [final acceptance](#a2a3-final-source-acceptance-and-next-handoff)
+**Current outcome:** A2 is reopened after the same-source follow-up CI failed.
+The preceding full 4,786-test pass remains preserved for its exact run. See [final acceptance](#a2a3-final-source-acceptance-and-next-handoff)
 and [STATUS](../../STATUS.md) for A4's remaining blocker. The sections below
 preserve the initial audit and successive checkpoints in chronological order.
 
@@ -293,3 +293,21 @@ record, then review the genuine producer/qualification proposal. The owner
 question is pending. Existing provider rights/retention approvals remain scoped;
 fresh session/window and initializer gates remain separate. No named independent
 PLAN implementation is left unblocked. No provider effects or trading occurred.
+
+### Resume: same-source CI repeat failed on 02a8ee6
+
+[Run 36228369058](https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058)
+completed with failures in shards 3 and 7; foundations/browser and the other 14
+shards passed. Only documentation/evidence differs from the prior full passing
+source. The original retained restore expired its unchanged 60-second lease at
+60.412 seconds, during account-history validation, and lease cleanup also failed.
+The separate diagnostic failed at 60.333 seconds. The fixed-worker restart test
+failed with `probe_stalled`; its exact internal branch is not identified by CI
+output. These are open investigations, not proof of a particular race.
+
+[Failure/profile summary](linux-02a8ee6-ci-failure.json) and
+[sanitized original excerpts](linux-02a8ee6-ci-failure.txt) retain both failures.
+A2/A2.1 is now the highest-priority unblocked work. Earlier A2 acceptance does not
+override this evidence. Preserve all lease, probe, operation and resource bounds;
+measure a repair instead of repeatedly rerunning until green. A4 remains separately
+blocked; resuming ordinary work supplies no recurring schedule or live authority.
