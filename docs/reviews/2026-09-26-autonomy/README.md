@@ -311,3 +311,36 @@ A2/A2.1 is now the highest-priority unblocked work. Earlier A2 acceptance does n
 override this evidence. Preserve all lease, probe, operation and resource bounds;
 measure a repair instead of repeatedly rerunning until green. A4 remains separately
 blocked; resuming ordinary work supplies no recurring schedule or live authority.
+
+### Resume: rejected shortcuts and probe repair investigation
+
+Finite shortcut probes did not justify changes to canonical tuple emission or
+daily identity traversal. Some regressed sampled contract graphs; faster variants
+changed observable callback cleanup, generator `StopIteration` translation or
+transient field-metadata destruction timing. [Investigation evidence](rejected-shortcut-investigation.json),
+[exception reproduction](daily-identity-list-stopiteration-repro.txt) and
+[finalizer reproduction](daily-identity-list-finalizer-repro.txt) preserve why
+these candidates were rejected. Those production helpers remain unchanged.
+
+A finite mocked-child schedule separately reproduces an unnecessary second
+post-exit probe callback racing the supervisor's bounded final join. A narrow
+terminal producer repair and adverse regressions are under validation; the CI
+`probe_stalled` output still does not prove which internal stall branch fired.
+The original owned-process unit run was blocked by sandbox denial of `/bin/ps`;
+it is being repeated with scoped access, without changing test or process bounds.
+
+### Resume: terminal probe repair locally validated
+
+The terminal producer now exits after publishing its original post-exit sample.
+[Pre-fix regression](probe-terminal-regression-before-fix.txt),
+[controlled schedule](probe-terminal-race.json) and
+[bound evidence](probe-terminal-evidence.json) preserve the reproduced defect.
+The broad process unit suite passed **95 cases**, including 13 new adverse schedules.
+The original fixed-worker restart and lifecycle integration suite passed **19 cases**
+with unchanged financial-history, receipt, fence and cleanup assertions.
+[Unit output](probe-terminal-process-unit-check.txt) and
+[integration output](probe-terminal-worker-integration.txt) retain the results.
+Scoped process inspection resolved the earlier sandbox denial; no code/test/limit
+change was used to bypass it. Independent review passed. A2 still requires the
+retained-cost repair and fresh Linux evidence; the exact CI probe stall remains
+unattributed. No live, provider, initialization or trading operation occurred.

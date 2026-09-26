@@ -15,9 +15,11 @@ and [detailed evidence](reviews/2026-09-26-autonomy/README.md).
   passed all 4,786 selected tests at `a8b9229`. That evidence remains valid for its
   run, but the new failure prevents current acceptance. Source/tests/configuration
   are identical between those two revisions; only documentation/evidence changed.
-- **Work in progress:** root owns failure evidence/status and repair coordination;
-  independent investigations cover pure serialization/identity traversal and worker
-  probe lifecycle. No heavy fixture is running yet; coordinate costly tests.
+- **Work in progress:** terminal producer race repaired and reviewed: 95 unit plus
+  19 original worker/lifecycle integration tests passed locally. Retained-cost
+  shortcuts were rejected for semantic changes or lack of benefit. Prepare a bounded
+  actual-retained-shape diagnostic and investigate SQL construction costs; coordinate
+  costly fixtures. [Probe evidence](reviews/2026-09-26-autonomy/probe-terminal-evidence.json).
 - **Known failures:** [run 36228369058](https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058)
   failed shard 7 original restore at 60.412 s (60 s lease), plus lease-release failure;
   shard 3 fixed worker restart failed `probe_stalled`. The exact probe branch is not
@@ -29,7 +31,7 @@ and [detailed evidence](reviews/2026-09-26-autonomy/README.md).
   measured-source question remains unanswered; later fresh scoped OAuth/window
   and initializer approval remain separate. Existing provider rights/retention
   approvals must not be requested again; never request secret values.
-- **Next actions:** reproduce the worker branch, profile dominant restore costs,
+- **Next actions:** retain the proved probe fix without claiming CI branch attribution; profile restore costs,
   choose narrow fixes, run original affected gates/static checks and independent
   review, then publish for exact-revision CI. Preserve all original time/resource,
   ownership, financial, history and cleanup assertions; do not retry until green.

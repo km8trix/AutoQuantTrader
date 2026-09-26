@@ -63,3 +63,22 @@ private state shape; changes need joint review and the independent behavior-comp
 tests. Historical verification does not read clocks, renew a measurement, qualify a
 host or implement the capture clock port. Genuine integration waits for authentic
 qualified-source inputs instead of introducing unused authority wrappers.
+
+## 2026-09-26 — terminal child-exit probe publication ends its producer
+
+**Decision:** stop the bounded probe producer after publishing its observation
+sampled after the supervisor's original child-exit Event. Preserve the caller's
+original post-exit, released-phase, receipt, cleanup and deadline checks.
+
+**Rationale:** a controlled schedule reproduced an unnecessary second callback
+starting after the required terminal observation and racing the 0.05-second final
+join. The supervisor already defines a completed post-exit sample as its final
+lifecycle input; continuing callbacks beyond it serves no required observation.
+
+**Consequences/constraints:** no earlier sample qualifies exit, no stale observation
+can be refreshed while output drains, and Stop/error still precede receipt acceptance.
+The original 0.5-second sample age, join/operation/lease/resource bounds and all
+parent ownership checks remain. This fixes a reproduced race; the shared CI
+`probe_stalled` reason does not establish which internal stall branch actually fired.
+[Evidence](reviews/2026-09-26-autonomy/probe-terminal-evidence.json) includes 95 unit
+and 19 original worker/lifecycle integration passes; Linux acceptance remains open.

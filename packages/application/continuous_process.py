@@ -516,7 +516,10 @@ class ContinuousProcessSupervisor:
                     observations.get_nowait()
                 with suppress(queue.Full):
                     observations.put_nowait((time.monotonic(), reason, phase, sampled_exit))
-                if reason is not None:
+                # The parent consumes this final sample before accepting a
+                # receipt. Do not start more callbacks after observed exit;
+                # they can race its bounded join without adding a required check.
+                if reason is not None or sampled_exit:
                     return
                 stopping.wait(0.05)
 
