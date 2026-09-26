@@ -175,3 +175,17 @@ all 104 HTTP cases; architecture, formatting/lint, scoped mypy and diff checks
 passed. [Source-bound evidence](tiingo-transport-evidence.json) and
 [final output](tiingo-transport-final.txt) record the scope. No provider call or
 genuine collector admission was introduced.
+
+### A2 current Linux result: still failed
+
+The approved PR run on `b6e4815` failed the original unprofiled retained restore
+at **61.200 s** under the unchanged 60-second lease. This time expiry was detected
+at the final retained-integrity account-fence recheck; lease release also failed.
+Shard 7 reports **1 failed, 280 passed, 4,271 deselected**. The local 46.681-second
+pass remains valid only as local evidence and does not satisfy A2.
+
+[Bound failure record](linux-b6e4815-retained-failure.json) and
+[original sanitized failure output](linux-b6e4815-retained-failure.txt) preserve
+the result. The workflow's other shards and failure-only diagnostic are allowed
+to finish without cancellation. Investigate narrow pure-helper costs; preserve
+every original ownership/provenance/SQL/fence check and all resource limits.

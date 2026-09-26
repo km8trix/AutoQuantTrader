@@ -16,11 +16,14 @@ Updated 2026-09-26. Read with [PLAN](PLAN.md), [SPEC](SPEC.md) and [TESTING](TES
   233 compatibility + 32 runner/sharding tests pass; original retained test passes
   in 245.87 s, with 46.681 s restore under unchanged 60 s lease. Full Ruff (1,017
   files), mypy (417 source files), architecture/API contracts and independent review pass.
-- **Work in progress:** A2 CI (foundations/browser and shards 0–4/6 passed; remaining gates pending); A3.2b measured health-history investigation. A3.2a conversion ownership passed 92 clock cases (39 new), scoped static checks and independent review. A3.1 passed 216 focused tests (49 new), Ruff, architecture, mypy (418 files) and independent review; it is held locally until the current CI result is recorded. The
+- **Work in progress:** A2 Linux shard 7 failed; remaining gates/diagnostic pending; A3.2b measured health-history investigation. A3.2a conversion ownership passed 92 clock cases (39 new), scoped static checks and independent review. A3.1 passed 216 focused tests (49 new), Ruff, architecture, mypy (418 files) and independent review; it is held locally until the current CI result is recorded. The
   [A3 contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)
   identifies remaining source/clock/transport ownership slices. Genuine capture
   remains denied and no runtime/profile/authority change is made by those helpers.
-- **Known failures:** A3.2a review found shared-registry copied-owner acceptance and a missing authority descriptor binding; both are fixed with passing regressions and retained failure evidence. Prior [b1156ba CI](https://github.com/km8trix/AutoQuantTrader/actions/runs/36096804829)
+- **Known failures:** Current `b6e4815` Linux restore failed at 61.200 s in final
+  retained-integrity fence revalidation, with separate lease-release failure;
+  shard 7 reports 1 failure/280 passes. Local success does not close it.
+  [Current failure](reviews/2026-09-26-autonomy/linux-b6e4815-retained-failure.json). A3.2a review found shared-registry copied-owner acceptance and a missing authority descriptor binding; both are fixed with passing regressions and retained failure evidence. Prior [b1156ba CI](https://github.com/km8trix/AutoQuantTrader/actions/runs/36096804829)
   expired during retained restore at 60.310 s; lease release failed separately.
   Its foundations/browser/other 15 shards passed. Local candidate success does not
   close that Linux failure. Earlier failed evidence is retained.
@@ -30,8 +33,8 @@ Updated 2026-09-26. Read with [PLAN](PLAN.md), [SPEC](SPEC.md) and [TESTING](TES
 - **Next actions:** finish and independently review A3.2b measured health-history ownership
   while A3.3a is locally validated: 297 focused cases pass, with one existing
   PostgreSQL skip; independent HTTP review/tests pass (104 cases). Original nine
-  failure reproductions and the final result are retained in dated evidence. A3.2a is committed as `08c4230`; read CI failure details if any and
-  fix without changing limits. Keep pending local additions off the remote branch
+  failure reproductions and the final result are retained in dated evidence. A3.2a is committed as `08c4230`; diagnose the now-confirmed Linux failure using preserved stacks/profile
+  and narrow pure-helper costs; fix without changing limits. Keep pending local additions off the remote branch
   until this CI result is recorded. A2 closes only with required Linux gates;
   W4 closes only after all source/account/session gates and verified GitHub closeout.
 - **Continuation:** a 15-minute follow-up was proposed but automatic approval review rejected recurring execution without explicit owner permission. The question is pending; no automation exists.
