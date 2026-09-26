@@ -143,6 +143,22 @@ selection validation using existing records; keep genuine publication denied.
   a concrete unresolved architectural choice recorded before dependent work.
   This component alone cannot satisfy actual host qualification or A3.4 admission.
 
+### A3.3a — preserve Tiingo binding and deadline through cleanup (locally validated)
+
+- **Objective:** prevent successful HTTP results after original binding or deadline loss.
+- **Scope:** the existing Tiingo concrete transport; check original loader identity
+  after dependency callbacks and defer success until all cleanup and final checks.
+- **Dependencies:** reproduced mock-only loader replacement, cleanup mutation and
+  deadline-equality failures in the existing transport; no qualified source needed.
+- **Acceptance criteria:** changed loader cannot dispatch; request/loader changes
+  and effective deadline expiry during cleanup cannot return success; preserve
+  one-use ownership, fixed endpoint, resource cleanup and static failure precedence.
+- **Validation commands:** clean pytest on `tests/unit/test_forward_capture_http.py`
+  and affected personal capture tests; architecture, Ruff, mypy and diff checks.
+- **Completion criteria:** preserve failed reproductions, pass new adverse cases
+  and existing regressions, independently review the focused change. This repairs
+  an existing transport boundary; it grants no provenance or genuine capture admission.
+
 ## A4 — actual Wave 4 source/account/session acceptance
 
 - **Objective:** establish actual-observation replay and independent reconciliation.

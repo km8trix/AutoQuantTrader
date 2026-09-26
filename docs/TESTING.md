@@ -229,6 +229,11 @@ runbooks only when work actually targets those systems.
 - Real captured-session decision/replay parity, account/provider semantics,
   calendar/clock qualification and initializer acceptance are distinct from
   synthetic contract tests and remain subject to their recorded blockers.
+- Optional Tiingo selection and original Chrony conversion tests prove mechanical
+  matching/ownership only. HTTP fixtures replace credential and socket operations;
+  a `provider_https_read` result in those tests does not qualify actual provider
+  access. Include cleanup mutation/expiry as well as pre-dispatch rejection when
+  changing a concrete transport.
 - Without disposable PostgreSQL, concurrency and PostgreSQL behavior are
   unverified; without Linux, Linux resource/process behavior is unverified.
 - Browser tests are jsdom component/integration tests, not full browser-driven

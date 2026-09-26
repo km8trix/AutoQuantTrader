@@ -1,0 +1,251 @@
+FFFFFFFF..F                                                              [100%]
+=================================== FAILURES ===================================
+__ test_tiingo_loader_changed_during_dependency_never_returns_success[loader] __
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...3561659939587), ('connect', ('192.0.2.1', 443)), ('timeout', 0.9993550000945106), ('tls', 'api.tiingo.com'), ...], ...}
+stage = 'loader'
+
+    @pytest.mark.parametrize("stage", ["loader", "tls", "body", "response_close"])
+    def test_tiingo_loader_changed_during_dependency_never_returns_success(network, stage):
+        holder = {}
+    
+        def mutate():
+            holder["transport"]._token_loader = lambda: "fixture-replacement-token"
+            return "fixture-token-only"
+    
+        request, transport = tiingo(loader=mutate if stage == "loader" else lambda: "fixture-token-only")
+        holder["transport"] = transport
+        if stage != "loader":
+            network["on_" + stage] = mutate
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:724: Failed
+___ test_tiingo_loader_changed_during_dependency_never_returns_success[tls] ____
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...5099590159953), ('connect', ('192.0.2.1', 443)), ('timeout', 0.9995087089482695), ('tls', 'api.tiingo.com'), ...], ...}
+stage = 'tls'
+
+    @pytest.mark.parametrize("stage", ["loader", "tls", "body", "response_close"])
+    def test_tiingo_loader_changed_during_dependency_never_returns_success(network, stage):
+        holder = {}
+    
+        def mutate():
+            holder["transport"]._token_loader = lambda: "fixture-replacement-token"
+            return "fixture-token-only"
+    
+        request, transport = tiingo(loader=mutate if stage == "loader" else lambda: "fixture-token-only")
+        holder["transport"] = transport
+        if stage != "loader":
+            network["on_" + stage] = mutate
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:724: Failed
+___ test_tiingo_loader_changed_during_dependency_never_returns_success[body] ___
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...9551875051111), ('connect', ('192.0.2.1', 443)), ('timeout', 0.9995508330175653), ('tls', 'api.tiingo.com'), ...], ...}
+stage = 'body'
+
+    @pytest.mark.parametrize("stage", ["loader", "tls", "body", "response_close"])
+    def test_tiingo_loader_changed_during_dependency_never_returns_success(network, stage):
+        holder = {}
+    
+        def mutate():
+            holder["transport"]._token_loader = lambda: "fixture-replacement-token"
+            return "fixture-token-only"
+    
+        request, transport = tiingo(loader=mutate if stage == "loader" else lambda: "fixture-token-only")
+        holder["transport"] = transport
+        if stage != "loader":
+            network["on_" + stage] = mutate
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:724: Failed
+_ test_tiingo_loader_changed_during_dependency_never_returns_success[response_close] _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...5085409609601), ('connect', ('192.0.2.1', 443)), ('timeout', 0.9995076659834012), ('tls', 'api.tiingo.com'), ...], ...}
+stage = 'response_close'
+
+    @pytest.mark.parametrize("stage", ["loader", "tls", "body", "response_close"])
+    def test_tiingo_loader_changed_during_dependency_never_returns_success(network, stage):
+        holder = {}
+    
+        def mutate():
+            holder["transport"]._token_loader = lambda: "fixture-replacement-token"
+            return "fixture-token-only"
+    
+        request, transport = tiingo(loader=mutate if stage == "loader" else lambda: "fixture-token-only")
+        holder["transport"] = transport
+        if stage != "loader":
+            network["on_" + stage] = mutate
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:724: Failed
+_ test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[request] _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...om', 443), ('timeout', 0.25), ('connect', ('192.0.2.1', 443)), ('timeout', 0.25), ('tls', 'api.tiingo.com'), ...], ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d363b30>
+mutation = 'request'
+
+    @pytest.mark.parametrize("mutation", ["request", "loader", "original_deadline", "effective_deadline"])
+    def test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup(
+        network, monkeypatch, mutation
+    ):
+        now = [100.0]
+        monkeypatch.setattr(capture.time, "monotonic", lambda: now[0])
+        request, transport = tiingo(seconds=2)
+        deadline_ms = 250
+    
+        def mutate():
+            if mutation == "request":
+                object.__setattr__(request.source, "rights_reference", "changed-after-body")
+            elif mutation == "loader":
+                transport._token_loader = lambda: "fixture-replacement-token"
+            elif mutation == "original_deadline":
+                now[0] = transport._original_deadline
+            else:
+                now[0] = 100.0 + deadline_ms / 1000
+    
+        network["on_response_close"] = mutate
+        reason = "ORIGINAL_CAPTURE" if mutation in ("request", "loader") else "DEADLINE_EXCEEDED"
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match=reason):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:762: Failed
+_ test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[loader] _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...om', 443), ('timeout', 0.25), ('connect', ('192.0.2.1', 443)), ('timeout', 0.25), ('tls', 'api.tiingo.com'), ...], ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d362180>
+mutation = 'loader'
+
+    @pytest.mark.parametrize("mutation", ["request", "loader", "original_deadline", "effective_deadline"])
+    def test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup(
+        network, monkeypatch, mutation
+    ):
+        now = [100.0]
+        monkeypatch.setattr(capture.time, "monotonic", lambda: now[0])
+        request, transport = tiingo(seconds=2)
+        deadline_ms = 250
+    
+        def mutate():
+            if mutation == "request":
+                object.__setattr__(request.source, "rights_reference", "changed-after-body")
+            elif mutation == "loader":
+                transport._token_loader = lambda: "fixture-replacement-token"
+            elif mutation == "original_deadline":
+                now[0] = transport._original_deadline
+            else:
+                now[0] = 100.0 + deadline_ms / 1000
+    
+        network["on_response_close"] = mutate
+        reason = "ORIGINAL_CAPTURE" if mutation in ("request", "loader") else "DEADLINE_EXCEEDED"
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match=reason):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:762: Failed
+_ test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[original_deadline] _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...om', 443), ('timeout', 0.25), ('connect', ('192.0.2.1', 443)), ('timeout', 0.25), ('tls', 'api.tiingo.com'), ...], ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d363980>
+mutation = 'original_deadline'
+
+    @pytest.mark.parametrize("mutation", ["request", "loader", "original_deadline", "effective_deadline"])
+    def test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup(
+        network, monkeypatch, mutation
+    ):
+        now = [100.0]
+        monkeypatch.setattr(capture.time, "monotonic", lambda: now[0])
+        request, transport = tiingo(seconds=2)
+        deadline_ms = 250
+    
+        def mutate():
+            if mutation == "request":
+                object.__setattr__(request.source, "rights_reference", "changed-after-body")
+            elif mutation == "loader":
+                transport._token_loader = lambda: "fixture-replacement-token"
+            elif mutation == "original_deadline":
+                now[0] = transport._original_deadline
+            else:
+                now[0] = 100.0 + deadline_ms / 1000
+    
+        network["on_response_close"] = mutate
+        reason = "ORIGINAL_CAPTURE" if mutation in ("request", "loader") else "DEADLINE_EXCEEDED"
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match=reason):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:762: Failed
+_ test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[effective_deadline] _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...om', 443), ('timeout', 0.25), ('connect', ('192.0.2.1', 443)), ('timeout', 0.25), ('tls', 'api.tiingo.com'), ...], ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d3b1010>
+mutation = 'effective_deadline'
+
+    @pytest.mark.parametrize("mutation", ["request", "loader", "original_deadline", "effective_deadline"])
+    def test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup(
+        network, monkeypatch, mutation
+    ):
+        now = [100.0]
+        monkeypatch.setattr(capture.time, "monotonic", lambda: now[0])
+        request, transport = tiingo(seconds=2)
+        deadline_ms = 250
+    
+        def mutate():
+            if mutation == "request":
+                object.__setattr__(request.source, "rights_reference", "changed-after-body")
+            elif mutation == "loader":
+                transport._token_loader = lambda: "fixture-replacement-token"
+            elif mutation == "original_deadline":
+                now[0] = transport._original_deadline
+            else:
+                now[0] = 100.0 + deadline_ms / 1000
+    
+        network["on_response_close"] = mutate
+        reason = "ORIGINAL_CAPTURE" if mutation in ("request", "loader") else "DEADLINE_EXCEEDED"
+>       with pytest.raises(capture.ForwardCaptureHTTPError, match=reason):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:762: Failed
+_ test_tiingo_final_validation_exception_is_static_and_cannot_escape_after_cleanup _
+
+network = {'body': b'{}', 'content_type': 'application/json', 'encoding': 'identity', 'events': [('hostname', 'api.tiingo.com'),...5285420445725), ('connect', ('192.0.2.1', 443)), ('timeout', 0.9995277090929449), ('tls', 'api.tiingo.com'), ...], ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d392ba0>
+
+    def test_tiingo_final_validation_exception_is_static_and_cannot_escape_after_cleanup(
+        network, monkeypatch
+    ):
+        request, transport = tiingo()
+    
+        def broken_binding(*args):
+            raise RuntimeError("private-final-binding-error")
+    
+        network["on_response_close"] = lambda: monkeypatch.setattr(
+            transport, "require_original_capture_binding", broken_binding
+        )
+>       with pytest.raises(capture.ForwardCaptureHTTPError) as error:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.forward_capture_http.ForwardCaptureHTTPError'>
+
+tests/unit/test_forward_capture_http.py:806: Failed
+- generated xml file: /private/tmp/aqt-autonomy-audit/tiingo-transport-before.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_loader_changed_during_dependency_never_returns_success[loader]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_loader_changed_during_dependency_never_returns_success[tls]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_loader_changed_during_dependency_never_returns_success[body]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_loader_changed_during_dependency_never_returns_success[response_close]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[request]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[loader]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[original_deadline]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup[effective_deadline]
+FAILED tests/unit/test_forward_capture_http.py::test_tiingo_final_validation_exception_is_static_and_cannot_escape_after_cleanup
+9 failed, 2 passed, 81 deselected in 1.16s

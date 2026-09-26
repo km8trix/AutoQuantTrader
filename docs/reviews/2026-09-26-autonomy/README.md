@@ -157,3 +157,21 @@ the [copied-owner failure reproduction](chrony-copied-owner-reproduction.txt) an
 [final source-bound evidence](chrony-observation-evidence.json) preserve that history.
 Tests use only injected callbacks and synthetic parser input. Measured health
 history, actual host qualification and capture admission remain unfinished.
+
+### A3.3a Tiingo transport return boundary
+
+Existing mock callbacks reproduced successful Tiingo returns after loader
+replacement or cleanup-time binding/deadline loss. The first adverse run had
+**9 failures and 2 passes**; its [original output](tiingo-transport-before.txt)
+is preserved. The focused repair rechecks request/loader bindings after callbacks
+and before GET, then permits success only after all cleanup and final binding
+and effective-deadline checks. Earlier failure and cleanup-failure precedence,
+single use, fixed endpoints and all existing resource limits remain intact.
+
+The final six-file regression reports **297 passed, 1 skipped** in 3.62 s,
+including 23 new HTTP cases. The existing skip needs disposable PostgreSQL and
+is not accepted as concurrency evidence. Independent review separately passed
+all 104 HTTP cases; architecture, formatting/lint, scoped mypy and diff checks
+passed. [Source-bound evidence](tiingo-transport-evidence.json) and
+[final output](tiingo-transport-final.txt) record the scope. No provider call or
+genuine collector admission was introduced.

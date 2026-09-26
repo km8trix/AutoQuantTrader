@@ -83,3 +83,31 @@ No unresolved product direction or substantial new architecture decision is requ
 Actual missing inputs are authentic source/retention/entitlement/account references for the requested capture scope, fresh supervised OAuth/current request window where applicable, and an actually qualified measured-clock/runner/host environment. The read-only audit did not inspect private stores or prove that those inputs are unavailable; the latest status records them as open qualification gates. Resolving them may require owner participation or scoped access, but they do not block pure implementation.
 
 Ask for a consequential choice only if implementation would require departing from precedent—for example accepting local-clock agreement without a measured source, weakening original expiry/identity checks, introducing a new remote signing trust service, changing runtime profile/ownership semantics or deploying an unselected time service/host. None is proposed here. A3's contract can be reviewed and decomposed now; full genuine-source acceptance and A4 remain incomplete until actual evidence exists.
+
+## Implementation findings after the initial proposal
+
+A3.1 now supplies the pure Tiingo selection check, and A3.2a retains the original
+Chrony conversion. A3.2b adds historical measured-health ownership under review.
+These are mechanical components; none consumes an authentic host qualification or
+turns the collector's genuine-class guard into admission.
+
+Further inspection found that a standalone selection/transport owner would mostly
+duplicate the existing binding checks before a qualified source producer exists.
+Instead, A3.3a repairs a concrete existing transport gap: loader replacement during
+callbacks and request/loader/deadline changes during cleanup could still return a
+successful Tiingo result. Mock-only adverse tests reproduce those failures.
+
+Scalar currentness rules already have a precedent in `RuntimeClockSampler` (epoch,
+one-second sample duration, original snapshot/source age below 30 seconds and
+UTC/monotonic agreement). Duplicating those rules in an unused helper would not
+complete capture. The next genuine integration needs an identified measured-host
+qualification producer and authentic reviewed rights/calendar/source records
+resolved from the request's references. No personal measured-host qualification
+record/producer or genuine `ForwardCaptureVerifier` exists yet. Historical native
+proofs cannot be reinterpreted as that authority.
+
+A3's reviewed-contract/offline-guard scope can therefore close after its focused
+regressions and reviews; actual source integration and qualification stay open
+under A4. The slices above are a dependency map, not a requirement to create unused
+authority classes. Keep genuine admission denied until its actual inputs and
+producer contract can be reviewed together.

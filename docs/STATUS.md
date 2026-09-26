@@ -9,12 +9,14 @@ Updated 2026-09-26. Read with [PLAN](PLAN.md), [SPEC](SPEC.md) and [TESTING](TES
 - **Checkout:** `codex/autonomous-development`, isolated under
   `Documents/AutoQuantTrader/autonomous-development`, based on integration `b1156ba`.
   Original integration checkout and its preexisting architecture edit are preserved.
+  A local container-root `AGENTS.md` now points fresh tasks to this checkout;
+  it is workspace guidance outside Git, not a product file.
 - **Completed:** A0 operating docs/source audit and A1 runner repair. All 74 current-doc
   local links passed; 14 excluded sharding regressions restored. A2 local candidate:
   233 compatibility + 32 runner/sharding tests pass; original retained test passes
   in 245.87 s, with 46.681 s restore under unchanged 60 s lease. Full Ruff (1,017
   files), mypy (417 source files), architecture/API contracts and independent review pass.
-- **Work in progress:** A2 CI (foundations/browser and shards 1–4 passed; remaining gates pending); A3.2b measured health-history investigation. A3.2a conversion ownership passed 92 clock cases (39 new), scoped static checks and independent review. A3.1 passed 216 focused tests (49 new), Ruff, architecture, mypy (418 files) and independent review; it is held locally until the current CI result is recorded. The
+- **Work in progress:** A2 CI (foundations/browser and shards 0–4/6 passed; remaining gates pending); A3.2b measured health-history investigation. A3.2a conversion ownership passed 92 clock cases (39 new), scoped static checks and independent review. A3.1 passed 216 focused tests (49 new), Ruff, architecture, mypy (418 files) and independent review; it is held locally until the current CI result is recorded. The
   [A3 contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)
   identifies remaining source/clock/transport ownership slices. Genuine capture
   remains denied and no runtime/profile/authority change is made by those helpers.
@@ -25,7 +27,10 @@ Updated 2026-09-26. Read with [PLAN](PLAN.md), [SPEC](SPEC.md) and [TESTING](TES
 - **Blockers:** actual captured-session parity and genuine source/clock qualification;
   scoped fresh OAuth/account/quote evidence; separately recorded initializer
   approval; exact-revision Linux acceptance/review/merge. No live authority.
-- **Next actions:** validate/commit the reviewed A3.2a component and inspect the next health-history slice; read CI failure details if any and
+- **Next actions:** finish and independently review A3.2b measured health-history ownership
+  while A3.3a is locally validated: 297 focused cases pass, with one existing
+  PostgreSQL skip; independent HTTP review/tests pass (104 cases). Original nine
+  failure reproductions and the final result are retained in dated evidence. A3.2a is committed as `08c4230`; read CI failure details if any and
   fix without changing limits. Keep pending local additions off the remote branch
   until this CI result is recorded. A2 closes only with required Linux gates;
   W4 closes only after all source/account/session gates and verified GitHub closeout.
