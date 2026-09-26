@@ -19,8 +19,8 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Linux b6e4815 failed; revised local candidate ready | Existing W4 integration |
-| A3 — genuine capture bridge contract and offline guards | Offline scope locally complete; publication/CI pending | Existing capture/clock/calendar boundaries |
+| A2 — retained restore within original limits | Complete on a8b9229; all 16 Linux/PostgreSQL shards pass | Existing W4 integration |
+| A3 — genuine capture bridge contract and offline guards | Complete offline scope; genuine admission stays denied | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
 | B1 — restricted protocol implementation | Blocked | W4 merged and verified |
@@ -81,6 +81,7 @@ credentials, start live services or authorize provider traffic.
   disposable PostgreSQL across all 16 CI shards; inspect `gh run view <run-id>`.
 - **Completion criteria:** independent review of the narrow change, local retained
   preservation/cleanup evidence and successful exact-revision Linux/PostgreSQL CI.
+  The full a8b9229 CI pass closes this milestone; original failed evidence remains.
   A synthetic microbenchmark or a local restore alone is insufficient. If only a
   change to ownership/lease semantics could help, stop for the consequential decision.
 
@@ -88,8 +89,9 @@ credentials, start live services or authorize provider traffic.
 
 The [concrete contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)
 identifies source selection, retained measured-clock ownership and original
-transport/source ownership as separate offline slices. Start with A3.1 mechanical
-selection validation using existing records; keep genuine publication denied.
+transport/source ownership as separate offline slices. A3.1 now validates mechanical
+selection using existing records. The implemented offline components are described
+below; genuine publication remains denied and further source integration belongs to A4.
 
 - **Objective:** specify the missing source-admission boundary before implementation.
 - **Scope:** map clock, calendar, HTTP identity, rights, raw capture/publication,
@@ -111,7 +113,30 @@ selection validation using existing records; keep genuine publication denied.
   an explicit narrowly stated consequential choice recorded as a blocker. This
   milestone does not grant provider access or source qualification.
 
-### A3.2a — retain the original clock conversion (locally validated)
+### A3.1 — match existing Tiingo selection records (validated offline and in CI)
+
+- **Objective:** reject a daily capture request inconsistent with the selected
+  acquisition profile, authorization or pinned calendar before any effects.
+- **Scope:** optional pure `require_tiingo_capture_selection` matcher using existing
+  bounded records and calendar conventions. It returns `None`, creates no source
+  token and leaves genuine capture admission unchanged.
+- **Dependencies:** existing `ForwardCaptureRequest`, Tiingo acquisition/authorization
+  and pinned-calendar records, bounded codecs and research-calendar binding helper.
+- **Acceptance criteria:** revalidate nested content, review chronology, symbol/data
+  scope and request-window boundaries; preserve authorization effective dates as
+  data coverage. Equal reconstructed content can match but proves no original
+  ownership or rights provenance. A genuine-shaped match still reaches the existing
+  collector denial with zero clock, transport or artifact effects.
+- **Validation commands:** TESTING's clean environment with `$AQT_PYTHON -B -m pytest
+  -q -p no:cacheprovider tests/unit/test_personal_tiingo_capture_selection.py
+  tests/unit/test_personal_capture_calendar_binding.py tests/unit/test_tiingo_eod_capture.py
+  tests/unit/test_personal_forward_capture.py`; architecture, Ruff, mypy and diff checks.
+- **Completion criteria:** 216 focused cases pass (49 new), static checks and
+  independent review pass, and the [source-bound evidence](reviews/2026-09-26-autonomy/tiingo-selection-evidence.json)
+  records the mechanical limits. Local completion and the full a8b9229 Linux/PostgreSQL CI pass are recorded;
+  source qualification remains separate.
+
+### A3.2a — retain the original clock conversion (validated offline and in CI)
 
 - **Objective:** retain the exact reading that produced a standard measurement.
 - **Scope:** optional `ChronyStandardObservation` and original-owner verification;
@@ -124,9 +149,9 @@ selection validation using existing records; keep genuine publication denied.
   and `tests/unit/test_standard_clock.py`; architecture, Ruff, mypy, diff checks.
 - **Completion criteria:** independent review and all 92 focused cases pass,
   original behavior preserved, discovered ownership defects and corrections recorded.
-  Linux acceptance of the pending commit is still required before integration.
+  Full a8b9229 Linux/PostgreSQL CI also passed; host qualification remains separate.
 
-### A3.2b — retain measured health history (locally validated)
+### A3.2b — retain measured health history (validated offline and in CI)
 
 - **Objective:** bind a health result to its actual measured observations from startup.
 - **Scope:** inspect and implement the smallest opt-in owner consistent with existing
@@ -144,7 +169,7 @@ selection validation using existing records; keep genuine publication denied.
   substitution failure and its correction.
   This component alone cannot satisfy actual host qualification or A3.4 admission.
 
-### A3.3a — preserve Tiingo binding and deadline through cleanup (locally validated)
+### A3.3a — preserve Tiingo binding and deadline through cleanup (validated offline and in CI)
 
 - **Objective:** prevent successful HTTP results after original binding or deadline loss.
 - **Scope:** the existing Tiingo concrete transport; check original loader identity

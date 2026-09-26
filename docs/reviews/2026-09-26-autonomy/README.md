@@ -1,5 +1,10 @@
 # Autonomous-development assessment — 2026-09-26
 
+**Current outcome:** A0–A3 are complete; all 4,786 selected Linux/PostgreSQL tests
+and required CI gates passed. See [final acceptance](#a2a3-final-source-acceptance-and-next-handoff)
+and [STATUS](../../STATUS.md) for A4's remaining blocker. The sections below
+preserve the initial audit and successive checkpoints in chronological order.
+
 ## Repository and preservation
 
 The task started in `Documents/AutoQuantTrader`, a workspace container rather
@@ -43,14 +48,14 @@ Findings:
 3. AGENTS had become a 27 KB chronological log. Concise operating instructions,
    a small current STATUS and source-backed SPEC/PLAN/TESTING improve resumability
    without deleting previous decisions or wave requirements.
-4. The current CI failure is real and newer than the last checked-in handoff.
+4. At the initial audit, the CI failure was real and newer than the checked-in handoff.
    Read-only GitHub inspection identified exact run
    [36096804829](https://github.com/km8trix/AutoQuantTrader/actions/runs/36096804829).
 5. Existing pure sharding tests were excluded from the standard runner, with a
    stale historical workflow assertion. The focused repair adds coverage and
    preserves that assertion against the actual legacy workflow.
 
-## Latest integration failure, preserved
+## Initial integration failure, preserved
 
 Run 36096804829 at `b1156ba` completed with failed required shard 7. Foundations,
 installed wheels, migrations, browser and the other 15 shards passed. The failed
@@ -129,6 +134,11 @@ Ruff formatting (1,017 files) and lint also pass after the local candidate.
 
 ### A3.1 mechanical Tiingo selection
 
+*Initial local checkpoint; this addition was subsequently published with the revised
+candidate. See [STATUS](../../STATUS.md) for current CI and the
+[implementation findings](capture-bridge-contract.md#implementation-findings-after-the-initial-proposal)
+for the remaining source boundary.*
+
 Added an optional in-memory matcher for the existing request, acquisition profile,
 reviewed authorization and pinned calendar. It reuses the existing bounded codecs,
 authorization date meanings and research-calendar convention. It returns no token
@@ -144,6 +154,11 @@ issue. [Evidence and source hashes](tiingo-selection-evidence.json) retain the
 exact scope. Held locally while CI continues on `b6e4815`.
 
 ### A3.2a original clock conversion
+
+*Conversion-only checkpoint. Subsequent historical health ownership is recorded in
+[A3.2b](#a32b-original-measured-health-history); the
+[implementation findings](capture-bridge-contract.md#implementation-findings-after-the-initial-proposal)
+retain the separate host-qualification and capture-admission gaps.*
 
 The optional Chrony observation retains its original reading and measurement under
 a weak original-owner registry. Legacy calls use the unchanged conversion body
@@ -176,7 +191,7 @@ passed. [Source-bound evidence](tiingo-transport-evidence.json) and
 [final output](tiingo-transport-final.txt) record the scope. No provider call or
 genuine collector admission was introduced.
 
-### A2 current Linux result: still failed
+### A2 prior Linux failure: b6e4815
 
 The approved PR run on `b6e4815` failed the original unprofiled retained restore
 at **61.200 s** under the unchanged 60-second lease. This time expiry was detected
@@ -186,9 +201,9 @@ pass remains valid only as local evidence and does not satisfy A2.
 
 [Bound failure record](linux-b6e4815-retained-failure.json) and
 [original sanitized failure output](linux-b6e4815-retained-failure.txt) preserve
-the result. The workflow's other shards and failure-only diagnostic are allowed
-to finish without cancellation. Investigate narrow pure-helper costs; preserve
-every original ownership/provenance/SQL/fence check and all resource limits.
+the result. At this checkpoint the other shards and failure-only diagnostic were still running.
+The completed failure and the later repair are recorded below. Every original
+ownership/provenance/SQL/fence check and all resource limits remain unchanged.
 
 ### A3.2b original measured health history
 
@@ -233,7 +248,8 @@ The unchanged unprofiled retained test passes locally in **221.29 s**, with
 176.562 s fixture setup and **41.963 s restore** under the original 60-second lease.
 All preservation and cleanup assertions pass. [Bound evidence](retained-after-field-leaf-evidence.json)
 and [original output](retained-after-field-leaf.txt) identify the exact source.
-This is another local candidate; Linux acceptance remains open and no limit changed.
+At this local checkpoint Linux acceptance remained open; the later full pass is
+recorded below. No limit changed.
 
 Final candidate collection finds **4,786 cases** in 12.98 s. The existing
 Starlette/httpx deprecation warning remains; no dependency change was made.
@@ -248,3 +264,32 @@ identity and the largest self costs. Canonical tuple emission (5.38 million call
 and semantic conversion (3.09 million calls) remain substantial measured costs.
 Inclusive timings overlap and cannot establish a startup speed claim. The revised
 candidate is published only after preserving this complete failed run.
+
+### A2/A3 final source acceptance and next handoff
+
+[Run 36225463486](https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486)
+completed successfully on `a8b92297ba0845b9038b7684ab60333d928d9c6d`. The tested
+PR merge `bf7625d47f2d8a29a062d9e2310ab897a705ce82` has the identical Git tree
+`1a58635e503d602085c0450a8df15b06ff2d6366`. All **4,786 selected tests passed**
+across 16 disjoint Linux shards using disposable PostgreSQL, with no failures or
+skips. Foundations, migrations, static/API checks, conventional wheel/installed
+process, browser/Compose and the required aggregate passed. The failure-only
+diagnostic correctly skipped. The existing Starlette/httpx warning remains.
+
+[Complete bound result](linux-a8b9229-ci-pass.json),
+[restore-shard evidence](linux-a8b9229-retained-pass.json) and
+[original result lines](linux-a8b9229-retained-pass.txt) retain the identities and
+counts. Shard 7 contains the original signed retained restore and reports 295
+passes. Quiet successful output omits individual timing: the 41.963-second local
+restore is not a Linux elapsed-time measurement. No lease, deadline, resource,
+financial, ownership, provenance or cleanup assertion changed. Prior failures
+remain preserved rather than overwritten.
+
+A0–A3 are complete within their documented scope. The final follow-up changes
+only documentation/evidence; runtime, tests and configuration remain identical
+to the accepted source. [STATUS](../../STATUS.md) now names A4's first blocker:
+identify the supervised Mac's measured-time source and non-secret qualification
+record, then review the genuine producer/qualification proposal. The owner
+question is pending. Existing provider rights/retention approvals remain scoped;
+fresh session/window and initializer gates remain separate. No named independent
+PLAN implementation is left unblocked. No provider effects or trading occurred.

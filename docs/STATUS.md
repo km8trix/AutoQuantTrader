@@ -3,44 +3,46 @@
 Updated 2026-09-26. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md), and
 [detailed evidence](reviews/2026-09-26-autonomy/README.md).
 
-- **Current milestone:** A2 retained restore within original limits; Wave 4 incomplete.
-- **Current task:** repair the confirmed Linux failure through measured, behavior-preserving
-  pure serialization changes. The combined reviewed field/leaf candidate passed the original local retained
-  test: 41.963 s restore under the unchanged 60 s lease (221.29 s total). The
-  prior CI and diagnostic are now complete; publish this next candidate for Linux acceptance.
+- **Current milestone:** A4 genuine source/account/session qualification, blocked;
+  Wave 4 remains incomplete. A0–A3 are complete within their documented scope.
+- **Current task:** identify the measured-time source and non-secret qualification
+  record for genuine capture on the supervised Mac. The owner question is pending.
+  No personal qualified-host producer is identified; genuine admission stays denied.
 - **Checkout:** `codex/autonomous-development` under
   `Documents/AutoQuantTrader/autonomous-development`, based on integration `b1156ba`.
-  The integration checkout and its preexisting one-line architecture edit remain intact.
+  The integration checkout retains only its preexisting one-line architecture edit.
   Container-root `AGENTS.md` is a local locator outside Git.
-- **Completed:** A0 operating documents; A1 restored 14 sharding cases; A3 reviewed
-  bridge contract and offline guards. Tiingo selection: 216 focused passes (49 new);
-  measured clocks: 186 passes (94 new health cases plus 39 new conversion cases);
-  transport repair: 297 passes, one existing PostgreSQL skip (23 new HTTP cases).
-  Independent reviews passed. Full Ruff (1,021 files), mypy (419 files), architecture,
-  and standard-runner collection (4,786 cases) pass. Collection is not test execution.
-- **Work in progress:** A2 reviewed pure-helper candidate (262 focused passes),
-  completed local retained validation; publish the new candidate to
-  [PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56),
-  [run 36222039834](https://github.com/km8trix/AutoQuantTrader/actions/runs/36222039834)
-  at `b6e481547b0f2de63d56961e91ddf7c487ecdc84` is complete: foundations/browser
-  and15shards passed, shard7 and the diagnostic failed. Revised A2/A3 additions
-  are committed and ready for the next run. Capture admission and runtime profiles stay unchanged.
-- **Known failures:** original retained restore failed on Linux at **61.200 s** in final
-  fence revalidation; lease release also failed. Shard 7: one failure/280 passes.
-  [Failure evidence](reviews/2026-09-26-autonomy/linux-b6e4815-retained-failure.json).
-  Earlier `b1156ba` failure at 60.310 s is preserved. Local candidate passed at 46.681 s
-  under the same 60-second lease, but does not close Linux acceptance. New helper
-  ownership/transport defects were reproduced, fixed and retained in dated evidence.
-- **Blockers:** A2 exact-revision Linux acceptance; genuine qualified host/source
-  producer and authentic rights/calendar/account/quote inputs; scoped fresh OAuth
-  and capture window where applicable; separate initializer approval. W4 merge
-  and later waves depend on those gates. No live authority exists.
-- **Next actions:** publish the reviewed candidate, inspect its exact-revision CI and fix
-  any failures. Original local retained acceptance and the prior diagnostic are recorded. Fix failures without removing
-  checks or changing lease/time/resource limits. Current-head CI is still required.
-- **Continuation/authorization:** owner approved this branch push and draft PR,
-  not merge/deployment/provider effects. Automatic approval review rejected a proposed
-  15-minute follow-up without explicit recurring-execution permission; the question
+- **Completed:** all seven operating documents; A1 restores 14 sharding cases;
+  A2 preserves the original restore/lease checks while reducing pure conversion
+  costs; A3 supplies reviewed offline selection/clock guards and the Tiingo cleanup fix.
+  Independent source reviews passed. Historical failure evidence is retained.
+- **Validation:** [CI 36225463486](https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486)
+  passed on `a8b92297ba0845b9038b7684ab60333d928d9c6d`: **4,786 tests passed** across
+  all 16 Linux/PostgreSQL shards, plus foundations, browser and required aggregate.
+  The tested PR merge and source trees are identical. The failure-only diagnostic
+  correctly skipped. [Bound result](reviews/2026-09-26-autonomy/linux-a8b9229-ci-pass.json).
+  The original local retained test also passed: 41.963 s restore under the unchanged
+  60 s lease. Linux quiet output does not expose individual restore elapsed time.
+- **Work in progress:** awaiting the A4 source input; implementation is stopped at
+  that dependency. The documentation-only result/handoff update is on [draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56).
+  Its source/tests/configuration are unchanged from the accepted revision above.
+  A later documentation push can trigger CI again; inspect PR checks before integration.
+- **Known failures:** none in the completed current source CI. Earlier `b1156ba`
+  (60.310 s) and `b6e4815` (61.200 s, plus lease-release failure) results remain
+  preserved. The new pass does not rewrite them. Existing Starlette/httpx deprecation
+  warnings remain; native and genuine-source qualification are separate evidence.
+- **Blockers:** identified qualified host/time producer and authentic source binding;
+  later fresh scoped OAuth/current capture window where applicable; separate
+  initializer approval and full W4 acceptance. Existing provider rights/retention
+  approvals remain scoped and must not be requested again. Resolve recorded evidence
+  references before asking the owner to recreate inputs; never request secret values.
+- **Next actions:** resolve the pending measured-source question, then prepare the
+  concrete qualification/producer proposal using existing precedents. Keep provider
+  effects and initializer work behind their specific gates. No other named PLAN
+  implementation task is currently unblocked; later waves require W4 closure.
+- **Continuation/authorization:** owner approved branch push and draft PR, not
+  merge/deployment/provider effects. Automatic approval review rejected a proposed
+  15-minute follow-up without explicit recurring-execution permission; that question
   is pending and no automation exists.
 
 Verified Python: `Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python`.

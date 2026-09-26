@@ -2,6 +2,14 @@
 
 Read-only source investigation, 2026-09-26, against the `autonomous-development` checkout based on `b1156ba`. This is a concrete implementation proposal, not an admission record, provider authorization or claim that its interfaces exist. No credentials, private evidence, provider services or host time services were read or invoked.
 
+**Initial proposal checkpoint:** the sections through “Actual blockers versus decisions”
+preserve the original investigation. Their proposed deliverables and “unblocked”
+conclusions are superseded where they differ from the
+[implementation findings](#implementation-findings-after-the-initial-proposal).
+The implemented slices reuse existing records, retain historical clock ownership
+and repair the existing transport; further genuine integration remains under A4.
+Use [PLAN](../../PLAN.md) and [STATUS](../../STATUS.md) as the current work queue.
+
 ## Finding
 
 The missing boundary is a concrete owner that binds the **original** reviewed source evidence, calendar, genuine measured clock and fixed HTTPS transport to one collector episode. It is not an absent HTTP client or a missing matching hash. Current components deliberately stop short of that authority:

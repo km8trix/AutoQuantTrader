@@ -1,6 +1,6 @@
 # AutoQuantTrader architecture
 
-Status: authoritative design, consolidated 2026-09-08; Wave 0 supporting contracts remain frozen. Waves 0–3 are accepted, including the exploratory data port, standard halted process foundation and canonical offline economic engine. Wave 3 research-workspace PR CI and exact merge verification passed. Wave 4 applied reconciliation, account coordination and continuous simulation are in progress; their operational/source gates remain open. E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Continuous account coordination and connected execution remain later targets; no trading permission is changed by this document.
+Status: authoritative design, consolidated 2026-09-08; Wave 0 supporting contracts remain frozen. Waves 0–3 are accepted, including the exploratory data port, standard halted process foundation and canonical offline economic engine. Wave 3 research-workspace PR CI and exact merge verification passed. Wave 4 applied reconciliation, account coordination and continuous simulation are implemented with incomplete acceptance; their operational/source gates remain open. E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Connected execution readiness remains a later target; no trading permission is changed by this document.
 
 This is the current architecture. [PLAN.md](PLAN.md) is the executable queue within the preserved [implementation wave roadmap](IMPLEMENTATION_PLAN.md); [STATUS.md](STATUS.md) records current progress. The [design review](reviews/2026-09-08-design-review.md) records the independent baseline, comparison with the previous GPT-5.6 Sol design, and code evidence. Historical ADRs retain their factual record; the explicit decisions below supersede conflicting future requirements. Implemented behavior remains unchanged until its migration wave passes.
 
@@ -8,7 +8,7 @@ Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/
 
 ## Current implementation map (verified 2026-09-26)
 
-This section describes source at `b1156ba`; later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, while its Linux retained-restore, actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
+This section describes the `b1156ba` baseline and subsequent reviewed additions recorded in [STATUS.md](STATUS.md); later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, and the revised retained-restore candidate passed full Linux/PostgreSQL CI. Actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
 
 ### Components and entry points
 
@@ -99,7 +99,7 @@ E*TRADE's documented session lifecycle requires user participation: inactive tok
 
 ## 2. Current state versus target
 
-The original design review used `107fa79`. The implementation map above was checked against `b1156ba`; current test evidence and exact revision belong in STATUS. The nearby `repo/` checkout is historical and must not be used as the active implementation merely because it is under the surrounding workspace.
+The original design review used `107fa79`. The implementation map above starts from `b1156ba` and includes subsequent reviewed additions; current test evidence and exact revision belong in STATUS. The nearby `repo/` checkout is historical and must not be used as the active implementation merely because it is under the surrounding workspace.
 
 Waves 0–3 supply historical research archives, the canonical causal economic engine, retained financial reducers, derived reports, durable research jobs and the local research UI. Wave 4 adds account coordination, applied reconciliation and continuous simulation source, with incomplete acceptance. The historical trader remains a non-ready preflight; the fixed personal continuous worker restores/checks HALTED state. A ready connected execution path remains later work. Research completion cannot close those connected-execution gaps.
 
