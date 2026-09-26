@@ -44,7 +44,7 @@
       "restore_seconds": 46.681,
       "lease_seconds": 60,
       "limits_changed": false,
-      "log": "retained-local.log",
+      "log": "retained-local.txt",
       "log_sha256": "aac19972e62f38663f9206adc02175938a358a3b6973faebc936419b32ec839b",
       "scope": "Local original unprofiled synthetic-history fixture; no Linux acceptance or before/after startup speed claim."
     }

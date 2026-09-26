@@ -113,7 +113,7 @@ The original unprofiled signed retained-outcome test passed in **245.87 s**;
 fixture setup took 196.124 s and restore completed in **46.681 s** under the
 unchanged 60-second lease. Its original result/preservation/cleanup assertions
 passed. [Bound source evidence](semantic-tuple-evidence.json),
-[original log](retained-local.log) and [finite benchmark](semantic-tuple-benchmark.json)
+[original log](retained-local.txt) and [finite benchmark](semantic-tuple-benchmark.json)
 record scope. This local result does not close the previous Linux failure or
 establish a before/after startup speed comparison. The microbenchmark also has
 a slower scalar control; it is not a uniform speedup claim.
@@ -121,3 +121,8 @@ a slower scalar control; it is not a uniform speedup claim.
 Automatic approval review rejected GitHub publication because explicit repository
 egress authorization was required. No push occurred. Local work remains valid;
 exact-revision Linux CI and Wave 4 closeout remain incomplete.
+
+The owner subsequently explicitly approved pushing `codex/autonomous-development`
+to `km8trix/AutoQuantTrader` and opening a draft PR against the Wave 4 integration
+branch for Linux CI. This resolves publication permission only. Full repository
+Ruff formatting (1,017 files) and lint also pass after the local candidate.

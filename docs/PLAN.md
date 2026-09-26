@@ -19,8 +19,8 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | In progress: diagnosed; repair/acceptance open | Existing W4 integration |
-| A3 — genuine capture bridge contract and offline guards | Design investigation eligible; consequential unresolved choices need owner decision | Existing capture/clock/calendar boundaries |
+| A2 — retained restore within original limits | Local candidate passes; approved draft CI pending | Existing W4 integration |
+| A3 — genuine capture bridge contract and offline guards | Contract investigated; A3.1 offline component in progress | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
 | B1 — restricted protocol implementation | Blocked | W4 merged and verified |
@@ -85,6 +85,11 @@ credentials, start live services or authorize provider traffic.
   change to ownership/lease semantics could help, stop for the consequential decision.
 
 ## A3 — genuine capture bridge contract and offline guards
+
+The [concrete contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)
+identifies source selection, retained measured-clock ownership and original
+transport/source ownership as separate offline slices. Start with A3.1 mechanical
+selection validation using existing records; keep genuine publication denied.
 
 - **Objective:** specify the missing source-admission boundary before implementation.
 - **Scope:** map clock, calendar, HTTP identity, rights, raw capture/publication,
