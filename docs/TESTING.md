@@ -59,6 +59,12 @@ Start focused, fix failures, then run the appropriate broader gate. Do not rerun
 multi-hour retained suites merely to validate document edits. Do not substitute
 instrumented diagnostics for the required unprofiled acceptance run.
 
+Semantic conversion changes also require `tests/unit/test_personal_semantic_stopiteration.py`
+alongside `test_personal_semantic_dispatch.py` and the canonical/codec suites.
+These independent-oracle tests cover generator exception chaining and temporary
+release while a traceback is alive; matching normal values and hashes is insufficient.
+The standard `test_personal_*` selection includes them.
+
 ## Static checks
 
 Run the architecture checker before importing project code. It is standard

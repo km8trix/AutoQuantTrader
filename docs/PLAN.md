@@ -102,6 +102,54 @@ credentials, start live services or authorize provider traffic.
 - **Completion criteria:** measured/reproduced root-cause repair, independent review
   and passing applicable gates; record previous pass and repeat failure separately.
 
+### A2.2 — preserve semantic conversion exceptions and temporary lifetimes
+
+- **Objective:** repair the earlier loop optimization's changed generator semantics.
+- **Scope:** restore original recursive generator boundaries in `semantic_value`
+  and add independent-oracle regressions; retain safe exact-builtin dispatch.
+- **Dependencies:** reproduced getter, field-name and nested-reflection
+  `StopIteration` mismatch against the literal original implementation.
+- **Acceptance criteria:** original error type/cause/context, field/read order,
+  temporary release and canonical bytes remain; top-level reflection errors
+  remain outside the generator boundary. No failure is swallowed or converted
+  into successful output.
+- **Validation commands:** TESTING's clean pytest on `test_personal_semantic*`,
+  `test_personal_contract_semantics.py` and `test_personal_canonical*`; original
+  retained outcome, architecture/Ruff/mypy/API checks and exact-revision CI.
+- **Completion criteria:** independently reviewed correction and applicable
+  checks pass. Record any timing regression honestly; this correction does not
+  itself repair the separate retained-restore performance failure.
+  Source `6c0cdea` has 324 focused passes (49 new), an original local retained
+  pass at 45.425 s, 19 worker/lifecycle passes and full static/API checks. The
+  standard runner collects 4,848 cases; current-revision Linux CI remains to inspect.
+
+### A2.3 — bounded factory proof pilot (blocked on architectural decision)
+
+- **Objective:** determine whether one repeated source fingerprint can be replaced
+  by an equally bounded proof for a narrowly admitted, unchanged data projection.
+- **Scope:** only the factory's original daily episode and the final resolved
+  attempt-source fingerprint. See the [reviewed proposal](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md).
+  All preceding owner/reference/outcome checks and fresh SQL/object/fence checks remain.
+- **Dependencies:** explicit owner decision on the restricted effect-free data
+  contract, then detailed proof/handshake review. Current seals are insufficient;
+  approval of publication or ordinary autonomous work does not select this design.
+- **Acceptance criteria:** original owner/thread/operation boundaries; no copied,
+  mutated, foreign or retired proof accepted; unsupported input follows original
+  validation; no larger aggregate resource allowance; fresh observations and full
+  final verification remain. A complete measured benefit must justify the change.
+- **Validation commands:** TESTING's clean pytest on integration files
+  `test_continuous_integrity_daily_episode.py`,
+  `test_continuous_factory_scope_lifecycle.py`,
+  `test_continuous_factory_integrity_result.py`,
+  `test_continuous_factory_daily_handoff.py`,
+  `test_continuous_factory_pending_handoff.py`,
+  `test_continuous_runtime_attempt_sources.py`, and
+  `test_continuous_attempt_fingerprint.py`; new independent adverse oracles;
+  original retained/worker gates, full static checks and exact-revision CI.
+- **Completion criteria:** reviewed approved contract and passing original gates
+  under unchanged limits, or a documented rejection of the pilot. Neither design
+  approval nor a passing microbenchmark closes A2 or authorizes live activity.
+
 ## A3 — genuine capture bridge contract and offline guards
 
 The [concrete contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)

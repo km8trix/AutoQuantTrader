@@ -1,0 +1,49 @@
+{
+  "decision": "reject; no production or repository test edits",
+  "source_sha256": "ce6f67167d95ede5696bb11781d46c3bc5a83e871f51b18de8e421ff28324f71",
+  "scope": "Finite real capture shapes in fresh synthetic in-memory SQLite; compiled PostgreSQL oracle only. No retained performance acceptance.",
+  "normal_cases": 10,
+  "adverse_cases": 41,
+  "samples_per_shape": 5,
+  "calls_per_sample": 20,
+  "candidate_original_ratios": [
+    {
+      "command": null,
+      "guarded_reuse": 1.5981702744338717,
+      "guarded_clone": 2.3683448184475986
+    },
+    {
+      "command": "command-1",
+      "guarded_reuse": 1.5845266318741966,
+      "guarded_clone": 2.3256951252825067
+    },
+    {
+      "command": "command-2",
+      "guarded_reuse": 1.5796300081208294,
+      "guarded_clone": 2.4523277936957997
+    },
+    {
+      "command": "command-3",
+      "guarded_reuse": 1.561431367413992,
+      "guarded_clone": 2.432868676164476
+    },
+    {
+      "command": "missing",
+      "guarded_reuse": 1.5902213420951277,
+      "guarded_clone": 2.319640020023391
+    }
+  ],
+  "cache_counts": {
+    "columns_calls": 6868,
+    "build": 3030,
+    "hit": 3838
+  },
+  "limitation": "Guard is not an exhaustive proof against arbitrary SQLAlchemy/compiler/quoted-name/private-state mutation; clone provenance may retain template links. Guard overhead already rejects both variants.",
+  "artifacts": [
+    "journal_projection_prototype.py",
+    "journal-projection-prototype.json",
+    "journal_projection_adverse.py",
+    "journal-projection-adverse.json",
+    "journal-projection-verdict.md"
+  ]
+}

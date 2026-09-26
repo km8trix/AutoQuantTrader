@@ -1,6 +1,8 @@
 # Autonomous-development assessment — 2026-09-26
 
 **Current outcome:** A2 is reopened after the same-source follow-up CI failed.
+The eager semantic-loop optimizations were subsequently withdrawn after a new
+exception/lifetime regression was found; the correction passes local validation.
 The preceding full 4,786-test pass remains preserved for its exact run. See [final acceptance](#a2a3-final-source-acceptance-and-next-handoff)
 and [STATUS](../../STATUS.md) for A4's remaining blocker. The sections below
 preserve the initial audit and successive checkpoints in chronological order.
@@ -344,3 +346,58 @@ Scoped process inspection resolved the earlier sandbox denial; no code/test/limi
 change was used to bypass it. Independent review passed. A2 still requires the
 retained-cost repair and fresh Linux evidence; the exact CI probe stall remains
 unattributed. No live, provider, initialization or trading operation occurred.
+
+### Resume: actual retained canonical shapes and rejected SQL reuse
+
+A bounded output-only diagnostic on the original retained fixture passed locally:
+setup 193.831 s, restore 46.747 s, total 241.85 s. It captured only synthetic
+canonical output strings during the original execute call, with 44-sample,
+1 MiB-per-sample and 4 MiB-total caps. No original graph references were retained.
+This instrumented result is diagnostic evidence, not unprofiled or Linux acceptance.
+
+The [source-bound summary](canonical-retained-shape-summary.json) records 62,011
+canonical calls and 10.861 s inclusive time. Twenty-two captured samples replayed
+byte-for-byte; eight enum-containing samples were intentionally unsupported.
+Another 253 outputs above the sample cap accounted for 39.65% of canonical time.
+The admitted sample estimates cover only 31.05% of that time. Safe tuple variants
+showed about 1.4% improvement on this limited mix, with other shapes regressing;
+none was adopted. A guarded combined-fragment variant remained behaviorally
+unqualified. Arbitrary-string memoization was rejected because retaining data
+globally is unnecessary and could extend sensitive text lifetimes.
+
+Operation-local SQL projection reuse was also prototyped without source changes.
+Guards against mutable metadata and exposed expression mutation made it slower;
+private templates with fresh deep clones were slower again. SQL queries, transfer
+limits, original checks and production construction remain unchanged. The
+[SQL rejection](journal-projection-rejection.json) records 10 normal and 41
+adverse comparisons and candidate/original ratios of 1.56–1.60 for guarded reuse
+and 2.32–2.45 for cloning. These are finite local experiments, not PostgreSQL
+execution or retained acceptance.
+
+### Resume: semantic generator correction and remaining decision
+
+The earlier eager tuple/record loops changed generator exception behavior and
+retained partial results through failing tracebacks. The initial 43-case
+[regression run](semantic-stopiteration-regression-before.txt) had 29 failures.
+Literal original generators are restored, retaining preexisting builtin dispatch.
+Six additional lifetime cases brought the new file to 49 cases; the combined
+[focused suite](semantic-stopiteration-after-all.txt) passed all 324 cases.
+Independent review found no remaining issue.
+
+The original unprofiled [retained test](semantic-generator-retained.txt) passed:
+194.504 s setup, 45.425 s restore, 242.87 s total. The original
+[worker/lifecycle suite](semantic-generator-worker.txt) passed 19 cases in
+60.95 s. Architecture, full Ruff/format (1,023 files), mypy (419 files) and API
+contracts pass. [Bound evidence](semantic-generator-evidence.json) records exact
+sources and scope. These local results do not erase the latest Linux failure.
+
+A final [inline-generator candidate](semantic-tuple-inline-assessment.json)
+passed finite compatibility tests but regressed actual contract conversion by
+about 1.4%; it was not adopted. Historical timings for withdrawn eager loops
+must not be presented as current-source performance.
+
+The [factory proof proposal](factory-verification-seal-proposal.md) has independent
+review and an explicit owner question pending. It changes the contract for one
+repeated in-memory fingerprint and requires proof of a restricted data profile.
+Existing handoff seals do not supply that proof. No implementation, approval,
+speedup, external-observation reduction or trading authority is inferred.

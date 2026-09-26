@@ -82,3 +82,25 @@ parent ownership checks remain. This fixes a reproduced race; the shared CI
 `probe_stalled` reason does not establish which internal stall branch actually fired.
 [Evidence](reviews/2026-09-26-autonomy/probe-terminal-evidence.json) includes 95 unit
 and 19 original worker/lifecycle integration passes; Linux acceptance remains open.
+
+## 2026-09-26 — restore original semantic generator boundaries
+
+**Decision:** withdraw the tuple/record scalar recursion shortcuts and restore
+the original generator expressions in `semantic_value`. Keep the preexisting
+exact-builtin dispatch; do not emulate generator exceptions with manual catches.
+
+**Rationale:** independent comparisons reproduced direct `StopIteration` escape
+where the original wraps it in `RuntimeError`, and different temporary-result
+release while a failing traceback remains alive. Matching ordinary values and
+hashes did not establish complete compatibility.
+
+**Consequences/constraints:** preserve original field reads, exception chaining
+and temporary lifetimes through Python's own generator behavior. Earlier timing
+gains from the withdrawn shortcuts are historical evidence only. Performance
+must be remeasured without changing acceptance limits. Do not reinstate the
+shortcuts solely to meet a timing gate.
+
+**Pending choice:** the [factory-only verification proposal](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md)
+describes a separate restricted data-proof contract. It is not implemented or
+approved. Existing handoff seals alone do not authorize substituting source
+fingerprints; SQL/object/fence observations and all current limits remain.
