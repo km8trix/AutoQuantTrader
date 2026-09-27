@@ -1,6 +1,6 @@
 # Owner decision: bounded pre-lease restoration study
 
-**Decision requested: permit a limited offline design and feasibility study, not production implementation.** No implementation-ready handoff is established. The existing retained restore and Linux gates remain failing; this proposal neither accepts the current attempt proof nor revives the rejected daily per-node layout.
+**Approved 2026-09-27 for limited offline design and feasibility only.** The owner answered “Go with your recommendation” to this proposal. Production implementation remains outside that approval. No implementation-ready handoff is established. The existing retained restore and Linux gates remain failing; this proposal neither accepts the current attempt proof nor revives the rejected daily per-node layout.
 
 ## Why this is a separate decision
 

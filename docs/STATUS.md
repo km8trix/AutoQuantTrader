@@ -6,8 +6,10 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
 - **Current milestone:** A2/A2.1 open; A2.3 pilot unaccepted. A2.4 is complete;
   A2.5 rejects the stated per-node layout. A0/A1 and A3's offline scope are complete.
   Wave 4 remains incomplete.
-- **Current task:** review final evidence and obtain the separate owner decision
-  for A2.6's bounded pre-lease study. No further safe small repair is established.
+- **Current task:** execute A2.6's separately approved bounded offline pre-lease
+  study: inventory exact clock-record warm/cold behavior and review one original-only
+  clock-journal count/cost observation. Acquisition ownership and joint costs remain open.
+  No further safe small repair is established.
   No new daily proof, verification schedule or production substitution is approved.
 - **Checkout:** `codex/autonomous-development` in `Documents/AutoQuantTrader/autonomous-development`.
   Tested code/diagnostic revision `26631c66854c754533f5d6d82749e1fb8b5e3dcf`;
@@ -53,15 +55,19 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   edges do not establish a new proof's charge or eligibility. Observer mechanics
   passed 29 cases and independent review. [Result](reviews/2026-09-26-autonomy/daily-identity-original-result.json)
   and [independent interpretation](reviews/2026-09-26-autonomy/daily-identity-original-result-assessment.md).
-- **Work in progress:** no local fixture or CI monitor remains. Final docs/evidence
-  accompany this commit. Normal PR CI may start on publication; inspect
-  `gh pr checks 56` on resume and bind each result to its source/test tree.
+- **Work in progress:** source-bound acquisition, pure-work/resource and adverse
+  model reviews are preserved; finite clock behavior and observer-plan reviews
+  continue. No new fixture or production prototype is released. Inspect
+  publication CI run 36293614203 for `55951fb` and bind results to its source tree.
   A repeated pass alone does not repair the known failures.
-- **Next actions:** await the separate owner decision on the
+  Architecture and eight existing SQLite conditional-acquisition cases pass;
+  these confirm existing primitives, not a new handoff. [Study validation](reviews/2026-09-26-autonomy/prelease-study-validation.json).
+- **Next actions:** complete the separately approved
   [bounded pre-lease study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md)
   (A2.6). No implementation-ready handoff or guaranteed benefit is established.
-  If approved, first resolve original before/after acquisition ownership, exact
-  permitted delta and resource/cost model before any new fixture or production code.
+  First review the finite original-only observer and its mechanics before one
+  measurement of clock-journal costs. Separately resolve original acquisition
+  ownership, permitted delta and complete resource/cost model before any substitution.
   Canonical, identity and projection shortcut investigations established no safe
   material small repair. Do not repeat A2.4 without a specific new question.
 - **Feasibility disposition:** the separately approved daily per-node layout is
@@ -79,7 +85,10 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   Current OAuth/window and initializer approval remain separate; do not request secrets.
 - **Authorization:** owner approved branch push/draft PR and the bounded offline
   [attempt-proof pilot](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md),
-  plus the separate daily-identity feasibility experiment only.
+  plus the separate daily-identity feasibility experiment only. On 2026-09-27,
+  “Go with your recommendation” approves A2.6's bounded offline design/feasibility,
+  including a temporary prototype only if the reviewed earlier model survives.
+  It does not approve production handoff wiring or a changed validation predicate.
   No merge/provider/live/initializer/deployment authority. No recurring automation
   exists; an earlier scheduling attempt lacked explicit scheduling authorization.
 

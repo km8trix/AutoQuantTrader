@@ -232,18 +232,18 @@ credentials, start live services or authorize provider traffic.
   or timing work is warranted for this layout. Other representations remain
   untested, not proved impossible. The completed follow-up CI has 4,964 passed,
   three failed and no skips; the diagnostic also fails. Preserve these A2 failures.
-  A2.6 is blocked on its distinct owner decision.
+  A2.6 has separate owner approval for bounded offline design and feasibility only.
 
-### A2.6 — bounded pre-lease handoff study (blocked on separate decision)
+### A2.6 — bounded pre-lease handoff study (approved; investigation in progress)
 
 - **Objective:** determine whether bounded provisional historical preparation can
   reduce lease-held work without changing the original complete validation or limits.
 - **Scope:** the [concrete proposed study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md),
   restricted to an existing HALTED account/inactive head. No production implementation
   or reuse of old receipts under a new fence.
-- **Dependencies:** failed original Linux gates, rejected A2.5 layout and a new
-  owner decision; the attempt/daily feasibility approvals do not cover this new
-  acquisition ownership contract.
+- **Dependencies:** failed original Linux gates, rejected A2.5 layout and the
+  separate 2026-09-27 owner approval for this study. Production adoption requires
+  a further decision; earlier attempt/daily approvals are not expanded.
 - **Acceptance criteria:** first specify a finite useful pure-work subset and exact
   acquisition-owned delta; preserve every other captured row/object dependency,
   fresh SQL/object/fence/control/terminal observation and original timer/resource cap.
@@ -256,6 +256,14 @@ credentials, start live services or authorize provider traffic.
 - **Completion criteria:** independently reviewed finite feasibility or documented
   rejection. Do not run a heavy fixture before a concrete plan, add broad lease-table
   exclusions, move timers to hide work, or treat faster execute time as total benefit.
+  **Checkpoint:** the [acquisition study](reviews/2026-09-26-autonomy/prelease-acquisition-witness-study.md)
+  identifies finite transition facts but no implemented post-commit cleanup protocol.
+  The [pure-work study](reviews/2026-09-26-autonomy/prelease-pure-work-study.md)
+  narrows investigation to discarded typed clock-journal validation. Same codec
+  identity or one cached hint dictionary cannot prove its behavior unchanged.
+  Continue the finite warm/cold behavior inventory and review an original-only
+  schema-cost observer before a single new measurement. Unknown counts alone
+  are not a rejection or a new owner-approval blocker. No substitution is released.
 
 ## A3 — genuine capture bridge contract and offline guards
 

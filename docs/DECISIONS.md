@@ -154,3 +154,20 @@ visited-node/edge inventory already exceeds shared caps by 359 containers and
 Do not build its behavior/timing machinery or spend another fixture to seek a
 smaller graph. This is a representation-specific rejection, not proof that every
 possible daily proof is infeasible. Production validation remains unchanged.
+
+## 2026-09-27 — bounded offline pre-lease study approval
+
+**Decision:** the owner's “Go with your recommendation” approves the
+[pre-lease study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md)
+for finite offline design and feasibility. Production adoption is not approved.
+
+**Rationale:** the completed daily layout exceeded unchanged resource caps and
+the source audit found no existing qualified handoff across lease acquisition.
+The next question is whether provisional historical work can cross that boundary
+through a narrowly owned transition while preserving every fresh check.
+
+**Consequences/constraints:** resolve the original transaction predecessor/result,
+race/ABA handling, fixed eligible pure work and joint resource/complete-cost model
+before releasing a temporary prototype or fixture. Preserve the original clocks,
+limits, receipts, cleanup and all failed evidence. Reject infeasible designs;
+this decision does not accept the attempt pilot or change production validation.

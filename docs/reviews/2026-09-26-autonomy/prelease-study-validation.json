@@ -1,0 +1,36 @@
+{
+  "schema": "prelease-study-validation/1",
+  "date": "2026-09-27",
+  "source_head": "55951fb2870f5776b1b89302bccf0092725387fd",
+  "scope": "Bounded source/design study; no new owner, proof, handoff prototype or heavy fixture. Original conditional-acquisition regressions constrain the existing API only.",
+  "sources": {
+    "packages/persistence/account_coordinator.py": "5f3cc0b043e3ea58344eb9d8757daf76a95f11fc6088e4b744cfe3b483fa8a86",
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/database.py": "846fd7019ce65ca13dabf00132fb94d7dec003e3f0ae8be778dd342d4ddd26a0",
+    "packages/persistence/durable_journal.py": "ce6f67167d95ede5696bb11781d46c3bc5a83e871f51b18de8e421ff28324f71",
+    "packages/application/personal_codec.py": "ef21916d22afe404a8ac3247d6f1202dc2e73a6182ba4b6f7cb96770674a9b9e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "tests/integration/test_sql_account_coordinator.py": "416358473c1b01ab3bf0af23ade7139d7c581fb3a5b2d89c11b99f0b7017d4ae"
+  },
+  "architecture": {
+    "command": "env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \"$AQT_PYTHON\" -I -B scripts/check_personal_architecture.py",
+    "exit_code": 0,
+    "output": "Personal architecture check passed (layers, pure code, simulation import closure)."
+  },
+  "existing_conditional_acquisition": {
+    "command": "env -i PATH=\"$AQT_VENV/bin:/usr/bin:/bin\" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$AQT_CHECKOUT\" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \"$AQT_PYTHON\" -B -m pytest -q -p no:cacheprovider tests/integration/test_sql_account_coordinator.py -k conditional_acquisition",
+    "exit_code": 0,
+    "passed": 8,
+    "deselected": 12,
+    "seconds": 2.16,
+    "scope": "Existing SQLite conditional generation, missing-head, invalid exact-type, stale generation and concurrent-winner tests; no new before/after witness, PostgreSQL or pre-lease reuse acceptance."
+  },
+  "runtime": {
+    "python": "CPython 3.12.13",
+    "AQT_VENV": "Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv",
+    "AQT_PYTHON": "$AQT_VENV/bin/python",
+    "AQT_CHECKOUT": "Documents/AutoQuantTrader/autonomous-development"
+  },
+  "evidence_origin": "Commands and result text recorded from completed tool outputs; no fabricated raw-run log."
+}
