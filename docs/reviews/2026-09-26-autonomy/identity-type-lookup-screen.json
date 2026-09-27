@@ -1,0 +1,101 @@
+{
+  "schema": "identity-type-lookup-screen/1",
+  "original_file_sha256": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+  "original_function_sha256": "2d3e7707eb75c39d4334681bcb9849ae0cef313ac9af0a401c839e38d45db260",
+  "candidate_source": "@staticmethod\ndef _assignment_identity_fields(value: object) -> tuple[object, ...]:\n    \"\"\"Original field identities only; no canonicalization, codec or object I/O.\"\"\"\n    pending, seen = [value], set()\n    retained: list[object] = []\n    while pending:\n        item = pending.pop()\n        current_type = type(item)\n        if current_type is tuple:\n            del current_type\n            # Exact tuples have no dataclass or mapping hooks. Keep their\n            # original identity visit and child order without reflection.\n            if id(item) in seen:\n                continue\n            seen.add(id(item))\n            retained.extend(item)\n            pending.extend(item)\n            continue\n        # Parent fields already retain scalar identities. These exact immutable\n        # built-in leaves have no graph children; subclasses use the old path.\n        item_type = current_type\n        del current_type\n        if (\n            item_type is str\n            or item_type is int\n            or item_type is bytes\n            or item_type is type(None)\n            or item_type is bool\n            or item_type is Decimal\n            or item_type is datetime\n            or item_type is date\n            or item_type is object\n        ):\n            continue\n        if id(item) in seen:\n            continue\n        seen.add(id(item))\n        if is_dataclass(item) and not isinstance(item, type):\n            nested = tuple(getattr(item, f.name) for f in fields(item))\n        elif isinstance(item, Mapping):\n            nested = tuple(v for pair in item.items() for v in pair)\n        else:\n            continue\n        retained.extend(nested)\n        pending.extend(nested)\n    return tuple(retained)\n",
+  "scope": "Adjacent type-only reuse; preserve old item_type on tuple iterations and both native id calls.",
+  "rows": [
+    {
+      "shape": "scalar_wide",
+      "bindings": 9000,
+      "samples_ns": {
+        "original": [
+          6713083,
+          7188917,
+          7185541,
+          6947709,
+          7161917,
+          7175625,
+          6816417,
+          7051375,
+          6889584
+        ],
+        "candidate": [
+          6830625,
+          6944875,
+          6841334,
+          6762916,
+          6990166,
+          6799125,
+          6555208,
+          6808542,
+          6782375
+        ]
+      },
+      "candidate_original_median_ratio": 0.9655623194057896
+    },
+    {
+      "shape": "record_tree",
+      "bindings": 7502,
+      "samples_ns": {
+        "original": [
+          29728292,
+          29902167,
+          30077250,
+          29691958,
+          29725833,
+          29008500,
+          28903959,
+          28829542,
+          29076375
+        ],
+        "candidate": [
+          29570625,
+          30138541,
+          29786084,
+          29781208,
+          29555000,
+          29356958,
+          28688000,
+          28651583,
+          28542917
+        ]
+      },
+      "candidate_original_median_ratio": 0.9953873705465972
+    },
+    {
+      "shape": "mapping_alias",
+      "bindings": 7000,
+      "samples_ns": {
+        "original": [
+          21616791,
+          21579000,
+          21729875,
+          21927625,
+          21634208,
+          21610375,
+          21537667,
+          21618792,
+          21567208
+        ],
+        "candidate": [
+          21768083,
+          21516375,
+          21706333,
+          22025708,
+          22163750,
+          21692083,
+          21691375,
+          21622292,
+          21651708
+        ]
+      },
+      "candidate_original_median_ratio": 1.0034830331662086
+    }
+  ],
+  "limitations": [
+    "Finite synthetic cost rejection screen; no complete behavior qualification.",
+    "No retained fixture or paired end-to-end speedup measurement.",
+    "No production source, validation, authority or limit change."
+  ]
+}

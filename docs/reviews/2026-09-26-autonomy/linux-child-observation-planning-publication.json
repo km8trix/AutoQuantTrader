@@ -1,0 +1,17 @@
+{
+  "schema": "aqt-linux-child-observation-planning/1",
+  "date": "2026-09-27",
+  "scope": "Design/test plan only; production observer unchanged at this checkpoint.",
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-design-screen.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-design-screen.md",
+      "sha256": "d5ec4e45b00ede0a63fb8bb2f9b69d5af4c18080f1bffbe3d96abe045b5f2613"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-test-plan.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-test-plan.md",
+      "sha256": "ca146c8bcd4d64398e34fb534d9e6a3651531802d6bcb35a5fd4156abe64b60f"
+    }
+  ]
+}

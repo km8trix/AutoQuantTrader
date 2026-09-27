@@ -1,0 +1,26 @@
+# Worker observation timeout: source review of completed shard 3
+
+Run 36297439151, candidate 071dd5c5624b35bef114275d4431823c9c82edeb, completed job 108558977357. Read-only review; no test execution, source mutation, or workflow mutation. Source binding and bounded original log extracts are in `linux-071dd5c-shard 3-failure.json`.
+
+The observed failure is an explicitly handled observation bound, not evidence of an unhandled worker-wait race. The failed assertion reports `child_observation_failed`. Its diagnostic reports iteration 2, 82 calls, 81 returns, one `TimeoutExpired` at call 68, requested timeout 0.1 seconds, elapsed 379,105,127 ns, and no diagnostic overflow. This identifies the exception category and requested bound; it does not identify why the `/bin/ps` observation was delayed.
+
+## Exact path
+
+1. `packages/application/continuous_process.py:230–254`: `_observe_child` calls `subprocess.run(("/bin/ps", "-o", "state=,rss=", "-p", str(pid)), timeout=timeout)` with only stdout captured, then validates returned state/RSS. This command observes the worker without reaping it. Its `TimeoutExpired` occurs before successful parsing/return; the supervised worker's later `child.wait` is a different operation.
+2. `continuous_process.py:644–657`: after rechecking remaining work time, the main loop calls this observer with `min(0.1,remaining)`. It explicitly catches `TimeoutExpired`, rechecks the work deadline, chooses `deadline` if expired and otherwise `child_observation_failed`, and breaks. The recorded reason therefore binds to this handled branch and indicates that the fresh deadline comparison did not choose `deadline`. It is separate from the SQL lifecycle producer's `probe_stalled` branch and from a retained-factory lease expiry.
+3. `continuous_process.py:713–729`: the failure outcome is prepared and the original `finally` sets stopping, joins the probe within its existing bound, closes parent-death descriptors, invokes termination/reaping, and closes the selector/pipes. The test's diagnostic output is after `supervisor.run` returns, so the finally path has returned; this alone does not establish `_cleanup.complete`.
+4. `continuous_process.py:544–556,270–333`: termination stores `_ChildCleanup` and tracks completion separately. It sends group TERM, makes bounded additional observer calls, sends group KILL before the sole worker reap, then checks group absence. Cleanup observation exceptions are caught as `cleanup_observation_unavailable`; failed reap/group checks have their own issues. Those fields are not printed by this failed integration assertion. Fourteen calls after first failure 68 are included in the 82-call diagnostic; static control flow places later calls after main-loop failure in cleanup, but the aggregate does not contain their individual state/phase or the final cleanup result.
+5. `tests/fixtures/continuous_process_observation.py:31–53`: the test wrapper times the whole original observer call, counts the category, and reraises the exact exception. Its379.105127 ms duration includes process creation, communication and exception cleanup as applicable; it is not a measurement of only the configured 100 ms communication wait. Local verified CPython 3.12.13 POSIX `subprocess.run` source calls `communicate(timeout=...)`, kills and waits for its own `ps` subprocess on timeout, then reraises. This local stdlib source is explanatory context, not independently fetched Linux runtime evidence.
+
+## Existing regression intent and limits
+
+`tests/unit/test_continuous_process.py:918–952` explicitly models an observation timeout before the work deadline as `child_observation_failed`, and one at/after that deadline as `deadline`; it also preserves different observation error precedence. `test_unavailable_child_observation_rejects_receipt_but_still_cleans_owned_child` checks receipt rejection and owned-child cleanup for an unavailable observation. These tests support the deliberate fail-closed policy. They were inspected, not rerun in this task.
+
+There is no source-backed reason here to ignore/retry a timed-out observation, enlarge the 100 ms bound, accept stale RSS/exit data, treat pipe EOF as process exit, or attribute the failure to the fixed post-exit probe producer. No production remedy is established by the current evidence. The next useful diagnostic, if separately authorized, is bounded existing cleanup-result metadata after failure; OS scheduling/process lifecycle causes need separate evidence. A successful first worker iteration is implied by reaching iteration 2, but the second iteration failure prevents the final identical-financial-history assertions from completing.
+
+## Tested source hashes
+
+- `packages/application/continuous_process.py`: `0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517`; current bytes equal tested 071dd5c.
+- `tests/fixtures/continuous_process_observation.py`: `76222043208a82b773cc59384fe24964ea05012cfe7d018c47c0991016e028eb`; current bytes equal tested 071dd5c.
+- `tests/integration/test_continuous_simulation_worker.py`: `a7fd409943b8e42178cc77264b7930ad53ea8b1f27dcb8dedfd9f62c7ebee753`; current bytes equal tested 071dd5c.
+- `tests/unit/test_continuous_process.py`: `4eaba660713d3161e3e4c94e713e1b4dbbb8dcd127407fe791db7457e181f668`; current bytes equal tested 071dd5c.

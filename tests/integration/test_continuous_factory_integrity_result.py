@@ -14,6 +14,7 @@ from apps.trader.continuous_simulation_factory import ContinuousSimulationFactor
 from packages.domain.research_job_contracts import ObjectRef
 from packages.persistence.continuous_account import SqlContinuousAccount
 from packages.persistence.database import DatabaseSchemaNotReady
+from tests.fixtures.copy_isolation import copy_preserving_class_inventory
 from tests.integration.test_continuous_simulation_factory import (
     configured as configured,
 )
@@ -236,7 +237,7 @@ def test_exactly_one_complete_schema_callback_is_required(original_factory, monk
 
 def test_copied_reader_does_not_gain_an_operation(original_factory):
     _fixture, factory = original_factory
-    copied = copy(factory.integrity)
+    copied = copy_preserving_class_inventory(factory.integrity)
     with pytest.raises(integrity.ContinuousIntegrityError):
         copied.verify_original_for_factory()
     assert_closed(copied)

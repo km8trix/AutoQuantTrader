@@ -7,15 +7,31 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   unaccepted. A2.4 is complete; A2.5 rejects its per-node layout; A2.6 is complete
   with the CLOCK-only candidate rejected. A0/A1 and A3's offline scope are complete.
   Wave 4 is incomplete.
-- **Current task:** A2.6 is closed; A2 remains blocked on retained-restore acceptance.
-  The completed study and latest failed CI are recorded for draft PR #56. No local
-  test, observer, prototype or CI monitor is running. No safe material implementation
-  repair is established by the completed studies.
+- **Current task:** A2.7's exact primitive contract-type dispatch has passed its
+  local gates; next is A2.8's bounded Linux child observation repair. Independent final review,
+  83 new oracle/constructor cases, 744 existing contract/financial unit cases,
+  architecture, full Ruff/format, mypy (421 files) and API drift checks pass.
+  A first new-test expectation error is preserved and corrected against the
+  original oracle. Factory integration selection finished **172 passed/two
+  failed**: earlier copy tests leave a lazy `__slotnames__` class cache, correctly
+  rejected by the later immutable behavior guard. A fixture-free reproduction
+  confirms the mutation and exact failure; three test-only copy sites now restore
+  that cache. Five focused unit cases and the five ordered reproducing integration
+  cases pass. [Failure and correction](reviews/2026-09-26-autonomy/contract-copy-isolation-correction.json).
+  The unchanged retained test passes including cleanup in 221.51 s (39.764 s
+  restore), and all 19 original worker/lifecycle cases pass. Final full Ruff and
+  format checks pass (1,035 files). [Local source-bound checkpoint](reviews/2026-09-26-autonomy/contract-primitive-local-validation.json).
+  A2.8's Linux observation adapter is independently reviewed and prepared only
+  outside production; it preserves the original deadline and failure policy.
+  SQL reuse and both new
+  identity-lookup shortcuts remain rejected. A2.6 stays closed, and A2's Linux
+  acceptance remains failed; no new restore-speedup claim is established.
 - **Checkout:** `codex/autonomous-development` in `Documents/AutoQuantTrader/autonomous-development`.
   [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) targets W4 integration.
   Draft PR #55 targets `main`; neither may merge here. Preserve the integration
-  checkout and its preexisting architecture edit. Production is unchanged from
-  `2a9fc2c`; production/tests/scripts/CI are unchanged from `26631c6`.
+  checkout and its preexisting architecture edit. A2.7 now changes only primitive
+  admission in `personal_contracts.py` plus its new tests. All other production
+  remains at `2a9fc2c`; scripts/CI remain at `26631c6`.
 - **Completed implementation:** operating documents, runner/sharding coverage,
   offline clock/capture guards, reproduced terminal-probe race repair, original
   semantic-generator restoration, approved attempt-proof pilot and test-only
@@ -60,12 +76,15 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   Capture is valid but execute does not return; its archive matches GitHub’s
   digest. The entire run and monitor are complete.
   [Final run/artifacts](reviews/2026-09-26-autonomy/linux-55951fb-ci-failure.json).
-- **Next actions:** verify branch/PR synchronization on resume and inspect any
-  newer documentation-triggered checks separately. Resume A2 from the exact failed
-  evidence only with a concrete, source-backed repair question. A CI repeat is
-  not a repair. Do not repeat the rejected CLOCK experiment, build its handoff/reuse
-  prototype, increase caps or automatically expand schemas from this result.
-  No further implementation task is currently unblocked by this study.
+- **Next actions:** commit A2.7's locally validated checkpoint, then integrate
+  A2.8 only after its parser review corrections and independent source approval.
+  Run its finite adverse tests, existing process gates and original worker test;
+  preserve actual-Linux skips locally and require the real Linux CI cases.
+  Publish the reviewed changes to PR #56 and inspect exact-source acceptance.
+  Preserve still-running `071dd5c` CI separately: shard 3 has a ps timeout;
+  shards 4/7 retain positive-proof/original restore expiry and failed cleanup.
+  A CI repeat is not a repair. Do not repeat the rejected CLOCK experiment, build
+  its handoff/reuse prototype, increase caps or automatically expand schemas.
 - **Blockers:** A2's exact-source Linux acceptance still fails. No production
   acquisition witness, qualified handoff or materially useful alternative is
   established. A4 separately needs the supervised Mac's measured-time source and

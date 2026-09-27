@@ -92,9 +92,11 @@ credentials, start live services or authorize provider traffic.
 - **Objective:** repair failures seen after the first full Linux pass.
 - **Scope:** original retained restore cost and fixed-worker observation/probe
   failures; distinguish concrete reproduced defects from unproven CI hypotheses.
-  Candidate `2a9fc2c` adds a separate `child_observation_failed` result whose
-  underlying exception is absent from CI logs. Preserve a bounded first-failure
-  diagnostic before choosing a repair; do not attribute it to the prior probe race.
+  The bounded diagnostic on `071dd5c` now identifies `TimeoutExpired` in the
+  original `/bin/ps` observation at its 0.1-second bound. This is deliberate
+  fail-closed handling, not an unhandled reap race. Inspect a bounded Linux-native
+  observation path against the existing state/RSS, deadline and cleanup contract
+  before implementation; do not increase the timeout or retry a failed observation.
 - **Dependencies:** preserved run 36228369058 logs/profile and unchanged source.
 - **Acceptance criteria:** original restore, restart/history and cleanup assertions
   pass under unchanged lease, operation, probe and process bounds. New adverse tests
@@ -276,6 +278,58 @@ credentials, start live services or authorize provider traffic.
   remain untested; missing data alone was not the reason for rejection.
   Do not repeat this observation or expand to other schemas without a concrete
   new source-backed question. A2/A2.1 remain open; no safe material repair is established.
+
+
+### A2.7 — exact primitive contract validation (local gates pass; Linux pending)
+
+- **Objective:** remove unnecessary typing introspection for already matching
+  exact primitive fields without changing contract admission or constructors.
+- **Scope:** only the existing `_check_type` helper's exact `str`, `int`, `bool`
+  and `NoneType` success path. Preserve the 65,536-character text bound and
+  original mismatch, alias, union, literal, tuple, subclass and other-type paths.
+  No cache, new proof, skipped constructor, lease or resource change.
+- **Dependencies:** source-bound 52-case literal-original prototype, independent
+  source review, and existing codec primitive-dispatch precedent. This ordinary
+  implementation change does not expand the rejected A2.5/A2.6 designs.
+- **Acceptance criteria:** exact types and errors, string-bound/name formatting,
+  compound recursion, custom annotation/metaclass observations and constructor
+  order match the original oracle. Financial/codec/factory behavior remains.
+- **Validation commands:** TESTING's clean pytest on
+  `tests/unit/test_personal_contract_type_dispatch.py`, contract/semantic/canonical/
+  codec families and affected factory proof/worker regressions; architecture,
+  Ruff/format, mypy and API drift checks. Record one original retained restore
+  after focused gates; inspect exact-revision Linux acceptance separately.
+- **Completion criteria:** independent review and applicable compatibility/static/
+  integration gates pass. Finite primitive timings justify this small change,
+  not a full-restore speedup or closure of A2's failed Linux acceptance.
+  [Local checkpoint](reviews/2026-09-26-autonomy/contract-primitive-local-validation.json):
+  83 new oracle cases, 744 existing unit cases, unchanged retained restore/cleanup
+  and 19 worker/lifecycle cases pass. The initial integration selection's two
+  class-cache pollution failures are preserved and repaired at three test-only
+  copy sites; five focused unit and five ordered integration cases pass afterward.
+
+
+### A2.8 — bounded native Linux child observations (design and tests in preparation)
+
+- **Objective:** remove the per-observation subprocess identified by the concrete
+  Linux worker timeout while preserving current state/RSS and failure policy.
+- **Scope:** a bounded Linux `/proc/<owned-pid>/status` reader behind the existing
+  observer; retain the original ps helper on other platforms. No retries,
+  fallback after Linux failure, background observer, reaping or larger timeout.
+- **Dependencies:** source-bound `071dd5c` worker failure, reviewed procps/kernel
+  field semantics, existing bounded procfs precedent and independent design review.
+  Keep the A2.7 source frozen until its running local gates finish.
+- **Acceptance criteria:** original accepted state codes, exact current RSS and
+  explicit no-memory representation; strict PID/field/size checks; original
+  deadline including successful parsing/close; primary failure precedence and
+  complete descriptor cleanup. Sole-waiter/group/receipt rules remain unchanged.
+- **Validation commands:** TESTING's clean pytest on new
+  `test_continuous_linux_observation.py`, existing process/terminal/diagnostic
+  tests, original fixed-worker restart and lifecycle integration; architecture,
+  Ruff/format, mypy and exact-revision Linux CI, including actual procfs cases.
+- **Completion criteria:** independent code/test review and applicable gates pass.
+  Mocked or Darwin passes cannot qualify Linux procfs. This repair does not close
+  the separate retained-history lease failure or establish deadline immunity.
 
 ## A3 — genuine capture bridge contract and offline guards
 

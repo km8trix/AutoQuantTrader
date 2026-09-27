@@ -92,6 +92,14 @@ def _hints(cls: type) -> dict[str, object]:
 
 
 def _check_type(value: object, annotation: object, name: str) -> None:
+    # Matching exact primitives need no typing introspection. Keep mismatches,
+    # aliases, compound annotations and subclasses on the original path.
+    if (
+        annotation is str or annotation is int or annotation is bool or annotation is type(None)
+    ) and type(value) is annotation:
+        if type(value) is str and len(value) > 65536:
+            raise ValueError(f"{name} exceeds text bound")
+        return
     if isinstance(annotation, TypeAliasType):
         _check_type(value, annotation.__value__, name)
         return

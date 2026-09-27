@@ -63,6 +63,11 @@ Semantic conversion changes also require `tests/unit/test_personal_semantic_stop
 alongside `test_personal_semantic_dispatch.py` and the canonical/codec suites.
 These independent-oracle tests cover generator exception chaining and temporary
 release while a traceback is alive; matching normal values and hashes is insufficient.
+Contract admission changes also require
+`tests/unit/test_personal_contract_type_dispatch.py`: its literal original oracle
+checks exact primitive admission, text bounds, recursive fallback, custom annotation
+observations, constructor order and error-name formatting. A primitive microbenchmark
+is not financial or retained-restore acceptance.
 The standard `test_personal_*` selection includes them.
 
 ## Static checks

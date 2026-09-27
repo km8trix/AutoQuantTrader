@@ -863,3 +863,95 @@ commits are outside this run and change no production, tests, scripts or CI.
 [Final publication checks](prelease-final-publication-validation.json) confirm
 exact CI copies, static traces against raw logs, source preservation and document
 links. These evidence-only updates require no further behavioral test run.
+
+### A2.7 primitive contract validation and continued cost review
+
+The [source-backed assessment](continued-pure-cost-review.md) identifies a narrow
+constructor optimization following the existing codec precedent: matching exact
+`str`, `int`, `bool` and `NoneType` fields avoid unnecessary typing introspection.
+The text bound and entire fallback body remain. The finite [52-case prototype](check-type-primitive-probe-first.json)
+supports this small implementation; synthetic timings are not a retained-restore
+speedup. Its [inert source](check-type-primitive-probe.py.txt) is bound to the old
+checker and should not be rerun against the changed implementation.
+
+[Independent final review](contract-primitive-final-review.md) found no blocker.
+The [permanent oracle tests](check-type-dispatch-validation.json) pass 83 cases;
+the first test-author expectation error is preserved alongside its correction.
+Literal `None` inside a fixed tuple annotation is rejected by the original checker;
+the valid `NoneType` case is tested separately. Existing contract/codec cases pass
+311 tests, engine/economic cases 85, and financial cases 348. Architecture, full
+Ruff/format (1,033 files), mypy (421 files) and API drift checks pass. These are
+focused results; factory, original retained and worker acceptance are tracked in
+STATUS. The [checkpoint publication map](contract-primitive-checkpoint-publication.json)
+binds exact logs and review bytes.
+
+The first affected factory selection reported **172 passed/two failed** in
+808.46 s; retain its [failure record](contract-primitive-factory-first-failure.json).
+The [root-cause review](contract-copy-isolation-review.md) identifies lazy class
+metadata leaked by earlier copied-reader/composer tests. The
+[expanded pure reproduction](contract-primitive-class-copy-reproduction-expanded.json)
+confirms the original guard correctly rejects both changed classes. Three copy
+sites now restore only the test-created cache, using the existing proof-test
+pattern. [Correction evidence](contract-copy-isolation-correction.json): five
+focused unit cases and five ordered integration cases pass, including both failed
+checks. The original full selection is not relabeled as a passing run; the
+production guard and all copied-owner rejection assertions remain intact.
+
+The [final local checkpoint](contract-primitive-local-validation.json) records
+the unchanged retained restore and teardown passing in 221.51 s, with restoration
+at 39.764 s. All 19 original worker/lifecycle cases pass in 57.00 s. Full Ruff and
+format pass after the test-isolation repair (1,035 files). Source hashes bind the
+primitive prefix, regression tests and unchanged original restore/worker owners.
+This is local validation, not paired timing evidence or Linux acceptance; the
+native Linux observation candidate was not installed for these results.
+
+The [continued SQL assessment](continued-sql-cost-review.md) establishes no new
+material compatible repair. Cache-key construction is not evidence of cache
+misses; a possible receipt index remains an unmeasured hypothesis, not a migration
+recommendation. Its renewal discussion is a separate unapproved policy question.
+The [type-lookup screen review](identity-type-lookup-independent-review.json)
+rejects weak synthetic economics before heavy qualification; the
+[cached-id counterexample](identity-id-audit-rejection.json) rejects a changed
+native audit-event/error path. All original checks remain. The
+[cost publication map](continued-cost-publication-map.json) binds the ten reports,
+results and inert experiment sources. None reopens A2.5/A2.6 or enlarges authority.
+
+### Concrete worker observation failure on documentation head 071dd5c
+
+The completed [shard-3 failure](linux-071dd5c-shard3-failure.json) from
+[run 36297439151](https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151)
+has 326 passing cases and one failure, with no skips. The original fixed-worker
+restart test fails on iteration two with `child_observation_failed`. Its bounded
+diagnostic records one `TimeoutExpired` at call 68: requested timeout 0.1 s,
+observed call duration 379,105,127 ns. The original `/bin/ps` subprocess path is
+the source of this observation exception. It does not identify why scheduling or
+the subprocess exceeded its timeout, and is separate from retained lease expiry.
+
+The [raw job log](linux-071dd5c-shard3-raw.txt) binds the exact Actions merge and
+same candidate tree. No separate application cleanup exception appears; this
+output alone does not prove cleanup success. The [workflow snapshot](linux-071dd5c-once-snapshot.json)
+is incomplete. Preserve this new subtype evidence and all older failed gates;
+the A2.7 source edit is not present in this run.
+
+The same run's completed [retained-failure records](linux-071dd5c-retained-failures.json)
+preserve shard 4 (340 passed/one failed, positive original proof) and shard 7
+(303 passed/one failed, original retained restore). Restoration expires at
+61.224 s and 60.035 s respectively; both separately fail expired-lease cleanup.
+Their exact raw logs and static traces are bound to the same Actions merge.
+The full workflow is still incomplete at this checkpoint.
+
+The staged diff check found trailing whitespace in the original local failure
+log and three Actions logs. [Verbatim log storage](verbatim-validation-logs.json)
+preserves their exact UTF-8 bytes and source hashes. Their linked `.txt` display
+copies remove only trailing whitespace; publication records distinguish original
+and display hashes. No failure text, assertion, test or source check was removed.
+
+The [source review](linux-071dd5c-worker-observation-source-review.md) confirms
+this is deliberate fail-closed timeout handling. The subsequent
+[native Linux design screen](linux-child-observation-design-screen.md) and
+[independent design review](linux-child-observation-design-review.md) support a
+bounded procfs adapter under the same state/current-RSS and timeout contract.
+The [finite test plan](linux-child-observation-test-plan.md) preserves ps parser
+tests and requires malformed-input, deadline, cleanup and real Linux child cases.
+This is a design checkpoint; no native implementation or passing-worker claim
+follows from it. STATUS tracks implementation and subsequent review corrections.

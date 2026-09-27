@@ -185,3 +185,31 @@ measured negative speedup or proof that every pre-lease design is infeasible.
 The 42 observer mechanics cases include 29 author and 13 independent cases;
 no production validation, risk control, resource cap or timer was changed.
 Do not build the witness or expand the predicate from this result alone.
+
+
+## 2026-09-27 — exact primitive contract admission
+
+**Decision:** use the existing codec primitive-dispatch precedent in
+`personal_contracts._check_type`: an already matching exact `str`, `int`, `bool`
+or `NoneType` needs no generic typing introspection. Keep the original text bound;
+all other annotations, values and errors retain the existing dispatch body.
+
+**Rationale:** the source has redundant generic typing work for these exact native
+annotations. A literal-original finite prototype preserves 52 result/error/hook
+cases and improves selected synthetic primitive workloads. This supports a small
+local change, not a prediction that retained restoration will meet its deadline.
+
+**Consequences/constraints:** constructors still run and every field is checked.
+No coercion, cache, proof extension, skip of fresh observations, or larger time/risk/
+resource allowance follows. Supported custom annotations and metaclasses keep
+original behavior; the skipped imported typing helpers are implementation details,
+consistent with the existing codec path, not a new extension interface. Independent
+constructor/oracle tests and applicable static/integration gates remain required.
+A2's failed Linux acceptance stays open until its actual gates pass.
+
+Ordered integration validation also exposed stdlib copy's lazy `__slotnames__`
+cache leaking from earlier tests into the pinned reader/composer class inventory.
+Restore that test-created metadata at the three copy sites, following the newer
+proof tests' existing helper. Keep real copied objects and all denial assertions;
+do not refresh the production baseline or exempt the cache from its guard.
+[Reproduction and corrected ordered checks](reviews/2026-09-26-autonomy/contract-copy-isolation-correction.json).
