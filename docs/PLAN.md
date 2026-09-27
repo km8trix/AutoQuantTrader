@@ -19,7 +19,7 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Open: 7c73cd6 Linux restore fails; bounded proof candidate under validation | Existing W4 integration |
+| A2 — retained restore within original limits | Open: 2a9fc2c Linux worker and positive-proof gates fail | Existing W4 integration |
 | A3 — genuine capture bridge contract and offline guards | Complete offline scope; genuine admission stays denied | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
@@ -90,8 +90,11 @@ credentials, start live services or authorize provider traffic.
 ### A2.1 — recurring restore and worker probe failures
 
 - **Objective:** repair failures seen after the first full Linux pass.
-- **Scope:** original retained restore cost and the fixed worker's `probe_stalled`
-  result; distinguish concrete reproduced defects from unproven CI hypotheses.
+- **Scope:** original retained restore cost and fixed-worker observation/probe
+  failures; distinguish concrete reproduced defects from unproven CI hypotheses.
+  Candidate `2a9fc2c` adds a separate `child_observation_failed` result whose
+  underlying exception is absent from CI logs. Preserve a bounded first-failure
+  diagnostic before choosing a repair; do not attribute it to the prior probe race.
 - **Dependencies:** preserved run 36228369058 logs/profile and unchanged source.
 - **Acceptance criteria:** original restore, restart/history and cleanup assertions
   pass under unchanged lease, operation, probe and process bounds. New adverse tests
@@ -124,7 +127,7 @@ credentials, start live services or authorize provider traffic.
   standard runner collected 4,848 cases. Published `7c73cd6` Linux restore failed
   at 60.118 s; worker shard 3 passed. The proof candidate is a separate A2.3 task.
 
-### A2.3 — bounded factory proof pilot (approved; local gates pass, Linux pending)
+### A2.3 — bounded factory proof pilot (approved; local gates pass, Linux acceptance fails)
 
 - **Objective:** determine whether one repeated source fingerprint can be replaced
   by an equally bounded proof for a narrowly admitted, unchanged data projection.
@@ -158,6 +161,11 @@ credentials, start live services or authorize provider traffic.
   The final targeted mutation-boundary assertion passes separately in 204.63 s.
   [Source-bound evidence](reviews/2026-09-26-autonomy/factory-proof-local-validation.json)
   preserves the original caps, previous failures and measurement limits.
+  Candidate `2a9fc2c` Linux finishes with 4,944 passed/four failed/no skips;
+  both positive proof cases, original restore and worker restart fail. Its
+  separate valid profile confirms private-route use and substantial preserved
+  work, but itself expires. The pilot remains unaccepted; investigate only
+  behavior-preserving pure costs before proposing any broader proof boundary.
 
 ## A3 — genuine capture bridge contract and offline guards
 
@@ -241,7 +249,7 @@ below; genuine publication remains denied and further source integration belongs
 - **Completion criteria:** reviewed ownership and unchanged reducer-policy evidence,
   with 186 focused cases (94 new) passing; preserve the original pending-observation
   substitution failure and its correction.
-  This component alone cannot satisfy actual host qualification or A3.4 admission.
+  This component alone cannot satisfy actual host qualification or A4 admission.
 
 ### A3.3a — preserve Tiingo binding and deadline through cleanup (validated offline and in CI)
 
@@ -267,6 +275,10 @@ below; genuine publication remains denied and further source integration belongs
   capture retention, separately approved initializer and actual-session parity.
 - **Dependencies:** A2/A3; owner/access prerequisites recorded in STATUS. Expired
   historical windows and previous credentials cannot be reused by assumption.
+  The next missing input is the supervised Mac's measured-time source and a
+  non-secret qualification record; then review the genuine producer contract in
+  [the source boundary](reviews/2026-09-26-autonomy/capture-bridge-contract.md).
+  Preserve [existing rights/retention approvals](reviews/2026-09-10-wave4/recovery-2026-09-20.md).
 - **Acceptance criteria:** W4 session/financial/fault/process gates in the existing
   roadmap; actual captured decisions reproduce under the original observations;
   independent venue/account reconciliation and complete cleanup; no live orders.
@@ -283,13 +295,17 @@ below; genuine publication remains denied and further source integration belongs
 - **Objective:** integrate only accepted W4 work and verify the actual merged tree.
 - **Scope:** existing draft PR #55, focused reviewed commits, required CI/reviews,
   merge through GitHub and post-merge verification; preserve evidence revisions.
+  The current repair PR #56 targets `codex/personal-v1-w4-integration`; PR #55
+  carries that W4 branch to `main`. Inspect each applicable exact revision and
+  its own checks; a #56 pass cannot close missing W4 gates or authorize either merge.
 - **Dependencies:** A2/A4 and every W4 exit criterion, not just passing source tests.
 - **Acceptance criteria:** full architecture/format/lint/types/API/browser/migration/
   wheel/installed-process/Linux/PostgreSQL gates pass; no unresolved safety review;
   bound artifacts correspond to tested and merged source.
 - **Validation commands:** prepared-environment `make check`; migration/wheel/
   installed-process commands in TESTING and `.github/workflows/ci.yml`;
-  `gh pr checks 55`; `gh run view <exact-revision-run-id>`; compare merged tree.
+  `gh pr checks 56`; `gh pr checks 55`; `gh run view <exact-revision-run-id>`;
+  compare merged tree only after authorized closeout.
 - **Completion criteria:** protected GitHub merge and verified post-merge results;
   update STATUS before starting W5. Never force-push or bypass required checks.
 

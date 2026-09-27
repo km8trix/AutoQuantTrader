@@ -37,3 +37,14 @@ Reviewed only the subsequent diff to `tests/integration/test_continuous_attempt_
 The added flag becomes true only after the existing execution and observer `ExitStack` return. Unexpected failure in the `original` or `retired` case emits one fixed JSON object after the preexisting test cleanup, while the original exception continues propagating. The other adverse cases and all successful runs emit nothing. Existing execution calls, observers, limits, assertions and cleanup operations are unchanged. Output contains only the known parametrized case and `bool(captured)`, without retained data, exception content, paths or credentials.
 
 Interpretation is narrow: true means the test successfully captured a private-method entry; it does not mean the proof check completed or the operation passed. False means no entry was successfully captured and is not by itself proof of fallback (for example an exception before that callback completes would also leave capture empty). The marker supplies missing context for the 60.265-second positive-case failure without clearing it or identifying its root cause. The root reports two cheap pre-fixture plumbing checks preserving exception identity, monitoring slots and redacted false output; this reviewer did not rerun them.
+
+## Subsequent original lifecycle review
+
+The spec_plan_audit reviewer independently read the original process, probe and
+unit-test paths while Linux CI remained active. No concrete lifecycle defect
+was established. Existing tests cover parser rejection, timeout classification
+around the fresh deadline, non-reaping zombie observation, cleanup failure and
+single reap, group absence, reuse denial, and the post-exit SQL sample before
+receipt acceptance. This was a source review with no edits or execution. It does
+not establish the missing CI exception subtype or justify attributing that failure
+to scheduling, parsing or the OS; the bounded diagnostic remains the next step.

@@ -502,3 +502,116 @@ after the original prefix guards; assertions also require no permit completion,
 original failure latches, and complete registry retirement. Fifteen observer
 selfchecks and final scoped Ruff/format pass. This is the separate evidence for
 the strengthened test; it does not retroactively change the historical 100-case run.
+
+The [final resumability review](factory-proof-final-resume-review.md) checked the
+operating documents against candidate `2a9fc2c`, separating historical evidence,
+current CI, fallback-runtime skips and the remaining A4 input. Its five handoff
+findings were corrected without changing code, tests or approvals.
+
+### Candidate Linux worker failure: observation subtype missing
+
+At `2a9fc2c`, [run 36285774497](https://github.com/km8trix/AutoQuantTrader/actions/runs/36285774497)
+worker shard 3 fails one original restart test; 326 cases pass, no skips.
+[Failure metadata](linux-2a9fc2c-worker-failure.json) and the
+[bounded excerpt](linux-2a9fc2c-worker-failure.txt) preserve the coarse
+`child_observation_failed` result. Actions tested the generated PR merge ref
+recorded in the evidence, with the candidate as its run head.
+
+Source review locates that reason at the parent's original non-reaping
+`_observe_child` call. It may mean timeout before the work deadline, OS/subprocess
+error, or rejected `ps` output; the log cannot distinguish them. The failure
+precedes the original child-exit event and differs from the prior terminal-probe
+race. The test uses signed genesis plus an initial assignment, without attempt
+sources, so the nonempty fingerprint-proof path is ineligible. No observed
+evidence attributes the failure to the proof or to any particular OS condition.
+
+The final outcome also indicates owned-child cleanup completed: `_run` would
+replace the result with `cleanup_incomplete` otherwise. This inference does not
+identify the failing iteration or exception. The test retains its original
+30-second parent/CPU bounds and 512 MiB memory limit, separate from the large
+retained-outcome fixture. A test-only diagnostic is being added to preserve the
+first observation exception category and bounded scalar timing through cleanup,
+without printing raw exception text, outputs, commands or paths. Production
+observation semantics, original assertions and all limits remain unchanged.
+A passing diagnostic repeat alone cannot repair or close this failure.
+
+The test-only [diagnostic implementation](worker-observation-diagnostic-plan.md)
+passes [102 cases](worker-observation-diagnostic-validation.json) in 24.34 s:
+82 original process unit cases, 19 diagnostic cases, and the genuine worker
+restart integration. Scoped Ruff/format and architecture pass; the standard
+runner collects 4,967 tests including the new 19. Production files are byte-for-byte
+unchanged from `2a9fc2c`. This validates the instrumentation locally, not the
+unknown Linux observation failure. The active published run is being preserved
+before a new evidence-bearing revision is submitted.
+
+The same candidate's [genuine positive proof case](linux-2a9fc2c-proof-positive-failure.json)
+also fails at **60.265 s**, during the original borrow coordinator revalidation,
+followed by expired-lease release. Shard 4 reports one failed, 338 passed and no
+skips; the [bounded trace](linux-2a9fc2c-proof-positive-failure.txt) identifies the
+rejection boundary, not performance causality. No proof-change error appears in
+the trace. Because execution raises before the final test assertions, this log
+alone does not report proof admission or completed-use counts at failure. The
+original unprofiled retained test remains a separate required result. Linux
+acceptance is failed; local timing/model results do not override it.
+
+A [bounded follow-up assessment](factory-proof-linux-failure-assessment.md)
+identified that missing private-entry visibility. The lifecycle test now emits
+only its fixed positive case and `private_entry_seen` boolean after existing
+cleanup when execution unexpectedly fails. Independent review found no blocker;
+two isolated failure-plumbing checks preserve the original exception and monitor
+slots. True means captured entry, not completed proof; false alone cannot prove
+fallback. All original assertions and production code remain unchanged.
+
+The [collection-only check](factory-proof-collection-baseline-health.json) replays
+the 4,948 published node IDs locally without fixtures: static/source/root behavior
+baselines are present and healthy after collection. Review of the ten preceding
+shard-4 test bodies found no demonstrated persistent pinned-namespace mutation.
+This does not reproduce Linux or those fixture executions, establish proof use
+in the failed run, or support a speculative change to admission. Inspect the
+exact-source Linux profile before further performance decisions.
+
+The [original unprofiled retained gate](linux-2a9fc2c-original-restore-failure.json)
+also fails on the candidate at **60.193 s** (shard 7: one failed, 302 passed,
+no skips). Its [bounded trace](linux-2a9fc2c-original-restore-failure.txt) reaches
+the same original borrow coordinator lease rejection and expired-lease cleanup
+as the positive proof case. Neither failure is timing acceptance or a reason
+to enlarge the lease. The separate exact-source diagnostic is needed to assess
+proof use/cost; current production code remains frozen.
+
+### Completed candidate financial matrix
+
+All 16 shards finished: **4,944 passed, four failed, no skips**, covering exactly
+the 4,948 selected tests. Foundations/installed-wheel and all 139 browser tests
+pass; the required backend aggregate fails. The [financial summary](linux-2a9fc2c-financial-summary.json)
+preserves every shard's result and raw-log hash, with the verified identical
+candidate and generated-merge tree.
+
+The fourth failure is the genuine `retired` positive case at **60.313 s**:
+[record](linux-2a9fc2c-proof-retired-failure.json) and
+[bounded trace](linux-2a9fc2c-proof-retired-failure.txt). It expires at the original
+borrow commit-fence revalidation, before its retirement assertions can run;
+expired-lease cleanup also fails. Shard 15's precise `nested_data` adverse case
+passes. These separate outcomes must not be collapsed into proof acceptance.
+The [complete run](linux-2a9fc2c-ci-failure.json) is failed. Its separate
+[diagnostic](linux-2a9fc2c-diagnostic-profile.json) is valid with no capture faults,
+but the test [exits 1](linux-2a9fc2c-diagnostic-test-exit.json) after restore lease
+expiry at 63.075 s. The [trace](linux-2a9fc2c-diagnostic-failure.txt) reaches original
+descriptor/reconciliation commit-fence revalidation and expired-lease cleanup.
+
+The private proof route ran 36 times in that diagnostic. Data and behavior
+verification account for 0.666 s and 0.128 s inclusive; larger preserved
+canonicalization, identity and SQL construction paths dominate visible costs.
+Those nested spans cannot be summed or used as unprofiled speedup evidence.
+The [independent interpretation](factory-proof-linux-failure-assessment.md)
+records why the pilot remains unaccepted and why no further broad profiling is
+needed merely to establish route use. Local diagnostic commit `0f9b191` can now
+be pushed without cancelling this completed run. Production remains unchanged.
+
+A finite [identity-classification probe](daily-native-membership-rejection.json)
+then rejected two apparent scalar-dispatch shortcuts. Frozen native membership
+changes dynamic alias rebinding; a live tuple eagerly loads names that the
+original chain may short-circuit. Custom metaclasses retain the original path,
+but that does not repair either counterexample. Synthetic timing was mixed or
+worse. The [literal probe](daily-native-membership-probe.py.txt) preserves the
+original tuple/generator traversal and performs no project imports or operational
+effects. No implementation or heavy follow-up was justified.

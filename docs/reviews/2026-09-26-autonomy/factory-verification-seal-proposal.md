@@ -11,8 +11,13 @@ Current checkpoint: the candidate is implemented and independently reviewed.
 Original local restore and 177 original integration/worker tests pass, as do
 100 new tests together. The [complete observed cost model](factory-proof-complete-economics.json)
 includes the behavior/lifecycle spans absent from the early data-only experiment;
-its estimated 1.303 s benefit remains approximate. Exact-source Linux acceptance
-is pending. See [current validation](factory-proof-local-validation.json) and
+its estimated 1.303 s benefit remains approximate. Exact-source Linux candidate
+`2a9fc2c` finishes the financial matrix with 4,944 passed, four failed and no skips:
+the original worker, original retained restore and both positive proof cases fail.
+The separate diagnostic also expires; it confirms the private route ran but
+provides no unprofiled speedup or completed-restore evidence. The pilot is not accepted.
+See [Linux assessment](factory-proof-linux-failure-assessment.md),
+[current local validation](factory-proof-local-validation.json) and
 [final economics review](factory-proof-final-economics-review.md). The dated
 proposal and early measurements below retain their original context.
 
