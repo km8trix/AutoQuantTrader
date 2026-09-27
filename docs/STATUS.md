@@ -7,9 +7,10 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   unaccepted. A2.4 is complete; A2.5 rejects its per-node layout; A2.6 is complete
   with the CLOCK-only candidate rejected. A0/A1 and A3's offline scope are complete.
   Wave 4 is incomplete.
-- **Current task:** finish collecting the ongoing Linux run's source-bound evidence,
-  then publish the completed study. No local test, observer or prototype is running.
-  No safe material implementation repair is established by the completed studies.
+- **Current task:** A2.6 is closed; A2 remains blocked on retained-restore acceptance.
+  The completed study and latest failed CI are recorded for draft PR #56. No local
+  test, observer, prototype or CI monitor is running. No safe material implementation
+  repair is established by the completed studies.
 - **Checkout:** `codex/autonomous-development` in `Documents/AutoQuantTrader/autonomous-development`.
   [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) targets W4 integration.
   Draft PR #55 targets `main`; neither may merge here. Preserve the integration
@@ -46,19 +47,25 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   observation-failure subtype remains unknown. [Final source-bound record](reviews/2026-09-26-autonomy/linux-26631c6-ci-failure.json)
   and [complete matrix](reviews/2026-09-26-autonomy/linux-26631c6-financial-summary.json).
   All older failures remain preserved; a passing repeat alone is not a repair.
-- **Work in progress / publication CI:** [run 36293614203](https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203)
-  tests documentation head `55951fb`, with unchanged production/tests. Completed
-  shard 4 has 340 passed/one failed: original positive proof restore expires at
-  61.250 s, with a separate expired-lease cleanup failure. Private entry was
-  observed, not completion. [Source binding and failure](reviews/2026-09-26-autonomy/linux-55951fb-shard4-summary.json).
-  Final matrix totals are pending. Hold publication while this run is active:
-  another PR push cancels it under the existing workflow concurrency policy.
-- **Next actions:** collect the current run's remaining failures, cleanup outcomes,
-  exact matrix counts and diagnostic artifact digests; retain prior records.
-  Validate final document links/hashes/diff, commit and push the documentation-only
-  study, and update PR #56. A subsequent documentation-triggered run is not a code
-  repair or a reason to repeat this study. Do not build a CLOCK handoff/reuse
-  prototype, repeat its fixture, increase caps or expand schemas from this result.
+- **Latest completed publication CI:** [run 36293614203](https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203)
+  tests documentation head `55951fb`, with unchanged production/tests. All 16
+  financial shards finished: **4,965 passed, two failed, no skips**, exactly 4,967
+  selected cases. Original positive proof restore expires at 61.250 s; original
+  retained restore at 61.384 s. Each has a separate expired-lease cleanup failure.
+  [Complete matrix/source binding](reviews/2026-09-26-autonomy/linux-55951fb-financial-summary.json)
+  and [exact failure traces](reviews/2026-09-26-autonomy/linux-55951fb-financial-failure-traces.json).
+  Retired-proof and worker cases pass this run; their earlier failures remain
+  unresolved evidence. Foundations/browser pass and required aggregate fails.
+  The separate diagnostic also fails at 61.227 s, with separate cleanup expiry.
+  Capture is valid but execute does not return; its archive matches GitHub’s
+  digest. The entire run and monitor are complete.
+  [Final run/artifacts](reviews/2026-09-26-autonomy/linux-55951fb-ci-failure.json).
+- **Next actions:** verify branch/PR synchronization on resume and inspect any
+  newer documentation-triggered checks separately. Resume A2 from the exact failed
+  evidence only with a concrete, source-backed repair question. A CI repeat is
+  not a repair. Do not repeat the rejected CLOCK experiment, build its handoff/reuse
+  prototype, increase caps or automatically expand schemas from this result.
+  No further implementation task is currently unblocked by this study.
 - **Blockers:** A2's exact-source Linux acceptance still fails. No production
   acquisition witness, qualified handoff or materially useful alternative is
   established. A4 separately needs the supervised Mac's measured-time source and

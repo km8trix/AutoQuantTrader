@@ -817,3 +817,49 @@ fresh validation remain unchanged by this study.
 all 16 published observer/result copies, all 14 original source hashes and current
 local document links. `git diff --check` passes. No behavioral tests were repeated
 for these documentation/evidence-only edits.
+
+
+### Completed financial matrix for documentation head 55951fb
+
+All 16 financial shards in [run 36293614203](https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203)
+completed with **4,965 passed, two failed and no skips**, covering all 4,967 selected
+cases. The [matrix record](linux-55951fb-financial-summary.json) binds each raw log
+and the exact identical candidate/Actions-merge tree. The
+[static failure traces](linux-55951fb-financial-failure-traces.json) preserve the
+original positive proof restore expiry at 61.250 s and original retained restore
+expiry at 61.384 s, each with its separate expired-lease cleanup failure. The
+positive case records private entry, not completed validation.
+
+The retired-proof and original worker cases pass this run. Their preserved earlier
+failures are not repaired by these repeat passes. Foundations/installed-wheel and
+browser jobs pass; the required backend aggregate fails. The diagnostic result
+is still pending at this matrix checkpoint. The earlier
+[provisional record](linux-55951fb-publication-checkpoint.json) remains preserved.
+
+
+### Final 55951fb workflow and publication
+
+The [complete run record](linux-55951fb-ci-failure.json) supersedes the pending
+matrix checkpoint: the workflow finished **failure**, with 16 successful and four
+failed jobs. The required matrix remains 4,965 passed/two failed/no skips. The
+[diagnostic](linux-55951fb-diagnostic-failure.json) also fails: its test took 390.30 s,
+restore expired at 61.227 s, and separate execute/cleanup failure chains are
+preserved. [Exact diagnostic exit](linux-55951fb-diagnostic-test-exit.json) is 1.
+
+The [profile](linux-55951fb-diagnostic-profile.json) is valid with no capture faults,
+but execute never returned. It selects 315 rows from 4,852 entries and excludes
+setup, factory construction, result assertions and cleanup. Function entries do
+not prove completed proof use; omitted rows do not prove absence or fallback;
+overlapping inclusive costs cannot be added. No Linux acceptance or new saving
+follows from this failed partial instrumented execution.
+
+The archive SHA256 matches GitHub's digest; both extracted files and all 20 job
+log hashes were independently verified. The [publication map](linux-55951fb-publication-map.json)
+resolves exact-copy filenames while leaving the original records unchanged. All
+prior checkpoints and failures remain preserved. The run and its active-turn
+monitor are complete; no recurring monitor was created. Later documentation
+commits are outside this run and change no production, tests, scripts or CI.
+
+[Final publication checks](prelease-final-publication-validation.json) confirm
+exact CI copies, static traces against raw logs, source preservation and document
+links. These evidence-only updates require no further behavioral test run.
