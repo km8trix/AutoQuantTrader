@@ -327,6 +327,29 @@ Validate the helper and the original process behavior in the clean environment:
 [Diagnostic scope and evidence](reviews/2026-09-26-autonomy/worker-observation-diagnostic-plan.md)
 distinguish observed error categories from unproven OS or scheduling causes.
 
+## Native Linux child observation
+
+Run the following in the same clean environment:
+
+```sh
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_continuous_linux_observation.py \
+  tests/unit/test_continuous_process.py \
+  tests/unit/test_continuous_terminal_probe.py \
+  tests/unit/test_continuous_process_observation_diagnostic.py
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/integration/test_continuous_simulation_worker.py \
+  tests/integration/test_continuous_process_lifecycle.py
+```
+
+The new host-independent cases cover strict status/no-memory parsing, truncated
+prefix and malformed-key rejection, descriptor/byte bounds, deadline equality,
+primary error ordering and no fallback. Existing ps grammar tests call the retained
+helper explicitly; dispatch tests verify platform selection. Three actual Linux
+owned-child cases cover live, stopped and unreaped-zombie observations. They skip
+on macOS; report those skips and require their Linux CI execution before acceptance.
+All group-cleanup, sole-reap, receipt and original worker assertions remain.
+
 ## Original-only daily identity observation
 
 A2.4's temporary observer preserves every original validator and measures only the

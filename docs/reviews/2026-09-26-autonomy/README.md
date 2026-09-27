@@ -955,3 +955,32 @@ The [finite test plan](linux-child-observation-test-plan.md) preserves ps parser
 tests and requires malformed-input, deadline, cleanup and real Linux child cases.
 This is a design checkpoint; no native implementation or passing-worker claim
 follows from it. STATUS tracks implementation and subsequent review corrections.
+
+### A2.8 reviewed implementation and local validation
+
+The native Linux reader is now implemented behind `_observe_child`; the original
+ps body is retained for other platforms. Review found two provisional parser
+gaps before integration. The [completeness correction](linux-child-observation-completeness-addendum.md)
+requires a mandatory late kernel row before accepting no-memory zero; the
+[key correction](linux-child-observation-key-grammar-addendum.md) rejects malformed
+field names before they can be mistaken for absent memory. The
+[v3 independent review](linux-child-native-source-independent-review-v3.md) and
+[separate delta review](linux-child-native-v3-review-addendum.md) bind the corrected
+source. Earlier candidate reviews are historical checkpoints, not approval of
+uncorrected gaps. [AST checks](linux-child-native-static-check-v3.json) confirm
+the original ps body and all other original module code are unchanged.
+
+[Local validation](linux-native-local-validation.json): **188 new cases pass,
+three actual-Linux cases skip** on this Mac. All 114 existing process/terminal/
+diagnostic cases and 19 original worker/lifecycle cases pass. Architecture,
+full Ruff/format (1,036 files), mypy (421 files) and API checks pass. The
+[frozen test manifest](linux-child-observation-tests-ready-v3.json) records the
+three existing ps-test call-site changes and the new independent cases. No
+original rejection, cleanup, deadline or receipt assertion was removed.
+
+This is local qualification only. Actual Linux procfs behavior, the original
+Linux worker and the full financial matrix remain required on the new source.
+No timing ratio, scheduling guarantee or retained lease repair is established.
+The old `071dd5c` run's [later partial matrix](linux-071dd5c-partial-financial-summary.json)
+contains 4,349 passing cases/three failures across 14 completed shards; 12/15
+were still running. It predates both new implementation changes.

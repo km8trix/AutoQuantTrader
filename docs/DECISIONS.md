@@ -213,3 +213,26 @@ Restore that test-created metadata at the three copy sites, following the newer
 proof tests' existing helper. Keep real copied objects and all denial assertions;
 do not refresh the production baseline or exempt the cache from its guard.
 [Reproduction and corrected ordered checks](reviews/2026-09-26-autonomy/contract-copy-isolation-correction.json).
+
+## 2026-09-27 — bounded native Linux child observation
+
+**Decision:** replace Linux's per-observation `ps` subprocess with one bounded
+procfs status acquisition. Retain the original ps helper on other platforms,
+the existing current-RSS/state result and all original supervisor decisions.
+
+**Rationale:** the preserved `071dd5c` worker failure identifies a handled
+`TimeoutExpired` in the 0.1-second ps observation. Reviewed kernel/procps source
+supports using status `State` and `VmRSS`; the repository already uses bounded
+procfs reads. This removes process launch/communication/reaping from each Linux
+observation without claiming a measured speedup or identifying scheduler causes.
+[Source and design review](reviews/2026-09-26-autonomy/linux-child-observation-design-screen.md).
+
+**Consequences/constraints:** read at most 16 KiB plus one rejection byte through
+a no-follow regular descriptor; require exact PID/Tgid, accepted state codes,
+strict keys/RSS and a late mandatory completeness marker. A wholly absent memory
+section yields zero RSS, including a non-Z exit transition; only Z proves exit.
+Preserve primary errors, descriptor closure and the original deadline through
+successful parsing/close. No failed Linux fallback, retry, cached observation,
+new waiter, timer extension or changed group/receipt rule. Ordinary kernel-call
+blocking limitations remain. Real Linux cases and exact-source CI are required;
+local mocked/Darwin passes cannot close worker acceptance.

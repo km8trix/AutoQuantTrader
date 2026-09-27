@@ -89,6 +89,20 @@ verification proves historical process ownership only; arbitrary/prewarmed clock
 simulated sources, copied owners and changed history reject. Actual host qualification,
 capture-time currentness and the genuine capture-clock producer remain unfinished.
 
+### Child process observations
+
+`packages/application/continuous_process.py` observes only its owned, unreaped
+child. Linux uses a no-follow, nonblocking regular-file read of `/proc/<pid>/status`,
+bounded to 16 KiB plus one rejection byte. It validates process identity, known
+state, current `VmRSS` and a mandatory post-memory completeness marker; only `Z`
+means exited. A complete no-memory record has zero RSS without implying exit.
+Other platforms retain the original `ps` adapter. One original observation
+deadline covers acquisition, parsing and close; Linux failure has no fallback
+or retry. Group signals still precede the sole reap, and group absence and the
+original lifecycle result remain required. This does not make kernel I/O
+preemptible or change lease, memory, work or cleanup limits. Actual Linux
+qualification for this implementation is tracked in STATUS.
+
 ### API, persistence and configuration
 
 The local API exposes `/health/live`, `/health/ready`, and `/api/v1` read models. Personal research routes under `/api/v1/research/personal` cover catalog, runs, launch/cancel, reports, bounded row pages/export, comparison and experiment registration. Mutating launch/cancel/registration requires the local signed session cookie, CSRF token and idempotency key. Readiness checks schema/persistence, not permission to trade. Local authentication requires explicit loopback origins and binding (or the explicit trusted loopback container proxy); CORS wildcard and accidental public local-auth binding are rejected. The default placeholder secret is a local-development setting, not a remote deployment credential.

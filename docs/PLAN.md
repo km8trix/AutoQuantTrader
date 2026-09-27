@@ -309,7 +309,7 @@ credentials, start live services or authorize provider traffic.
   copy sites; five focused unit and five ordered integration cases pass afterward.
 
 
-### A2.8 — bounded native Linux child observations (design and tests in preparation)
+### A2.8 — bounded native Linux child observations (local gates pass; Linux pending)
 
 - **Objective:** remove the per-observation subprocess identified by the concrete
   Linux worker timeout while preserving current state/RSS and failure policy.
@@ -318,7 +318,7 @@ credentials, start live services or authorize provider traffic.
   fallback after Linux failure, background observer, reaping or larger timeout.
 - **Dependencies:** source-bound `071dd5c` worker failure, reviewed procps/kernel
   field semantics, existing bounded procfs precedent and independent design review.
-  Keep the A2.7 source frozen until its running local gates finish.
+  A2.7's local source checkpoint is committed as `9f9cd72` before this change.
 - **Acceptance criteria:** original accepted state codes, exact current RSS and
   explicit no-memory representation; strict PID/field/size checks; original
   deadline including successful parsing/close; primary failure precedence and
@@ -330,6 +330,9 @@ credentials, start live services or authorize provider traffic.
 - **Completion criteria:** independent code/test review and applicable gates pass.
   Mocked or Darwin passes cannot qualify Linux procfs. This repair does not close
   the separate retained-history lease failure or establish deadline immunity.
+  [Local checkpoint](reviews/2026-09-26-autonomy/linux-native-local-validation.json):
+  188 new cases pass with three actual-Linux skips, 114 existing process cases
+  and 19 original worker/lifecycle cases pass, as do static/API checks.
 
 ## A3 — genuine capture bridge contract and offline guards
 

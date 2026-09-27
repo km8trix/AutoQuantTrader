@@ -1,0 +1,175 @@
+{
+  "schema": "aqt-native-linux-observation-local-validation/1",
+  "date": "2026-09-27",
+  "parent_head": "9f9cd72ce1147b56e3fe8bec535361ec5500c87c",
+  "cwd": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development",
+  "clean_environment": {
+    "PATH": "/usr/bin:/bin",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "TZ": "UTC"
+  },
+  "unit": {
+    "passed": 188,
+    "skipped": 3,
+    "failed": 0,
+    "seconds": 0.24,
+    "skip_reason": "Three actual Linux procfs owned-child cases cannot run on this Darwin host; require Linux CI.",
+    "command": [
+      "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/unit/test_continuous_linux_observation.py"
+    ]
+  },
+  "process_regressions": {
+    "passed": 114,
+    "failed": 0,
+    "seconds": 14.79,
+    "command": [
+      "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/unit/test_continuous_process.py",
+      "tests/unit/test_continuous_terminal_probe.py",
+      "tests/unit/test_continuous_process_observation_diagnostic.py"
+    ]
+  },
+  "original_worker_lifecycle": {
+    "passed": 19,
+    "failed": 0,
+    "seconds": 57.24,
+    "command": [
+      "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/integration/test_continuous_simulation_worker.py",
+      "tests/integration/test_continuous_process_lifecycle.py"
+    ]
+  },
+  "process_permissions": "Process regression/integration commands used approved sandbox escalation for their own fixture child observation/cleanup; no provider or retained account access.",
+  "checks": {
+    "architecture": "passed before project imports",
+    "ruff": "all checks passed",
+    "format": "1036 files already formatted",
+    "mypy": "421 source files passed",
+    "api_contracts": "current"
+  },
+  "source_sha256": {
+    "packages/application/continuous_process.py": "a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655",
+    "tests/unit/test_continuous_linux_observation.py": "14e487773ce8ed7cdcc4e026dea49d08b3fee8333c71387add1baf24237d78d0",
+    "tests/unit/test_continuous_process.py": "2768877385aa4fa291263922fa2655f98e1f885a64d2aa2ac7cee119cdd87470",
+    "tests/integration/test_continuous_simulation_worker.py": "a7fd409943b8e42178cc77264b7930ad53ea8b1f27dcb8dedfd9f62c7ebee753",
+    "tests/integration/test_continuous_process_lifecycle.py": "4908ac88f240ef37474834aec31d21fb1747010e0de91a2ec704c59feb5991ef",
+    "scripts/run_personal_tests.py": "1f9a882b6ca8cc8a810766430923049f478042091a11d9f7a267a11a14423849",
+    ".github/workflows/ci.yml": "1b7ad1f7a8f5cf467759a60dc09e2983e150f1d2026704f4f808100f7709d8a0"
+  },
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-static-check-v2.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-static-check-v2.json",
+      "sha256": "c232bac1a048fcc22cee4afd5683212edb46fbb87a34398c596f21abe55c6919"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-static-check-v3.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-static-check-v3.json",
+      "sha256": "dc737ba447e411c0c494a3c58a77f05c32e528c412b3b548618d20662c21a87d"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-completeness-addendum.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-completeness-addendum.md",
+      "sha256": "390266b9ff1024cf59208d95b7ec7c77a5d6979ce0afda479fd535877b58a1aa"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-key-grammar-addendum.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-key-grammar-addendum.md",
+      "sha256": "a243fe583069967cc5e367abe701754a96b0b1f7c52996af5bef472f1d2deac6"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-candidate-review.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-candidate-review.md",
+      "sha256": "90b34448bc5b706df4c3717ca7cfa585a99e932e4cc47e29a5a90303fff9030a"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-v3-review-addendum.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-v3-review-addendum.md",
+      "sha256": "d83e08f1ca9be3ad86272cf4fd65a43f52bb517140a168da20074788daeed0af"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-source-independent-review-v3.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-source-independent-review-v3.md",
+      "sha256": "ddab110ceed824b5c17d4b714caed6ad757d6d066c97f96f527533140019cf74"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-tests-ready-v3.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-tests-ready-v3.json",
+      "sha256": "f93dcac2a188b6b08bcf784b702c17cc159f75ef85521f0e5424db239138dbea"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-architecture.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-architecture.txt",
+      "sha256": "33e3baa9c38d2715375d9f36a0814ff94ca426e31080e3e2db5ea3f1373f7e0d"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-unit-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-unit-first.txt",
+      "sha256": "71ddd5d6ba396c2152bca7631ea0131d5bf4ee8d4c6b867444517d3014359c96"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-ruff-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-ruff-first.txt",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-format-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-format-first.txt",
+      "sha256": "376d13fe7807001ed7146c4c8c53033859deefc4c9b657e510080cc64d7dbe96"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-mypy-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-mypy-first.txt",
+      "sha256": "186b2487a0b763b0edb1e7ff4a32863a9b284ae14487410f6145aa538fa0e540"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-api-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-api-first.txt",
+      "sha256": "d748acc8820faf093db6cc948e69d01da74fe75dd0b617567797609f740802d0"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-process-regressions-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-process-regressions-first.txt",
+      "sha256": "73baa57eaf54dbfaadaa74085fbc5af25a59875d8afa48674a07aaf5abaf899a"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-native-worker-lifecycle-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-native-worker-lifecycle-first.txt",
+      "sha256": "24f5c169e555181663de1148d6c4ad545eff9056941ec3dc523a4acf8ee76609"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-partial-financial-summary.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-071dd5c-partial-financial-summary.json",
+      "sha256": "fe836935e192aaf5985b9b254dd9ad1bd54d6601b0ae0220302f04998445dd4f"
+    }
+  ],
+  "limits": [
+    "Actual Linux native observation and full exact-source financial CI remain unqualified.",
+    "Darwin worker/lifecycle results exercise preserved ps behavior and changed dispatch integration, not Linux procfs.",
+    "No performance ratio or immunity to scheduling/kernel delay is established.",
+    "Primary financial history, owned signals/sole reap/group absence/receipt checks and all existing deadlines, leases and resource limits remain unchanged.",
+    "The initial prototype parser gaps were found during review before repository integration; finite tests include both corrections.",
+    "Old071dd5c CI is incomplete and predates both new implementations."
+  ]
+}
