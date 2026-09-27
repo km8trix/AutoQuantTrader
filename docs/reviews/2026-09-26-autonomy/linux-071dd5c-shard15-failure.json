@@ -1,0 +1,240 @@
+{
+  "schema": "aqt-exact-head-failed-shard/1",
+  "run_id": 36297439151,
+  "job_id": 108558977959,
+  "shard": 15,
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "result": {
+    "shard": 15,
+    "job_id": 108558977959,
+    "conclusion": "failure",
+    "selected": 287,
+    "passed": 285,
+    "failed": 2,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "errors": 0,
+    "deselected": 4680,
+    "elapsed_seconds": 1383.38,
+    "failed_nodes": [
+      "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[retired]",
+      "tests/integration/test_continuous_process_lifecycle.py::test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result"
+    ],
+    "summary_line": "2026-09-27T06:37:20.0864049Z 2 failed, 285 passed, 4680 deselected, 1 warning in 1383.38s (0:23:03)",
+    "raw_log": {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard15-raw.log",
+      "bytes": 65671,
+      "sha256": "28932f28ef2c2233cfa262b1001fa54b6cea86ae4a118b71bd0e3be17610ed7e"
+    },
+    "checkout_merge_verified": true
+  },
+  "failures": [
+    {
+      "node": "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[retired]",
+      "restore_elapsed_seconds": 61.087,
+      "execute_origin": "AccountLeaseOwnershipLost: account coordinator lease has expired",
+      "execute_path": "continuous_composition.prepare_capture \u2192 _historical_current \u2192 continuous_integrity._borrow_original_daily \u2192 account_coordinator.revalidate/revalidate_in_transaction \u2192 _receipt",
+      "cleanup_origin": "AccountLeaseOwnershipLost: account coordinator lease has expired",
+      "cleanup_path": "factory.close \u2192 account_coordinator.release \u2192 _receipt",
+      "diagnostic": {
+        "case": "retired",
+        "private_entry_seen": true
+      },
+      "limits": [
+        "private_entry_seen is an entry flag, not proof completion/retirement success."
+      ]
+    },
+    {
+      "node": "tests/integration/test_continuous_process_lifecycle.py::test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result",
+      "observed_error": "AssertionError: pre_exit_sample_started.wait(0.2) returned False",
+      "observed_phase": "Original _supervise finally \u2192 terminate_and_reap \u2192 _terminate_owned_child \u2192 test observe_child wrapper",
+      "source_interpretation": "Test-only handshake runs on the first positive zombie observation even when invoked during cleanup after the supervisor sets stopping and joins the producer. This can demand a new producer sample after stopping and interrupt cleanup, masking the original supervisor result.",
+      "original_supervisor_reason": null,
+      "cleanup_complete": null,
+      "limits": [
+        "The log establishes the test assertion in cleanup; it does not record the original main-loop failure reason or final cleanup result.",
+        "Do not infer lease expiry, ps timeout, or probe_stalled as the underlying trigger for this node."
+      ]
+    }
+  ],
+  "tested_source": [
+    {
+      "path": "packages/application/continuous_process.py",
+      "tested_sha256": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+      "current_equals_tested": false
+    },
+    {
+      "path": "tests/integration/test_continuous_process_lifecycle.py",
+      "tested_sha256": "4908ac88f240ef37474834aec31d21fb1747010e0de91a2ec704c59feb5991ef",
+      "current_equals_tested": false
+    }
+  ],
+  "bounded_sanitized_extracts": [
+    {
+      "start_line": 386,
+      "end_line": 407,
+      "lines": [
+        "2026-09-27T06:37:19.1822162Z ___ test_genuine_factory_proof_lifecycle_preserves_original_history[retired] ___",
+        "2026-09-27T06:37:19.1823039Z   + Exception Group Traceback (most recent call last):",
+        "2026-09-27T06:37:19.1824352Z   |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_attempt_factory_proof_lifecycle.py\", line 232, in test_genuine_factory_proof_lifecycle_preserves_original_history",
+        "2026-09-27T06:37:19.1826159Z   |     _execute_retained_factory(history, config, monkeypatch)",
+        "2026-09-27T06:37:19.1827653Z   |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py\", line 418, in _execute_retained_factory",
+        "2026-09-27T06:37:19.1828951Z   |     raise BaseExceptionGroup(\"actual restore and cleanup both failed\", [error, cleanup_error])",
+        "2026-09-27T06:37:19.1829776Z   | ExceptionGroup: actual restore and cleanup both failed (2 sub-exceptions)",
+        "2026-09-27T06:37:19.1830345Z   +-+---------------- 1 ----------------",
+        "2026-09-27T06:37:19.1830739Z     | Traceback (most recent call last):",
+        "2026-09-27T06:37:19.1831762Z     |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py\", line 378, in _execute_retained_factory",
+        "2026-09-27T06:37:19.1832830Z     |     factory.execute(operation_id=\"restore-original-retained-outcome\")",
+        "2026-09-27T06:37:19.1833590Z     |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/apps/trader/continuous_simulation_factory.py\", line 633, in execute",
+        "2026-09-27T06:37:19.1834373Z     |     raise ContinuousSimulationFactoryError(\"OFFLINE_OPERATION_FAILED\") from None",
+        "2026-09-27T06:37:19.1835319Z     | apps.trader.continuous_simulation_factory.ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T06:37:19.1835871Z     +---------------- 2 ----------------",
+        "2026-09-27T06:37:19.1836157Z     | Traceback (most recent call last):",
+        "2026-09-27T06:37:19.1836924Z     |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py\", line 404, in _execute_retained_factory",
+        "2026-09-27T06:37:19.1837699Z     |     factory.close()",
+        "2026-09-27T06:37:19.1838279Z     |   File \"/home/runner/work/AutoQuantTrader/AutoQuantTrader/apps/trader/continuous_simulation_factory.py\", line 641, in close",
+        "2026-09-27T06:37:19.1839066Z     |     raise ContinuousSimulationFactoryError(\"OFFLINE_LEASE_RELEASE_FAILED\") from None",
+        "2026-09-27T06:37:19.1839805Z     | apps.trader.continuous_simulation_factory.ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T06:37:19.1840586Z     +------------------------------------"
+      ]
+    },
+    {
+      "start_line": 409,
+      "end_line": 448,
+      "lines": [
+        "2026-09-27T06:37:19.1841384Z actual factory graph ready: 0.029s",
+        "2026-09-27T06:37:19.1841713Z actual factory restore result: failed; elapsed=61.087s",
+        "2026-09-27T06:37:19.1842233Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T06:37:19.1843029Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+        "2026-09-27T06:37:19.1843737Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T06:37:19.1844376Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T06:37:19.1845234Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T06:37:19.1845840Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T06:37:19.1846478Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T06:37:19.1847141Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T06:37:19.1847717Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T06:37:19.1848224Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T06:37:19.1848788Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T06:37:19.1849363Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T06:37:19.1849941Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T06:37:19.1850576Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T06:37:19.1851355Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T06:37:19.1851983Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T06:37:19.1852877Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T06:37:19.1853632Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+        "2026-09-27T06:37:19.1854497Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+        "2026-09-27T06:37:19.1855474Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T06:37:19.1856197Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T06:37:19.1857001Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T06:37:19.1857867Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T06:37:19.1858719Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T06:37:19.1859476Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T06:37:19.1860188Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T06:37:19.1860987Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T06:37:19.1873839Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T06:37:19.1875192Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T06:37:19.1876265Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T06:37:19.1877556Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T06:37:19.1878298Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T06:37:19.1878908Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T06:37:19.1879506Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T06:37:19.1880059Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T06:37:19.1880612Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T06:37:19.1881156Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T06:37:19.1881692Z AQT_FACTORY_PROOF_DIAGNOSTIC {\"case\": \"retired\", \"private_entry_seen\": true}"
+      ]
+    },
+    {
+      "start_line": 493,
+      "end_line": 518,
+      "lines": [
+        "2026-09-27T06:37:19.1897141Z         def observe_child(pid, **kwargs):",
+        "2026-09-27T06:37:19.1897501Z             assert threading.current_thread() is threading.main_thread()",
+        "2026-09-27T06:37:19.1897941Z             assert owned_children and owned_children[0].returncode is None",
+        "2026-09-27T06:37:19.1898352Z             observation = original_child_observe(pid, **kwargs)",
+        "2026-09-27T06:37:19.1898721Z             if observation.exited and not zombie_seen.is_set():",
+        "2026-09-27T06:37:19.1899161Z                 # Hold the main thread's real, non-reaping observation just long",
+        "2026-09-27T06:37:19.1899611Z                 # enough for the SQL thread to sample the still-false exit latch.",
+        "2026-09-27T06:37:19.1899972Z                 zombie_seen.set()",
+        "2026-09-27T06:37:19.1900252Z                 assert pre_exit_sample_started.wait(0.2)",
+        "2026-09-27T06:37:19.1900555Z             return observation",
+        "2026-09-27T06:37:19.1900780Z     ",
+        "2026-09-27T06:37:19.1900973Z         def observe_after_delay(**kwargs):",
+        "2026-09-27T06:37:19.1901288Z             nonlocal delayed_observation, post_exit_sample",
+        "2026-09-27T06:37:19.1901658Z             if zombie_seen.is_set() and not kwargs[\"child_exited\"]:",
+        "2026-09-27T06:37:19.1902004Z                 pre_exit_sample_started.set()",
+        "2026-09-27T06:37:19.1902382Z                 time.sleep(0.1)  # this false sample finishes after main freezes exit",
+        "2026-09-27T06:37:19.1902763Z                 delayed_observation = True",
+        "2026-09-27T06:37:19.1903042Z             if kwargs[\"child_exited\"]:",
+        "2026-09-27T06:37:19.1903301Z                 post_exit_sample = True",
+        "2026-09-27T06:37:19.1903578Z             return original_observe(**kwargs)",
+        "2026-09-27T06:37:19.1903831Z     ",
+        "2026-09-27T06:37:19.1904023Z         def require_result(payload):",
+        "2026-09-27T06:37:19.1904347Z             assert delayed_observation and post_exit_sample",
+        "2026-09-27T06:37:19.1905006Z             assert supervisor._cleanup is not None and supervisor._cleanup.complete",
+        "2026-09-27T06:37:19.1905660Z             assert owned_children[0].returncode == 0 and len(waits) == 1",
+        "2026-09-27T06:37:19.1906039Z             return original_require_result(payload)"
+      ]
+    },
+    {
+      "start_line": 531,
+      "end_line": 542,
+      "lines": [
+        "2026-09-27T06:37:19.1910683Z tests/integration/test_continuous_process_lifecycle.py:392: ",
+        "2026-09-27T06:37:19.1911074Z _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ",
+        "2026-09-27T06:37:19.1911456Z packages/application/continuous_process.py:358: in run",
+        "2026-09-27T06:37:19.1911766Z     return self._run(",
+        "2026-09-27T06:37:19.1912034Z packages/application/continuous_process.py:411: in _run",
+        "2026-09-27T06:37:19.1912354Z     outcome = self._supervise(",
+        "2026-09-27T06:37:19.1912681Z packages/application/continuous_process.py:728: in _supervise",
+        "2026-09-27T06:37:19.1913023Z     terminate_and_reap()",
+        "2026-09-27T06:37:19.1913349Z packages/application/continuous_process.py:552: in terminate_and_reap",
+        "2026-09-27T06:37:19.1913730Z     self._cleanup = _terminate_owned_child(",
+        "2026-09-27T06:37:19.1914126Z packages/application/continuous_process.py:299: in _terminate_owned_child",
+        "2026-09-27T06:37:19.1914531Z     observation = _observe_child("
+      ]
+    },
+    {
+      "start_line": 549,
+      "end_line": 559,
+      "lines": [
+        "2026-09-27T06:37:19.1916819Z     def observe_child(pid, **kwargs):",
+        "2026-09-27T06:37:19.1917162Z         assert threading.current_thread() is threading.main_thread()",
+        "2026-09-27T06:37:19.1917584Z         assert owned_children and owned_children[0].returncode is None",
+        "2026-09-27T06:37:19.1917980Z         observation = original_child_observe(pid, **kwargs)",
+        "2026-09-27T06:37:19.1918354Z         if observation.exited and not zombie_seen.is_set():",
+        "2026-09-27T06:37:19.1918768Z             # Hold the main thread's real, non-reaping observation just long",
+        "2026-09-27T06:37:19.1919216Z             # enough for the SQL thread to sample the still-false exit latch.",
+        "2026-09-27T06:37:19.1919581Z             zombie_seen.set()",
+        "2026-09-27T06:37:19.1919851Z >           assert pre_exit_sample_started.wait(0.2)",
+        "2026-09-27T06:37:19.1920145Z E           assert False",
+        "2026-09-27T06:37:19.1920373Z E            +  where False = wait(0.2)"
+      ]
+    },
+    {
+      "start_line": 612,
+      "end_line": 616,
+      "lines": [
+        "2026-09-27T06:37:20.0860348Z =========================== short test summary info ============================",
+        "2026-09-27T06:37:20.0861460Z FAILED tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[retired]",
+        "2026-09-27T06:37:20.0863003Z FAILED tests/integration/test_continuous_process_lifecycle.py::test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result",
+        "2026-09-27T06:37:20.0864049Z 2 failed, 285 passed, 4680 deselected, 1 warning in 1383.38s (0:23:03)",
+        "2026-09-27T06:37:21.1559190Z ##[error]Process completed with exit code 1."
+      ]
+    }
+  ],
+  "prepublication_recommendation": "Review/repair test-only handshake scope so cleanup cannot demand another SQL producer sample; preserve all original completed-result/post-exit/single-reap assertions and add no production exception suppression or timeout increase.",
+  "no_execution_or_mutation": "Read-only source/log review, no local tests or source edits."
+}

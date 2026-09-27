@@ -7,17 +7,18 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   unaccepted. A2.7 and A2.8 have passed applicable local gates, with exact-source
   Linux acceptance pending. A0/A1 and A3's offline scope are complete. Wave 4
   remains incomplete.
-- **Current task:** commit and publish A2.8's reviewed Linux child-observation
-  repair, then inspect the new revision's Linux results. The bounded procfs
-  reader replaces only Linux's per-call ps subprocess; other platforms keep ps.
+- **Current task:** publish the reviewed changes and inspect the new revision's
+  Linux results. The bounded procfs reader replaces only Linux's per-call ps
+  subprocess; other platforms keep ps.
   Original observation deadlines, current RSS, Z-only exit, sole reap, group
   cleanup and receipt rules remain. Review corrected truncated-record and
-  malformed-key gaps before repository integration.
+  malformed-key gaps before the implementation was integrated.
 - **Checkout/publication:** `codex/autonomous-development` in
   `Documents/AutoQuantTrader/autonomous-development`. Local commit `9f9cd72`
-  contains A2.7 and test isolation; A2.8 is the current uncommitted change.
-  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) still has
-  published head `071dd5c` and targets W4 integration. PR #55 targets `main`;
+  contains A2.7 and test isolation; `7ac47bb` contains A2.8.
+  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) targets W4
+  integration. Its last verified published head was `071dd5c`; inspect Git/PR
+  synchronization before resuming publication. PR #55 targets `main`;
   neither may merge here. Preserve the separate integration checkout's existing
   architecture edit. New production changes are confined to primitive admission
   in `personal_contracts.py` and Linux observation in `continuous_process.py`;
@@ -38,14 +39,20 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   The production guard remains strict; [failure and correction](reviews/2026-09-26-autonomy/contract-copy-isolation-correction.json)
   are both retained.
 - **Known Linux failures:** old-head [run 36297439151](https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151)
-  on `071dd5c` is incomplete at the latest snapshot: 14/16 financial shards have
-  4,349 passes/three failures/no skips. Shards 12/15 were still running.
-  [Partial matrix](reviews/2026-09-26-autonomy/linux-071dd5c-partial-financial-summary.json).
+  on `071dd5c` has completed all 16 financial shards: 4,962 passes/five
+  failures/no skips. Its separate diagnostic was still running at this checkpoint.
+  [Completed matrix](reviews/2026-09-26-autonomy/linux-071dd5c-financial-final.json)
+  preserves the earlier partial observations.
   The worker's second iteration records a ps `TimeoutExpired` at a requested
   0.1 s; it is deliberate fail-closed handling, not the former terminal race.
   [Worker trace](reviews/2026-09-26-autonomy/linux-071dd5c-shard3-failure.json).
   Positive original proof and original retained restore expire at 61.224/60.035 s,
   each also failing lease cleanup. [Retained traces](reviews/2026-09-26-autonomy/linux-071dd5c-retained-failures.json).
+  Shard 15 adds retired-proof lease expiry at 61.087 s and a test-only cleanup
+  handshake that masks the original supervisor failure. The hook is now
+  isolated from cleanup; all 20 worker/lifecycle cases pass locally, including
+  the injected-failure regression. The old underlying
+  failure remains unknown. [Shard 15 trace](reviews/2026-09-26-autonomy/linux-071dd5c-shard15-failure.json).
   Last complete [55951fb run](reviews/2026-09-26-autonomy/linux-55951fb-ci-failure.json)
   had 4,965 passes/two failures; its diagnostic also failed. All older failed
   evidence remains preserved. A passing repeat alone is not a repair.
@@ -56,8 +63,8 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   reuse substitution was implemented. [Study disposition](reviews/2026-09-26-autonomy/prelease-study-disposition-review.md).
   Other representations remain untested; do not repeat or broaden rejected
   experiments without a concrete new source-backed question.
-- **Next actions:** verify diff, evidence hashes and document links; commit A2.8,
-  update/push PR #56 under existing authorization, and validate its exact revision
+- **Next actions:** update/push PR #56 under existing authorization if not already
+  synchronized, and validate its exact revision
   on Linux, including all three actual procfs cases and original financial gates.
   Preserve prior CI as completed or incomplete according to actual observations.
   Fix new failures before dependent work; continue the next concrete unblocked

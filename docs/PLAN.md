@@ -19,7 +19,7 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Open: 2a9fc2c Linux worker and positive-proof gates fail | Existing W4 integration |
+| A2 — retained restore within original limits | Open: A2.7/A2.8 locally validated; new Linux acceptance pending | Existing W4 integration |
 | A3 — genuine capture bridge contract and offline guards | Complete offline scope; genuine admission stays denied | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
@@ -94,9 +94,14 @@ credentials, start live services or authorize provider traffic.
   failures; distinguish concrete reproduced defects from unproven CI hypotheses.
   The bounded diagnostic on `071dd5c` now identifies `TimeoutExpired` in the
   original `/bin/ps` observation at its 0.1-second bound. This is deliberate
-  fail-closed handling, not an unhandled reap race. Inspect a bounded Linux-native
-  observation path against the existing state/RSS, deadline and cleanup contract
-  before implementation; do not increase the timeout or retry a failed observation.
+  fail-closed handling, not an unhandled reap race. A2.8 implements and locally
+  validates a bounded Linux-native observation path under the existing state/RSS,
+  deadline and cleanup contract; exact-source Linux acceptance remains pending.
+  The completed old matrix also reveals a test-only cleanup handshake masking a
+  separate supervisor failure. The hook correction preserves its positive
+  post-exit oracle and passes 20 local worker/lifecycle cases, including one
+  injected-failure case. Exact-source Linux remains required. Do not increase
+  timeouts or retry failed observations.
 - **Dependencies:** preserved run 36228369058 logs/profile and unchanged source.
 - **Acceptance criteria:** original restore, restart/history and cleanup assertions
   pass under unchanged lease, operation, probe and process bounds. New adverse tests

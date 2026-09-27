@@ -984,3 +984,27 @@ No timing ratio, scheduling guarantee or retained lease repair is established.
 The old `071dd5c` run's [later partial matrix](linux-071dd5c-partial-financial-summary.json)
 contains 4,349 passing cases/three failures across 14 completed shards; 12/15
 were still running. It predates both new implementation changes.
+
+### Completed old matrix and lifecycle test-hook correction
+
+The [completed financial matrix](linux-071dd5c-financial-final.json) has all
+16 shards: **4,962 passed, five failed, no skips**. The separate diagnostic was
+still running at that snapshot. [Shard 15](linux-071dd5c-shard15-failure.json)
+adds retired-proof expiry at 61.087 s with separate lease-release failure and a
+test-only cleanup handshake failure. Its [verbatim log](linux-071dd5c-shard15-verbatim.json)
+preserves exact original UTF-8 bytes and hash.
+
+The test hook tried to await the SQL probe after the supervisor had stopped it,
+masking the original failure. The [reviewed correction](lifecycle-cleanup-handshake-review.md)
+scopes only that positive handshake out of real cleanup, retaining the real
+observation and all original successful-exit assertions. A new adverse case
+injects one observation timeout after real exit and requires the original failure
+reason, no receipt acceptance, one wait, complete cleanup and no fabricated sample.
+[Validation](lifecycle-hook-correction.json): all **20 worker/lifecycle cases pass**
+locally. This establishes the hook correction; the old initial supervisor failure
+remains unknown and requires new Linux results.
+
+The [CI discovery map](native-ci-test-map.json) confirms all 191 native-observation
+cases are selected. Its 5,246-node collection predates the new lifecycle case;
+it records that limitation. Actual Linux live/stopped/zombie tests map to shards
+4/12/0. Collection does not execute those tests or qualify Linux behavior.
