@@ -1,98 +1,80 @@
 # Current status
 
-Updated 2026-09-27. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
+Updated 2026-09-27. Start with [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
 and the [evidence index](reviews/2026-09-26-autonomy/README.md).
 
-- **Current milestone:** A2/A2.1 open; A2.3 pilot unaccepted. A2.4 is complete;
-  A2.5 rejects the stated per-node layout. A0/A1 and A3's offline scope are complete.
-  Wave 4 remains incomplete.
-- **Current task:** execute A2.6's separately approved bounded offline pre-lease
-  study: inventory exact clock-record warm/cold behavior and review one original-only
-  clock-journal count/cost observation. Acquisition ownership and joint costs remain open.
-  No further safe small repair is established.
-  No new daily proof, verification schedule or production substitution is approved.
+- **Current milestone:** A2/A2.1 remain open and A2.3's attempt-proof pilot is
+  unaccepted. A2.4 is complete; A2.5 rejects its per-node layout; A2.6 is complete
+  with the CLOCK-only candidate rejected. A0/A1 and A3's offline scope are complete.
+  Wave 4 is incomplete.
+- **Current task:** finish collecting the ongoing Linux run's source-bound evidence,
+  then publish the completed study. No local test, observer or prototype is running.
+  No safe material implementation repair is established by the completed studies.
 - **Checkout:** `codex/autonomous-development` in `Documents/AutoQuantTrader/autonomous-development`.
-  Tested code/diagnostic revision `26631c66854c754533f5d6d82749e1fb8b5e3dcf`;
-  later commits update documentation/evidence only.
-  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) → W4 integration.
-  Draft PR #55 → `main` is preserved. Neither may merge here. Preserve the
-  integration checkout and its preexisting architecture edit.
+  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) targets W4 integration.
+  Draft PR #55 targets `main`; neither may merge here. Preserve the integration
+  checkout and its preexisting architecture edit. Production is unchanged from
+  `2a9fc2c`; production/tests/scripts/CI are unchanged from `26631c6`.
 - **Completed implementation:** operating documents, runner/sharding coverage,
   offline clock/capture guards, reproduced terminal-probe race repair, original
-  semantic-generator restoration, approved factory attempt-proof pilot, and
-  test-only failure diagnostics. Production is unchanged from `2a9fc2c`.
-  [Pilot local evidence](reviews/2026-09-26-autonomy/factory-proof-local-validation.json)
-  includes 100 new cases together, 177 original integration/worker cases and
-  original local restore at 40.246 s. These do not override failed Linux gates.
+  semantic-generator restoration, approved attempt-proof pilot and test-only
+  failure diagnostics. [Pilot local evidence](reviews/2026-09-26-autonomy/factory-proof-local-validation.json)
+  does not override failed Linux acceptance.
+- **Latest completed study:** A2.6's reviewed original-only observation passed,
+  including teardown, in 242.12 s. Its execute returned in 44.154831 s; all 61
+  selected CLOCK validators returned. Repeated selected codec work was just
+  **8.204370 ms (0.01858% of execute)**. Both independent reviews agree this is too
+  small to justify the additional acquisition/behavior machinery. This is neither
+  a measured candidate speedup nor resource-fit or Linux acceptance evidence.
+  [Result](reviews/2026-09-26-autonomy/prelease-clock-original-result.json),
+  [independent arithmetic/economics review](reviews/2026-09-26-autonomy/prelease-clock-result-assessment.md),
+  [disposition review](reviews/2026-09-26-autonomy/prelease-study-disposition-review.md).
+  Observer mechanics: 42 passing cases. Architecture and eight existing SQLite
+  conditional-acquisition cases also pass; those validate existing primitives only.
+- **Other completed feasibility:** A2.4 measured 2.1675 s of daily builder work
+  in a 44.306 s original execute. A2.5's proposed joint per-node layout needs at
+  least 16,743 containers/139,661 bindings, exceeding unchanged shared caps by
+  359/8,589 before added metadata. That layout is rejected; other representations
+  remain untested, not impossible. [Daily result](reviews/2026-09-26-autonomy/daily-identity-original-result.json)
+  and [layout verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
 - **Last completed code CI:** [run 36289760186](https://github.com/km8trix/AutoQuantTrader/actions/runs/36289760186)
-  tests `26631c6`; [verified merge/tree binding](reviews/2026-09-26-autonomy/linux-26631c6-source-binding.json).
-  Foundations/installed wheel and 139 browser tests pass. All 16 financial shards
-  have finished: 4,964 passed, three failed, no skips, exactly 4,967 selected
-  tests. [Complete matrix](reviews/2026-09-26-autonomy/linux-26631c6-financial-summary.json).
-  The backend aggregate and separate diagnostic fail. The diagnostic expires at
-  60.509 s; capture is valid but execute does not return. [Final run/artifact record](reviews/2026-09-26-autonomy/linux-26631c6-ci-failure.json).
-  The original worker passes, so its failure-only metadata is silent and the
-  earlier observation subtype remains unknown. The run and monitor are complete.
-- **Known failures:** current positive original proof case expires at 60.278 s
-  during borrow commit-fence validation; `private_entry_seen=true` records entry,
-  not completed proof. [Record](reviews/2026-09-26-autonomy/linux-26631c6-proof-positive-failure.json).
-  Current unchanged original restore expires at 60.113 s during initial borrow
-  coordinator validation. [Record](reviews/2026-09-26-autonomy/linux-26631c6-original-restore-failure.json).
-  The [retired positive case](reviews/2026-09-26-autonomy/linux-26631c6-proof-retired-failure.json)
-  also expires at 61.292 s with private entry observed.
-  All three logs explicitly report expired-lease cleanup release failure too.
-  Previous `2a9fc2c` run finished with 4,944 passed/four failed/no skips: worker
-  observation plus original and both positive proof restore failures. Its valid
-  partial profile also expires and proves route use, not completed restoration.
-  [Complete prior run](reviews/2026-09-26-autonomy/linux-2a9fc2c-ci-failure.json).
-  Earlier 7c73cd6/02a8ee6 failures and a8b9229's pass remain in the evidence index.
-  A passing repeat alone cannot repair any historical failure.
-- **Latest offline result:** A2.4's single original-only observation passed in
-  246.33 s with valid complete capture and unchanged source hashes. All 24 borrows
-  and 144 target checks returned. Builders cost 2.1675 s within a 44.306 s execute;
-  inclusive public checks cost 2.4653 s. No net saving or Linux margin follows.
-  Actual attempt proof uses 7,387 containers/66,259 bindings; 54,690 daily-vector
-  edges do not establish a new proof's charge or eligibility. Observer mechanics
-  passed 29 cases and independent review. [Result](reviews/2026-09-26-autonomy/daily-identity-original-result.json)
-  and [independent interpretation](reviews/2026-09-26-autonomy/daily-identity-original-result-assessment.md).
-- **Work in progress:** source-bound acquisition, pure-work/resource and adverse
-  model reviews are preserved; finite clock behavior and observer-plan reviews
-  continue. No new fixture or production prototype is released. Inspect
-  publication CI run 36293614203 for `55951fb` and bind results to its source tree.
-  A repeated pass alone does not repair the known failures.
-  Architecture and eight existing SQLite conditional-acquisition cases pass;
-  these confirm existing primitives, not a new handoff. [Study validation](reviews/2026-09-26-autonomy/prelease-study-validation.json).
-- **Next actions:** complete the separately approved
-  [bounded pre-lease study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md)
-  (A2.6). No implementation-ready handoff or guaranteed benefit is established.
-  First review the finite original-only observer and its mechanics before one
-  measurement of clock-journal costs. Separately resolve original acquisition
-  ownership, permitted delta and complete resource/cost model before any substitution.
-  Canonical, identity and projection shortcut investigations established no safe
-  material small repair. Do not repeat A2.4 without a specific new question.
-- **Feasibility disposition:** the separately approved daily per-node layout is
-  rejected: joint minimum 16,743 containers/139,661 bindings exceeds original
-  caps by 359/8,589 before added metadata or construction. Both author and reviewer
-  passed 37 scalar mechanics cases. [Verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
-  No graph/behavior/timing prototype or additional fixture was needed. Other
-  representations remain untested, not proved impossible. The
-  [pre-lease review](reviews/2026-09-26-autonomy/prelease-restoration-seam-assessment.md)
-  identifies a new ownership-contract boundary, not an existing safe rescheduling API.
-- **Other blockers:** A4 needs the supervised Mac's measured-time source and a
+  on `26631c6`: foundations/installed wheel and 139 browser tests pass; financial
+  matrix has 4,964 passed, three failed, no skips, exactly 4,967 selected cases.
+  Original restore and both positive proof cases expire at 60.113/60.278/61.292 s,
+  each also reporting failed expired-lease cleanup. The separate diagnostic fails
+  at 60.509 s with valid partial capture. The original worker passes; its earlier
+  observation-failure subtype remains unknown. [Final source-bound record](reviews/2026-09-26-autonomy/linux-26631c6-ci-failure.json)
+  and [complete matrix](reviews/2026-09-26-autonomy/linux-26631c6-financial-summary.json).
+  All older failures remain preserved; a passing repeat alone is not a repair.
+- **Work in progress / publication CI:** [run 36293614203](https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203)
+  tests documentation head `55951fb`, with unchanged production/tests. Completed
+  shard 4 has 340 passed/one failed: original positive proof restore expires at
+  61.250 s, with a separate expired-lease cleanup failure. Private entry was
+  observed, not completion. [Source binding and failure](reviews/2026-09-26-autonomy/linux-55951fb-shard4-summary.json).
+  Final matrix totals are pending. Hold publication while this run is active:
+  another PR push cancels it under the existing workflow concurrency policy.
+- **Next actions:** collect the current run's remaining failures, cleanup outcomes,
+  exact matrix counts and diagnostic artifact digests; retain prior records.
+  Validate final document links/hashes/diff, commit and push the documentation-only
+  study, and update PR #56. A subsequent documentation-triggered run is not a code
+  repair or a reason to repeat this study. Do not build a CLOCK handoff/reuse
+  prototype, repeat its fixture, increase caps or expand schemas from this result.
+- **Blockers:** A2's exact-source Linux acceptance still fails. No production
+  acquisition witness, qualified handoff or materially useful alternative is
+  established. A4 separately needs the supervised Mac's measured-time source and
   non-secret qualification record, then review of the
   [genuine producer contract](reviews/2026-09-26-autonomy/capture-bridge-contract.md).
   Preserve existing [rights/retention approvals](reviews/2026-09-10-wave4/recovery-2026-09-20.md).
   Current OAuth/window and initializer approval remain separate; do not request secrets.
-- **Authorization:** owner approved branch push/draft PR and the bounded offline
-  [attempt-proof pilot](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md),
-  plus the separate daily-identity feasibility experiment only. On 2026-09-27,
-  “Go with your recommendation” approves A2.6's bounded offline design/feasibility,
-  including a temporary prototype only if the reviewed earlier model survives.
-  It does not approve production handoff wiring or a changed validation predicate.
-  No merge/provider/live/initializer/deployment authority. No recurring automation
-  exists; an earlier scheduling attempt lacked explicit scheduling authorization.
+- **Authorization:** branch push/draft PR, the bounded offline attempt-proof pilot,
+  separate daily-identity feasibility, and A2.6's bounded offline study are approved.
+  The latest “Go with your recommendation” approved the study, not production
+  adoption. No merge/provider/live/initializer/deployment or recurring automation
+  authority exists. A materially different consequential design needs a concrete
+  scoped assessment; these rejected candidates grant no broader implementation scope.
 
 Verified Python: `Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python`.
-Use TESTING's clean environment and preserve original 60/120/150-second retained
-bounds, worker bounds and resource caps. No production credentials, provider calls,
-orders, account initialization, runtime activation or deployment occurred.
+Use TESTING's clean environment. Original applicable 60/120/150-second retained
+bounds, worker bounds, resource caps and fresh validation remain unchanged. No
+production credentials, provider calls, orders, account initialization, runtime
+activation or deployment occurred.

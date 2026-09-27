@@ -1,0 +1,144 @@
+{
+  "acceptance": false,
+  "bounds": {
+    "ancestry": 64,
+    "combined_keys": 4096,
+    "depth": 8,
+    "events": 65536,
+    "hash_bytes": 67108864,
+    "output_bytes": 65536,
+    "payload_bytes": 262144,
+    "spans": 16384
+  },
+  "capture_status": "valid",
+  "counters": {
+    "events": 4154,
+    "foreign_thread": 0,
+    "incomplete": 0,
+    "peak_depth": 3,
+    "spans": 2077
+  },
+  "diagnostic_faults": [],
+  "first_success_codec_ns": 403041,
+  "grouping": {
+    "failed_only_groups": 0,
+    "hash_and_summary_ns": 277794,
+    "hash_input_bytes": 76494,
+    "max_success_repetition": 31,
+    "payload_groups": 3,
+    "record_groups": 3,
+    "repeated_success_calls": 58,
+    "repeated_success_groups": 3,
+    "total_payload_bytes": 72590,
+    "unique_payload_bytes": 3570
+  },
+  "limits": [
+    "Original calls only; no preparation, acquisition changes, validators, authority or substitution.",
+    "Whole validator includes preserved post-init/allowlist work; disjoint direct codec children are not added to parent time.",
+    "Successful child costs count as eligible only after their original CLOCK parent returns.",
+    "Digest/length/record-ID grouping is observational, collision-limited, not byte equality, row origin or authority.",
+    "Execute includes callback/hash overhead; local span start excludes its entry bookkeeping; nested callback overhead remains.",
+    "Global filtered PY_UNWIND overhead is not bounded by selected counters. No unprofiled or Linux speedup claim.",
+    "Setup/construction/prelease capture and outside-execute cleanup are not timed; final test/teardown status remains authoritative.",
+    "A failed original execution is partial evidence only. None of these counts establishes a qualifying reuse predicate."
+  ],
+  "observation_extent": "complete_execute",
+  "python": {
+    "implementation": "cpython",
+    "version": [
+      3,
+      12,
+      13
+    ]
+  },
+  "repeated_success_codec_ns": 8204370,
+  "schema": "aqt-prelease-clock-original-observation/1",
+  "source_hashes_after": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_prelease_clock_cost.py": "71b13b67ae6a5293bf1c979a044e2ceacacdac6b93e6695673e6b83b4a73246c",
+    "packages/application/personal_codec.py": "ef21916d22afe404a8ac3247d6f1202dc2e73a6182ba4b6f7cb96770674a9b9e",
+    "packages/domain/continuous_persistence_contracts.py": "761337e51774165d773d4916973ab10eecfa345537b58d91a16e6936b7f17d7a",
+    "packages/domain/durable_journal_contracts.py": "9bda533b65415988315f6350dee1f6ad027f8981003f79c9402300a8c7dd2e5e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/domain/runtime_operating_contracts.py": "f4ac0f196e1d4f40c92796280715476a9217383a1907be97d9402d5eceb720a0",
+    "packages/persistence/account_coordinator.py": "5f3cc0b043e3ea58344eb9d8757daf76a95f11fc6088e4b744cfe3b483fa8a86",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_sources.py": "0fe3461bbf63a4615a63dbe54c2709fccbf9a9c7f9ae053d7ff271af6f98506f",
+    "packages/persistence/durable_journal.py": "ce6f67167d95ede5696bb11781d46c3bc5a83e871f51b18de8e421ff28324f71",
+    "packages/persistence/runtime_operating_evidence.py": "f4319bee62f433b39271ebdbe194bd2990e8657a6b6dec23c9a1d6e7340cb4bf",
+    "test_aqt_prelease_clock_cost.py": "15f26dcc27a8a53552358c5c5e1c56fb0e0a742e1d2040397cb9506b74f91149",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "source_hashes_before": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_prelease_clock_cost.py": "71b13b67ae6a5293bf1c979a044e2ceacacdac6b93e6695673e6b83b4a73246c",
+    "packages/application/personal_codec.py": "ef21916d22afe404a8ac3247d6f1202dc2e73a6182ba4b6f7cb96770674a9b9e",
+    "packages/domain/continuous_persistence_contracts.py": "761337e51774165d773d4916973ab10eecfa345537b58d91a16e6936b7f17d7a",
+    "packages/domain/durable_journal_contracts.py": "9bda533b65415988315f6350dee1f6ad027f8981003f79c9402300a8c7dd2e5e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/domain/runtime_operating_contracts.py": "f4ac0f196e1d4f40c92796280715476a9217383a1907be97d9402d5eceb720a0",
+    "packages/persistence/account_coordinator.py": "5f3cc0b043e3ea58344eb9d8757daf76a95f11fc6088e4b744cfe3b483fa8a86",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_sources.py": "0fe3461bbf63a4615a63dbe54c2709fccbf9a9c7f9ae053d7ff271af6f98506f",
+    "packages/persistence/durable_journal.py": "ce6f67167d95ede5696bb11781d46c3bc5a83e871f51b18de8e421ff28324f71",
+    "packages/persistence/runtime_operating_evidence.py": "f4319bee62f433b39271ebdbe194bd2990e8657a6b6dec23c9a1d6e7340cb4bf",
+    "test_aqt_prelease_clock_cost.py": "15f26dcc27a8a53552358c5c5e1c56fb0e0a742e1d2040397cb9506b74f91149",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "successful_parent_codec_work": {
+    "decode_calls": 61,
+    "decode_ns": 7118955,
+    "outer_encode_calls": 61,
+    "outer_encode_ns": 1488456
+  },
+  "test_exitstatus": 0,
+  "test_phases": {
+    "call": "passed",
+    "setup": "passed",
+    "teardown": "passed"
+  },
+  "timings": {
+    "clock_decode": {
+      "entered": 61,
+      "returned": 61,
+      "returned_ns": 7118955,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "clock_outer_encode": {
+      "entered": 61,
+      "returned": 61,
+      "returned_ns": 1488456,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "clock_validator": {
+      "entered": 61,
+      "returned": 61,
+      "returned_ns": 9688457,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "execute": {
+      "entered": 1,
+      "returned": 1,
+      "returned_ns": 44154830875,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "other_owner_validator": {
+      "entered": 1725,
+      "returned": 1725,
+      "returned_ns": 1213940092,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "other_validator": {
+      "entered": 168,
+      "returned": 168,
+      "returned_ns": 153628252,
+      "unwound": 0,
+      "unwound_ns": 0
+    }
+  }
+}

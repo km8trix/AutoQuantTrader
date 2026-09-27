@@ -1,11 +1,12 @@
 # Autonomous-development assessment — 2026-09-26
 
-**Current outcome:** A2 is reopened after the same-source follow-up CI failed.
-The eager semantic-loop optimizations were subsequently withdrawn after a new
-exception/lifetime regression was found; the correction passes local validation.
-The preceding full 4,786-test pass remains preserved for its exact run. See [final acceptance](#a2a3-final-source-acceptance-and-next-handoff)
-and [STATUS](../../STATUS.md) for A4's remaining blocker. The sections below
-preserve the initial audit and successive checkpoints in chronological order.
+**Current outcome:** A2/A2.1 remain open and the attempt-proof pilot is unaccepted.
+The separately approved A2.6 study is complete: its CLOCK-only candidate is
+rejected after observing just 8.204 ms of repeated codec work. See the
+[completed disposition](#completed-a26-observation-and-disposition) and
+[STATUS](../../STATUS.md) for current CI evidence, publication work and blockers.
+Production validation and limits remain unchanged. The sections below preserve
+the initial audit and successive checkpoints in chronological order.
 
 ## Repository and preservation
 
@@ -754,3 +755,65 @@ parses; all 20 raw-log hashes, archive/file digests and durable-copy hashes matc
 including the GitHub archive digest. All 315 checked local links in 37 operating
 and evidence documents resolve. No additional behavioral test run was needed
 for these documentation/evidence-only changes.
+
+## Approved pre-lease study — 2026-09-27
+
+The owner approved the [bounded offline study](prelease-restoration-decision-proposal.md).
+Production adoption remains outside scope. The [acquisition witness study](prelease-acquisition-witness-study.md)
+identifies exact transition facts and the unresolved post-COMMIT cleanup protocol.
+The [pure-work study](prelease-pure-work-study.md) selects only discarded typed
+clock-journal validation as a possible computation to move/reuse; it establishes
+neither a qualified reuse path nor a complete resource fit.
+
+The [CLOCK behavior inventory](prelease-clock-behavior-inventory.md) identifies
+finite but substantial cold/warm typing, constructor, JSON and regex dependencies.
+The [independent disposition](prelease-independent-disposition.md) supports
+continuing source review and one concretely reviewed original-only cost observation.
+It rejects interpreting missing measurements as final infeasibility or as a new
+owner-permission blocker. The [adverse validation plan](prelease-model-validation-plan.md)
+keeps ownership, cleanup and aggregate resource gates ahead of any substitution.
+
+[Existing validation](prelease-study-validation.json): architecture passes; eight
+unchanged conditional-acquisition SQLite cases pass with 12 deselected in 2.16 s.
+Those establish existing primitives only. No new acquisition witness or qualified
+handoff is implemented. The following completed result supersedes this checkpoint.
+
+
+### Completed A2.6 observation and disposition
+
+The single reviewed original-only measurement **passed in 242.12 s**, including
+teardown. Its [raw capture](prelease-clock-original-first.json) is valid and
+complete, with all 14 source hashes unchanged. Execute returned in 44.154831 s;
+61 CLOCK validators and their selected codec calls returned. The disjoint codec
+sum is 8.607411 ms; 58 repetitions across three observational digest groups account
+for **8.204370 ms, or 0.01858% of execute**. Groups do not establish SQL row identity,
+exact equality or pre-acquisition ownership. [Original test log](prelease-clock-original-first.txt)
+and [source-bound result](prelease-clock-original-result.json).
+
+The [independent result assessment](prelease-clock-result-assessment.md) and
+[architectural disposition review](prelease-study-disposition-review.md) agree:
+reject this CLOCK-only candidate before implementing a new acquisition witness,
+behavior qualifier or reuse proof. The observed opportunity is too small to
+justify that machinery for the current restore failure. This does not establish
+actual speedup, negative speedup, resource fit/exceedance, Linux acceptance or
+universal pre-lease infeasibility. No repeat or automatic schema expansion follows.
+
+The [frozen observer publication map](prelease-clock-observer-publication.json)
+preserves exact sources as inert `.py.txt` files, reviewed plans, the pre-release
+plan version, mechanics and collection logs. Its running-fixture status is the
+historical publication checkpoint, superseded by the result above. Author and
+independent mechanics pass **42 cases** together. The initial synthetic assertion
+failure and its correction remain recorded; no production test was weakened.
+
+The separately ongoing [publication CI](https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203)
+for `55951fb` has a [source-bound shard 4 failure](linux-55951fb-shard4-summary.json):
+340 passed/one failed, original proof restore expired at 61.250 s, plus a separate
+expired-lease cleanup failure. Private entry is observed, not completion. Final
+matrix/diagnostic outcomes remain pending; the local observation does not repair
+this or earlier Linux failures. Production, tests, scripts, workflow, limits and
+fresh validation remain unchanged by this study.
+
+[Study publication validation](prelease-study-publication-validation.json) verifies
+all 16 published observer/result copies, all 14 original source hashes and current
+local document links. `git diff --check` passes. No behavioral tests were repeated
+for these documentation/evidence-only edits.

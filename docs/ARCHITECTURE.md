@@ -62,6 +62,14 @@ Both daily `require_resolved_snapshot` calls in each graph check remain unchange
 A2.4 measures those original calls only; it does not authorize replacing daily
 identity validation or extending the attempt proof to that different predicate.
 
+The subsequent bounded pre-lease study added no acquisition witness, preparation
+owner or codec-verdict cache. Its CLOCK-only candidate was rejected after an
+original-path observation found only 8.2 ms of repeated codec work in a 44.15 s
+execute. The factory still acquires the actual lease before constructing fenced
+owners; current SQL, daily/source, object and terminal checks remain unchanged.
+This result does not establish that all other pre-lease designs are impossible.
+See the [source-bound result](reviews/2026-09-26-autonomy/prelease-clock-original-result.json).
+
 ### Actual data and execution flows
 
 The supported historical research flow is explicit licensed Tiingo input plus declaration/calendar → validated personal research dataset/archive → `EngineInputs` and retained build/configuration/data pins → canonical causal engine → target portfolio → intent batch → daily risk → simulated execution/accounting → derived report. Durable catalog/jobs/artifacts connect that same engine to the local API/browser. The older Compose demo deliberately invokes `autoquant-golden-oracle`; its fixture ingestion and golden backtest are separate historical slices, not the default research worker.

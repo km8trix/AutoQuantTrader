@@ -234,7 +234,7 @@ credentials, start live services or authorize provider traffic.
   three failed and no skips; the diagnostic also fails. Preserve these A2 failures.
   A2.6 has separate owner approval for bounded offline design and feasibility only.
 
-### A2.6 — bounded pre-lease handoff study (approved; investigation in progress)
+### A2.6 — bounded pre-lease handoff study (complete; CLOCK candidate rejected)
 
 - **Objective:** determine whether bounded provisional historical preparation can
   reduce lease-held work without changing the original complete validation or limits.
@@ -249,9 +249,11 @@ credentials, start live services or authorize provider traffic.
   fresh SQL/object/fence/control/terminal observation and original timer/resource cap.
   Resolve original before/after transition ownership and race/ABA questions before
   any prototype can issue qualified results. Record changed failure ordering.
-- **Validation commands:** architecture and finite mechanics first; a separately
-  reviewed temporary experiment with literal commands/source hashes only if the
-  ownership/resource/cost model survives. Existing retained/worker acceptance
+- **Validation commands:** architecture and finite mechanics first; a reviewed,
+  original-only observation may measure the proposed subset before qualification.
+  A reuse prototype or candidate experiment requires the ownership/resource/cost
+  model to survive first. Record literal commands/source hashes for either path.
+  Existing retained/worker acceptance
   remains required for any later separately approved production adoption.
 - **Completion criteria:** independently reviewed finite feasibility or documented
   rejection. Do not run a heavy fixture before a concrete plan, add broad lease-table
@@ -261,9 +263,19 @@ credentials, start live services or authorize provider traffic.
   The [pure-work study](reviews/2026-09-26-autonomy/prelease-pure-work-study.md)
   narrows investigation to discarded typed clock-journal validation. Same codec
   identity or one cached hint dictionary cannot prove its behavior unchanged.
-  Continue the finite warm/cold behavior inventory and review an original-only
-  schema-cost observer before a single new measurement. Unknown counts alone
-  are not a rejection or a new owner-approval blocker. No substitution is released.
+  The source-inventory checkpoint and one reviewed original-only observation
+  are complete. Cold-path qualification and total binding accounting remain
+  intentionally unfinished after the candidate's economic rejection.
+  The unchanged original test passed in 242.12 s with
+  all 61 CLOCK validators returning. Direct codec work totals 8.607 ms; only
+  8.204 ms is repeated successful work across three observational digest groups,
+  0.0186% of the 44.155 s execute. [Bound result](reviews/2026-09-26-autonomy/prelease-clock-original-result.json).
+  Reject this specific candidate as immaterial before adding acquisition,
+  behavior, comparison and retirement costs. No substitution, witness prototype,
+  net speedup, full resource fit or Linux acceptance is established. Other designs
+  remain untested; missing data alone was not the reason for rejection.
+  Do not repeat this observation or expand to other schemas without a concrete
+  new source-backed question. A2/A2.1 remain open; no safe material repair is established.
 
 ## A3 — genuine capture bridge contract and offline guards
 

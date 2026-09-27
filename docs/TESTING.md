@@ -338,3 +338,27 @@ not another proof's safety, resource fit or Linux timing acceptance. Global
 filtered unwind events and the bounded one-time histogram add overhead. Returned
 and unwound spans stay separate; overlapping public/borrow/execute timings must
 not be summed as savings. Original test assertions and cleanup remain authoritative.
+
+## A2.6 original-only CLOCK cost observation
+
+The separately approved pre-lease feasibility study narrows the next cost question
+to the original dedicated CLOCK journal's typed validation. The
+[run plan](reviews/2026-09-26-autonomy/prelease-clock-observer-run-plan.md) records
+the one released command, frozen observer hashes and exclusive output paths.
+STATUS records its completion/disposition. Do not repeat without a new concrete
+question and reviewed plan; the evidence copies are not installed test plugins.
+
+The observer uses original code events, exact factory/journal identity and bounded
+metadata. It invokes no extra validator and creates no preparation, witness or
+authority. Direct decode and outer encode spans are disjoint; whole-validator
+timing includes preserved work and is not added to the children. Child costs
+qualify as successful observed work only after the parent returns. Hashed groups
+are observational counts, not exact-byte equality or original row ownership.
+
+[Independent mechanics](reviews/2026-09-26-autonomy/prelease-clock-mechanics-independent-review.md)
+record the exact clean command and 42 passes, including 13 separate reviewer
+cases. They cover original errors, failed parents, bounded metadata, source binding
+and cleanup failures. The actual original test/teardown result remains decisive;
+valid partial capture or returned execute cannot establish lease release. No
+candidate preparation/qualification/matching cost, net speedup or Linux margin
+is established by observing the original path.

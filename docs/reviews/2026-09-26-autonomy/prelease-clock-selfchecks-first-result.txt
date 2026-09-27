@@ -1,0 +1,1 @@
+Initial mechanics draft: 1 failed, 22 passed in 0.08s. The unknown-record test expected success although its synthetic original validator correctly raised AttributeError for missing payload. Corrected test to preserve/assert that original AttributeError; observer still must reject before invoking unknown schema getter. No production source or fixture involved.

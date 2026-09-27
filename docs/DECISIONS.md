@@ -168,6 +168,20 @@ through a narrowly owned transition while preserving every fresh check.
 
 **Consequences/constraints:** resolve the original transaction predecessor/result,
 race/ABA handling, fixed eligible pure work and joint resource/complete-cost model
-before releasing a temporary prototype or fixture. Preserve the original clocks,
+before releasing a qualified-reuse prototype or candidate cost experiment. A
+separately reviewed, non-substituting original-only observation may establish
+the selected work's cost before that qualification. Preserve the original clocks,
 limits, receipts, cleanup and all failed evidence. Reject infeasible designs;
 this decision does not accept the attempt pilot or change production validation.
+
+**Study disposition:** reject the narrowly selected CLOCK journal canonicality
+reuse candidate. The reviewed original-only observation passed the unchanged
+test and cleanup, but measured only 8.204 ms of repeated successful codec work
+within 44.155 s execute (0.0186%). [Source-bound result](reviews/2026-09-26-autonomy/prelease-clock-original-result.json).
+The additional acquisition-ownership, cold/warm behavior, fresh comparison and
+retirement machinery is not justified by that small observed opportunity.
+No candidate was benchmarked, so this is an engineering scope decision, not a
+measured negative speedup or proof that every pre-lease design is infeasible.
+The 42 observer mechanics cases include 29 author and 13 independent cases;
+no production validation, risk control, resource cap or timer was changed.
+Do not build the witness or expand the predicate from this result alone.
