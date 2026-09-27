@@ -377,7 +377,8 @@ def _observe_linux_child(pid: int, *, timeout: float) -> _ChildObservation:
 
 
 def _observe_child(pid: int, *, timeout: float = 0.1) -> _ChildObservation:
-    if sys.platform == "linux":
+    platform = sys.platform
+    if platform == "linux":
         return _observe_linux_child(pid, timeout=timeout)
     return _observe_ps_child(pid, timeout=timeout)
 

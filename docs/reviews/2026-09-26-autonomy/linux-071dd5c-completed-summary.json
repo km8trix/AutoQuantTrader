@@ -1,0 +1,279 @@
+{
+  "schema": "aqt-exact-head-ci-completed/1",
+  "run": {
+    "databaseId": 36297439151,
+    "headSha": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "status": "completed",
+    "conclusion": "failure",
+    "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151"
+  },
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "job_conclusions": {
+    "success": 14,
+    "failure": 6
+  },
+  "jobs": [
+    {
+      "id": 108558785272,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558785368,
+      "name": "Browser regressions",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977322,
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977336,
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977356,
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977357,
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108558977363,
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977389,
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977397,
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977399,
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977400,
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977403,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108558977404,
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977406,
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977480,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108558977496,
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977903,
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977959,
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108567934752,
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108567934761,
+      "name": "Standard Python foundations and retained financial regressions",
+      "status": "completed",
+      "conclusion": "failure"
+    }
+  ],
+  "financial_totals": {
+    "selected": 4967,
+    "passed": 4962,
+    "failed": 5,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "errors": 0
+  },
+  "financial_evidence": {
+    "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-financial-final.json",
+    "bytes": 13942,
+    "sha256": "7323124057811f1cf67d8d914dab10c458aa2ff1eafbfc1392f572c2a33621d6"
+  },
+  "diagnostic_evidence": {
+    "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-diagnostic-final.json",
+    "bytes": 14531,
+    "sha256": "fcd00a2be20d2ad7540e516d0f7868c87adc503373dae32f08289053b46d1426"
+  },
+  "raw_log_manifest": [
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard0-raw.log",
+      "bytes": 40038,
+      "sha256": "dd773dded0bc9509363afeaa09efe9dce761d1a9c9c64d251cd8966abd756792"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard1-raw.log",
+      "bytes": 40031,
+      "sha256": "6b3aa6d7c22369177edb6c6d168146138358634da54ad9444e35c1e0780cd90f"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard2-raw.log",
+      "bytes": 40394,
+      "sha256": "3f0ed3da2559aef6e61fdf1d8b45504347f246c0bc27aa0ad35ea391d62aa01c"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-raw.log",
+      "bytes": 51951,
+      "sha256": "b1a77aeae13356faaa34c723f2e67ee03c54e07be752ec48986369dcf8d6b9d5"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard4-raw.log",
+      "bytes": 56094,
+      "sha256": "f3e99f748a1c1e7a1ac067b5154b6de220e8c24356c3dbd0fc01b0b35e69dd18"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard5-raw.log",
+      "bytes": 45713,
+      "sha256": "b8082bc7b87a445e54454276c08d7d0e2cb3db63409a4c532aa9411dcd2e3ae2"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard6-raw.log",
+      "bytes": 40100,
+      "sha256": "1230b72ed2659d0ad3e941148f07893badc8725f68cbb85ab8422d0e516b3caf"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard7-raw.log",
+      "bytes": 55726,
+      "sha256": "ce3027fa83866f24e39c9de3c81c7377a0217dffcd424b037af7730e36d6a4b1"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard8-raw.log",
+      "bytes": 40279,
+      "sha256": "d3d37c49a1fe08f9cec87429e9fb5f01d7ceb36430b16c28906436fb2706ed15"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard9-raw.log",
+      "bytes": 39907,
+      "sha256": "f234f2d058a48a73070100eeedd3bafed28e1cbcd598609a8a2377b427370c33"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard10-raw.log",
+      "bytes": 40453,
+      "sha256": "c64dfbb8b2006d7b9590d022c3ff6ab8cfdacb0185a6a0a3a90534a255ae5cf6"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard11-raw.log",
+      "bytes": 40041,
+      "sha256": "b0302a7d5a106fdec12156e9511ea5a573c0caa6b8eea685a53d112a07967d17"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard12-raw.log",
+      "bytes": 41023,
+      "sha256": "9587e80b2008fb872b6251f1f557d7074d75ff5a80f542adc4eac75e24f9bd32"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard13-raw.log",
+      "bytes": 39932,
+      "sha256": "45967d4f9abc4ebdb04cabf1a5973d51ebc353eaa43a907d5ad3c5cea60763fb"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard14-raw.log",
+      "bytes": 39996,
+      "sha256": "3cc69fd101de8c2ad7113853170742529a3bae3781bc994ec80f847ba8319caf"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard15-raw.log",
+      "bytes": 65671,
+      "sha256": "28932f28ef2c2233cfa262b1001fa54b6cea86ae4a118b71bd0e3be17610ed7e"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-diagnostic-raw.log",
+      "bytes": 47833,
+      "sha256": "21ac283d3da946e1a58b5ced7b31713adac84a9c338d712d5b20e7fadd27125a"
+    }
+  ],
+  "artifact_integrity": {
+    "id": 10925273145,
+    "name": "retained-restore-profile-36297439151-1",
+    "github_size_in_bytes": 12386,
+    "github_digest": "sha256:e498dea4eeb0212bbc114ff104a30ccc9d232e7dd70ca3104370f045251bef2c",
+    "archive_digest_verified": true,
+    "archive": {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-artifact-10925273145.zip",
+      "bytes": 12386,
+      "sha256": "e498dea4eeb0212bbc114ff104a30ccc9d232e7dd70ca3104370f045251bef2c"
+    },
+    "extracted_files": [
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-profile/profile.json",
+        "bytes": 98865,
+        "sha256": "e08fe96b5d907cb7c818358f42f3d1507ef2696d69bc7a0512b4c478fb159894"
+      },
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-profile/test-exit.json",
+        "bytes": 89,
+        "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25"
+      }
+    ]
+  },
+  "scope": "Old071dd5c run complete and preserved; no changes to current e15f8b4 CI, no retry/cancel/dispatch or local experiments."
+}

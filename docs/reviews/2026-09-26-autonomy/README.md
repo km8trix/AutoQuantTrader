@@ -1008,3 +1008,28 @@ The [CI discovery map](native-ci-test-map.json) confirms all 191 native-observat
 cases are selected. Its 5,246-node collection predates the new lifecycle case;
 it records that limitation. Actual Linux live/stopped/zombie tests map to shards
 4/12/0. Collection does not execute those tests or qualify Linux behavior.
+
+The old run subsequently [completed with failure](linux-071dd5c-completed-summary.json).
+Its [separate diagnostic](linux-071dd5c-diagnostic-final.json) also failed:
+restore 61.290 s, then expired-lease cleanup. The [profile](linux-071dd5c-profile.json)
+and [test exit](linux-071dd5c-profile-test-exit.json) come from an archive whose
+digest was verified against GitHub. The valid profile covers partial execution;
+313 selected rows out of 4,852 entries and overlapping inclusive costs do not
+establish completed restoration, speedup or proof retirement.
+
+### Linux platform typing correction
+
+The first published native-observer revision `e15f8b4`, run 36301165143, failed
+Linux mypy before financial tests. [Publication binding](linux-e15f8b4-publication-failure-binding.json)
+confirms the candidate and Actions merge trees match. Formatting/lint and browser checks passed;
+the financial matrix and diagnostic skipped. Mypy specializes direct
+`sys.platform` comparisons and marked the fallback return unreachable on Linux.
+The [correction record](linux-dispatch-typing-correction.json) preserves the exact
+failed log and the revised source hash. Capturing the platform in a local variable
+retains exact runtime selection and keeps both branches available to checking.
+The [independent source review](linux-native-platform-dispatch-review.md) confirms
+all other module AST, including the original ps helper, remains unchanged.
+No rule was suppressed. All 421 source files pass with explicit Linux and Darwin
+targets; 188 observation cases pass and the three actual Linux cases still skip
+locally. TESTING now requires both typing targets for platform-specific changes.
+Actual Linux execution remains pending on the corrected revision.

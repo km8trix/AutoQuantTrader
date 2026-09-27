@@ -86,6 +86,16 @@ env -i PATH="$(dirname "$AQT_PYTHON"):/usr/bin:/bin" \
 git diff --check
 ```
 
+For changes involving platform-specific runtime code, also check both supported
+targets; a host-default mypy pass does not validate the other platform's branches:
+
+```sh
+"$AQT_PYTHON" -m mypy --platform linux apps packages
+"$AQT_PYTHON" -m mypy --platform darwin apps packages
+```
+
+This checks typing only. Actual Linux procfs tests still require Linux execution.
+
 The contract generator constructs a local in-memory API schema and compares
 `docs/api/openapi.json` and `apps/web/src/api/schema.generated.ts`. Regenerate
 only for an intentional contract change by omitting `--check`; inspect both

@@ -7,8 +7,9 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   unaccepted. A2.7 and A2.8 have passed applicable local gates, with exact-source
   Linux acceptance pending. A0/A1 and A3's offline scope are complete. Wave 4
   remains incomplete.
-- **Current task:** publish the reviewed changes and inspect the new revision's
-  Linux results. The bounded procfs reader replaces only Linux's per-call ps
+- **Current task:** publish the corrected platform dispatch and inspect its Linux
+  CI. [Run 36301165143](https://github.com/km8trix/AutoQuantTrader/actions/runs/36301165143)
+  on `e15f8b4` failed Linux mypy before financial tests; browser passed. The bounded procfs reader replaces only Linux's per-call ps
   subprocess; other platforms keep ps.
   Original observation deadlines, current RSS, Z-only exit, sole reap, group
   cleanup and receipt rules remain. Review corrected truncated-record and
@@ -16,9 +17,9 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
 - **Checkout/publication:** `codex/autonomous-development` in
   `Documents/AutoQuantTrader/autonomous-development`. Local commit `9f9cd72`
   contains A2.7 and test isolation; `7ac47bb` contains A2.8.
-  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) targets W4
-  integration. Its last verified published head was `071dd5c`; inspect Git/PR
-  synchronization before resuming publication. PR #55 targets `main`;
+  `e15f8b4` contains the test-hook correction and old matrix evidence.
+  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) has verified
+  published head `e15f8b4` and targets W4 integration. PR #55 targets `main`;
   neither may merge here. Preserve the separate integration checkout's existing
   architecture edit. New production changes are confined to primitive admission
   in `personal_contracts.py` and Linux observation in `continuous_process.py`;
@@ -28,7 +29,11 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   and 19 original worker/lifecycle cases pass. Architecture, full Ruff/format
   (1,036 files), mypy (421 files) and API drift checks pass. Independent source
   reviews bind the final implementation. [Local evidence](reviews/2026-09-26-autonomy/linux-native-local-validation.json).
-  Darwin worker passes do not qualify native Linux behavior.
+  Darwin worker passes do not qualify native Linux behavior. The new Linux mypy
+  failure came from its special handling of direct `sys.platform` comparisons.
+  A local platform capture preserves runtime selection and now passes all 421
+  files under both `--platform linux` and `--platform darwin`; 188 observation
+  cases pass/three Linux-only cases skip. No type rule or gate was disabled.
 - **Completed A2.7 locally:** 83 new oracle cases and 744 existing contract/
   financial cases pass. The unchanged retained test and cleanup pass in 221.51 s,
   with restore at 39.764 s; 19 original worker/lifecycle cases pass. This is not
@@ -40,7 +45,10 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   are both retained.
 - **Known Linux failures:** old-head [run 36297439151](https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151)
   on `071dd5c` has completed all 16 financial shards: 4,962 passes/five
-  failures/no skips. Its separate diagnostic was still running at this checkpoint.
+  failures/no skips. The workflow and separate diagnostic have now completed
+  with failure. [Final diagnostic](reviews/2026-09-26-autonomy/linux-071dd5c-diagnostic-final.json)
+  records restore at 61.290 s and separate expired-lease cleanup; its archive
+  digest matches GitHub. Partial profile execution grants no acceptance.
   [Completed matrix](reviews/2026-09-26-autonomy/linux-071dd5c-financial-final.json)
   preserves the earlier partial observations.
   The worker's second iteration records a ps `TimeoutExpired` at a requested
@@ -63,9 +71,10 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   reuse substitution was implemented. [Study disposition](reviews/2026-09-26-autonomy/prelease-study-disposition-review.md).
   Other representations remain untested; do not repeat or broaden rejected
   experiments without a concrete new source-backed question.
-- **Next actions:** update/push PR #56 under existing authorization if not already
-  synchronized, and validate its exact revision
-  on Linux, including all three actual procfs cases and original financial gates.
+- **Next actions:** commit/push the platform typing correction under existing
+  authorization, then inspect the new run's exact revision on Linux, including all
+  three actual procfs cases and original financial gates. Preserve its candidate,
+  Actions merge/tree, test counts, results and diagnostic if any.
   Preserve prior CI as completed or incomplete according to actual observations.
   Fix new failures before dependent work; continue the next concrete unblocked
   task. Do not infer permission for renewal, larger caps or longer timers.
