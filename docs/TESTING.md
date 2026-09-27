@@ -282,10 +282,42 @@ changes and original cleanup. It does not fabricate a successful owner registry.
 Coordinate expensive signed-history setup; do not run several heavy fixtures at
 once and mistake resource contention for the implementation's cost.
 
+Positive proof-admission tests are qualified for CPython 3.12.13 and explicitly
+skip on other interpreter profiles. Applicable ordinary-owner, genesis and
+unsupported-profile controls remain active. Such skips are fallback evidence,
+never proof-admission acceptance; actual Python 3.13 qualification is not established.
+The library retains its original full source validation on unsupported profiles.
+
 Also run the A2.3 original integration selections in PLAN, the unchanged unprofiled
 `test_actual_signed_retained_outcome_restores_with_original_utc_and_lease`, worker
 lifecycle gates, full static/API checks and exact-source Linux/PostgreSQL CI.
 Diagnostic instrumentation is separate from the original acceptance timing.
+On an unexpected original/retired execution failure, the genuine lifecycle test
+prints `AQT_FACTORY_PROOF_DIAGNOSTIC` with only the fixed case and whether its
+one-shot observer saw private proof entry. This records attempted use, not final
+proof acceptance; it preserves the original exception and cleanup.
 The standard runner's `test_continuous_*.py` patterns include these regressions;
 verify actual collection when changing filenames or selection rules. Current
 results and unresolved gaps belong in STATUS and the dated evidence, not here.
+
+## Worker observation failure diagnostics
+
+The original fixed-worker restart test preserves its assertions and adds a
+test-only wrapper around each original parent process observation. On a failed
+status assertion, `AQT_CHILD_OBSERVATION_DIAGNOSTIC` reports bounded counts and
+the first static error category, timeout and elapsed duration. It emits no raw
+exception, subprocess output, command, PID or path, and never retries or changes
+limits. Cleanup cannot overwrite the first failure. A passing diagnostic repeat
+does not explain or repair an earlier failure.
+
+Validate the helper and the original process behavior in the clean environment:
+
+```sh
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_continuous_process.py \
+  tests/unit/test_continuous_process_observation_diagnostic.py \
+  tests/integration/test_continuous_simulation_worker.py
+```
+
+[Diagnostic scope and evidence](reviews/2026-09-26-autonomy/worker-observation-diagnostic-plan.md)
+distinguish observed error categories from unproven OS or scheduling causes.

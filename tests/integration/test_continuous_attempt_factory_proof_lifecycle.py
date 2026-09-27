@@ -4,6 +4,7 @@ Every case still creates a fresh factory, real UTC clock and original bounded
 lease through the existing retained runner. No owner registration is fabricated.
 """
 
+import json
 import sys
 from contextlib import ExitStack, contextmanager
 from threading import Thread
@@ -217,6 +218,7 @@ def test_genuine_factory_proof_lifecycle_preserves_original_history(
             reader._require_daily_episode_identity = lambda *_args: None
             captured["shadowed_reader"] = reader
 
+    execution_returned = False
     try:
         with ExitStack() as observers:
             code = begin_code if case == "reentrant" else method_code
@@ -234,6 +236,7 @@ def test_genuine_factory_proof_lifecycle_preserves_original_history(
                         match="OFFLINE_OPERATION_FAILED",
                     ) as failure:
                         _execute_retained_factory(history, config, monkeypatch)
+        execution_returned = True
     finally:
         if "mutated" in captured:
             backing, key, original = captured.pop("mutated")
@@ -242,6 +245,11 @@ def test_genuine_factory_proof_lifecycle_preserves_original_history(
             del captured["shadowed_reader"].__dict__["_require_daily_episode_identity"]
         for name, original in captured.pop("cleanup_bindings", ()):
             setattr(integrity, name, original)
+        if not execution_returned and case in {"original", "retired"}:
+            print(
+                "AQT_FACTORY_PROOF_DIAGNOSTIC "
+                + json.dumps({"case": case, "private_entry_seen": bool(captured)}, sort_keys=True)
+            )
     assert captured, "genuine nonempty factory path never issued/used the bounded proof"
     _assert_retired(captured)
     assert cleanup_callbacks == []
