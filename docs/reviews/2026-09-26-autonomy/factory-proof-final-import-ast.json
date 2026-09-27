@@ -1,0 +1,22 @@
+{
+  "source": {
+    "containers": 1334,
+    "bindings": 5110
+  },
+  "root": {
+    "containers": 1153,
+    "bindings": 4452
+  },
+  "require_resolved": {
+    "ast_identical": true,
+    "sha256": "c3914642cbc28847add3f8a2aa137a3b9b3626f016615a1ae94c77d0a14e3371"
+  },
+  "_fingerprint": {
+    "ast_identical": true,
+    "sha256": "efadd67a8b2a7840bcf962192c080114f9ca1ca51c54661983770828570cb987"
+  },
+  "available_data_budget": {
+    "containers": 13849,
+    "bindings": 120742
+  }
+}

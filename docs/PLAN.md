@@ -19,7 +19,7 @@ credentials, start live services or authorize provider traffic.
 |---|---|---|
 | A0 — concise operating documents | Complete | Source/history audit |
 | A1 — standard runner covers sharding controls | Complete | A0 audit |
-| A2 — retained restore within original limits | Reopened: same-source 02a8ee6 repeat fails restore and worker probe | Existing W4 integration |
+| A2 — retained restore within original limits | Open: 7c73cd6 Linux restore fails; bounded proof candidate under validation | Existing W4 integration |
 | A3 — genuine capture bridge contract and offline guards | Complete offline scope; genuine admission stays denied | Existing capture/clock/calendar boundaries |
 | A4 — actual W4 source/account/session acceptance | Blocked | A2/A3, scoped access and initializer approval |
 | A5 — Wave 4 GitHub closeout | Blocked | All W4 acceptance including A4 |
@@ -121,9 +121,10 @@ credentials, start live services or authorize provider traffic.
   itself repair the separate retained-restore performance failure.
   Source `6c0cdea` has 324 focused passes (49 new), an original local retained
   pass at 45.425 s, 19 worker/lifecycle passes and full static/API checks. The
-  standard runner collects 4,848 cases; current-revision Linux CI remains to inspect.
+  standard runner collected 4,848 cases. Published `7c73cd6` Linux restore failed
+  at 60.118 s; worker shard 3 passed. The proof candidate is a separate A2.3 task.
 
-### A2.3 — bounded factory proof pilot (blocked on architectural decision)
+### A2.3 — bounded factory proof pilot (approved; local gates pass, Linux pending)
 
 - **Objective:** determine whether one repeated source fingerprint can be replaced
   by an equally bounded proof for a narrowly admitted, unchanged data projection.
@@ -131,8 +132,9 @@ credentials, start live services or authorize provider traffic.
   attempt-source fingerprint. See the [reviewed proposal](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md).
   All preceding owner/reference/outcome checks and fresh SQL/object/fence checks remain.
 - **Dependencies:** explicit owner decision on the restricted effect-free data
-  contract, then detailed proof/handshake review. Current seals are insufficient;
-  approval of publication or ordinary autonomous work does not select this design.
+  contract, then detailed proof/handshake review. The owner explicitly approved
+  the bounded offline design on 2026-09-26. Current seals remain insufficient;
+  the approval grants development scope, not proof validity or acceptance.
 - **Acceptance criteria:** original owner/thread/operation boundaries; no copied,
   mutated, foreign or retired proof accepted; unsupported input follows original
   validation; no larger aggregate resource allowance; fresh observations and full
@@ -149,6 +151,13 @@ credentials, start live services or authorize provider traffic.
 - **Completion criteria:** reviewed approved contract and passing original gates
   under unchanged limits, or a documented rejection of the pilot. Neither design
   approval nor a passing microbenchmark closes A2 or authorizes live activity.
+  The implemented candidate passes 100 new cases together and 177 original
+  integration/worker cases; original unprofiled restore is 40.246 s locally.
+  The complete observed spans model a 1.303 s saving with explicitly approximate
+  prefix subtraction; they do not establish paired speedup or Linux acceptance.
+  The final targeted mutation-boundary assertion passes separately in 204.63 s.
+  [Source-bound evidence](reviews/2026-09-26-autonomy/factory-proof-local-validation.json)
+  preserves the original caps, previous failures and measurement limits.
 
 ## A3 — genuine capture bridge contract and offline guards
 

@@ -396,8 +396,109 @@ passed finite compatibility tests but regressed actual contract conversion by
 about 1.4%; it was not adopted. Historical timings for withdrawn eager loops
 must not be presented as current-source performance.
 
-The [factory proof proposal](factory-verification-seal-proposal.md) has independent
-review and an explicit owner question pending. It changes the contract for one
+At that historical checkpoint, the [factory proof proposal](factory-verification-seal-proposal.md)
+had independent review and an explicit owner question pending. It changes the contract for one
 repeated in-memory fingerprint and requires proof of a restricted data profile.
 Existing handoff seals do not supply that proof. No implementation, approval,
 speedup, external-observation reduction or trading authority is inferred.
+
+### Approved bounded offline proof pilot: implementation and failed baseline
+
+The owner approved the [bounded factory-only design](factory-verification-seal-proposal.md).
+This grants implementation scope, not acceptance or any provider/live authority.
+The [invalid initial diagnostic](attempt-fingerprint-baseline-invalid.json) remains
+incomplete: its 30-call counter exhausted. The subsequent
+[retained-source measurement](factory-proof-retained-economics.json) completed the
+original restore assertions and counted 72 eligible fingerprints in 24 borrows.
+Their 3.169 s measured cost exceeds the optimistic 0.495 s data-only proof model;
+the model excludes unfinished full ownership/behavior costs and proves no speedup.
+[Pending-source measurements](factory-proof-pending-economics.json),
+[prototype assessment](factory-pilot-prototype-assessment.md),
+[safety review](factory-proof-safety-review.md) and
+[finite behavior design inventory](factory-proof-behavior-inventory.md) retain the
+preceding investigation and its limits. STATUS records current implementation.
+
+The published `7c73cd6` baseline's
+[Linux run](https://github.com/km8trix/AutoQuantTrader/actions/runs/36279615517)
+finished **failed**. Fifteen financial shards plus foundations/browser passed;
+shard 7's original retained restore expired the unchanged lease at **60.118 s**,
+and its separate diagnostic failed at **61.393 s**. The aggregate correctly
+remained failed. The uncommitted pilot was absent from this revision.
+[Failure record](linux-7c73cd6-restore-failure.json),
+[sanitized failure excerpt](linux-7c73cd6-restore-failure.txt),
+[diagnostic profile](linux-7c73cd6-diagnostic-profile.json) and
+[diagnostic exit](linux-7c73cd6-diagnostic-test-exit.json) preserve this evidence.
+The diagnostic considered 4,988 profile entries; its 42 attempt fingerprints
+cost 5.761 s inclusive before the failing restore ended. Calls include both
+prepared and resolved paths, inclusive times overlap, and instrumentation is not
+an acceptance timing. No rerun or safety-limit increase was performed.
+
+The candidate then passed [93 focused tests](factory-proof-expanded-focused-final.txt)
+(58 data, 23 behavior, eight instance-profile, four real-owned pending/genesis
+controls). [Focused evidence](factory-proof-focused-test-evidence.json) retains
+initial failures and repairs; this run preceded final source freezing.
+The frozen [seven-case genuine lifecycle run](factory-proof-genuine-lifecycle-first.json)
+also passed, including original restoration and rejected misuse with cleanup.
+[Original output](factory-proof-genuine-lifecycle-first.txt) and
+[source hashes](factory-proof-genuine-lifecycle-first-sources.json) bind that result.
+Global profiling until first proof use affects its timings, so it is not an
+unprofiled performance gate. Test observation was subsequently narrowed before CI.
+The [test review](factory-proof-validation-review.md) also records the copied-case
+poisoning assertion to make explicit. [Import/AST evidence](factory-proof-final-import-ast.json)
+confirms unchanged public `require_resolved` and `_fingerprint` bodies and the
+combined budget remaining after finite behavior/lifecycle metadata.
+
+### Implemented pilot: original gates and full observed cost
+
+The original [unprofiled retained test](factory-proof-original-retained-first.json)
+passes with **40.246 s** restore, 179.754 s fixture and 222.75 s total. All original
+lease/operation/process limits, preservation assertions and cleanup remain. The
+nine [original integration/worker files](factory-proof-original-integrations-first.json)
+pass **177 tests in 811.28 s**, with no skips. Production hashes are unchanged
+through these gates and the combined run below.
+
+All **100 new tests pass together in 321.91 s** in the
+[combined log](factory-proof-combined-cost-first.txt), establishing genuine proof
+admission after the mutation unit tests in the same interpreter. Local monitoring
+replaces global call profiling in the genuine cases. The copied-proof case now
+asserts the original operation is poisoned immediately, before independently
+testing cleanup callback replacement. The nested mutation initially hit an earlier
+historical-prefix guard; its final targeted refinement injects at the raw data
+check after those original guards and requires the exact data-binding failure.
+Its result is tracked separately, rather than attributing new assertions to this run.
+
+The [cost capture](factory-proof-complete-economics.json) is valid, with no
+diagnostic faults, 24 genuine borrows, 72 private checks, three original full
+checks/fingerprints, and verified final retirement. Actual data, source/root
+behavior and lifecycle reserve total **7,389 containers / 66,263 bindings** within
+the original 16,384 / 131,072 caps. The measured issue/retire work is 0.173 s.
+The model estimates **1.043 s** incremental work against **2.346 s** removed
+fingerprints, or **1.303 s** savings. It includes the observed behavior and root
+lifecycle spans missing from the earlier data-only estimate.
+
+This remains an approximate model: original-prefix subtraction, monitoring
+overhead and changing guard cost can bias it; a few new branch/finally instructions
+are not isolated. The observed span envelope includes unchanged guards and is
+not a rigorous upper bound. The 40.635 s instrumented positive restore is not an
+unprofiled timing gate, and comparison to earlier local timings is not a paired
+speedup experiment. These results justify submitting the bounded candidate to
+Linux validation; they do not close A2 or establish startup acceptance.
+
+[Independent final economics review](factory-proof-final-economics-review.md),
+[local validation](factory-proof-local-validation.json),
+[observer plan](factory-complete-cost-plan.md),
+[literal observer source](factory-complete-cost-observer.py.txt),
+[native layout probe](factory-proof-native-layout.json) and
+[optional cache probe](factory-proof-native-optional-layout.json) preserve the
+qualified CPython 3.12.13 implementation basis and diagnostic boundaries. Full
+architecture, Ruff/format, mypy and API checks pass; the standard runner collects
+4,948 tests. Unsupported interpreter profiles retain the original full source
+validation. Exact-source Linux/PostgreSQL acceptance is still pending.
+
+The final [targeted nested-data test](factory-proof-nested-final.json) passes in
+**204.63 s** with unchanged production hashes. Its [output](factory-proof-nested-final.txt)
+records exact `FACTORY_ATTEMPT_DATA_BINDING_CHANGED` rejection at the data seal
+after the original prefix guards; assertions also require no permit completion,
+original failure latches, and complete registry retirement. Fifteen observer
+selfchecks and final scoped Ruff/format pass. This is the separate evidence for
+the strengthened test; it does not retroactively change the historical 100-case run.

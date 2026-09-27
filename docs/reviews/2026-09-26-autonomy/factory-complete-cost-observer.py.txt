@@ -1,0 +1,391 @@
+"""Bounded observation of genuine proof costs; no calls or binding substitution."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import threading
+from time import perf_counter_ns
+import weakref
+
+import pytest
+
+SUITE = 'tests/integration/test_continuous_attempt_factory_proof_lifecycle.py'
+TARGET = SUITE + '::test_genuine_factory_proof_lifecycle_preserves_original_history[original]'
+OPTIONAL_VALIDATION_FILES = (
+    'tests/unit/test_continuous_attempt_fingerprint_proof.py',
+    'tests/unit/test_continuous_attempt_fingerprint_behavior.py',
+    'tests/unit/test_continuous_attempt_fingerprint_method_profile.py',
+    'tests/integration/test_continuous_attempt_factory_proof.py',
+)
+OPERATION = 'restore-original-retained-outcome'
+MAX_EVENTS = 20_000
+MAX_SPANS = 4_096
+MAX_DEPTH = 64
+MAX_METADATA_BYTES = 32_768
+TOOL_ID = 5
+FILES = (
+    'packages/persistence/_factory_attempt_behavior.py',
+    'packages/persistence/_factory_attempt_fingerprint.py',
+    'packages/persistence/continuous_runtime_attempt_sources.py',
+    'packages/persistence/continuous_integrity.py',
+    'apps/trader/continuous_simulation_factory.py',
+    'tests/integration/test_continuous_simulation_factory_outcome.py',
+    SUITE,
+    *OPTIONAL_VALIDATION_FILES,
+)
+
+
+def hashes(root):
+    result = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in FILES}
+    result['aqt_factory_complete_cost.py'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return result
+
+
+class Capture:
+    def __init__(self, integrity, source, factory):
+        self.integrity, self.source, self.factory = integrity, source, factory
+        reader, owner = integrity.SqlContinuousIntegrityReader, source.SqlContinuousRuntimeAttemptSources
+        functions = {
+            'execute': factory.execute,
+            'issue': reader._issue_daily_fingerprint,
+            'source_issue': owner._issue_factory_fingerprint,
+            'public_require': owner.require_resolved,
+            'fingerprint': owner._fingerprint,
+            'borrow': reader._borrow_original_daily,
+            'begin_borrow': reader._begin_daily_fingerprint_borrow,
+            'end_borrow': reader._end_daily_fingerprint_borrow,
+            'episode': reader._require_daily_episode,
+            'identity': reader._require_daily_episode_identity,
+            'graph_wrapper': reader._require_borrow_daily_graph,
+            'daily_graph': reader._require_daily_graph,
+            'private_require': owner._require_resolved_for_factory,
+            'retire': reader._retire_daily_fingerprint,
+            'source_retire': owner._retire_factory_fingerprint,
+        }
+        self.codes = {function.__code__: name for name, function in functions.items()}
+        self.functions = tuple(functions.values())
+        self.rows = {name: dict(calls=0, returned=0, unwound=0, ns=0, child_ns={}) for name in functions}
+        self.live = {}
+        self.events = self.spans = 0
+        self.active = False
+        self.thread = None
+        self.candidate = None
+        self.reader_ref = self.source_ref = self.context_ref = None
+        self.proof_id = None
+        self.admitted = False
+        self.retired = False
+        self.counts = None
+        self.faults = set()
+        self.installed = False
+
+    def start(self):
+        monitor = sys.monitoring
+        if monitor.get_tool(TOOL_ID) is not None or sys.getprofile() is not None:
+            raise pytest.UsageError('unused monitoring slot and no existing profiler required')
+        monitor.use_tool_id(TOOL_ID, 'aqt-genuine-proof-cost')
+        self.installed = True
+        try:
+            monitor.register_callback(TOOL_ID, monitor.events.PY_START, self.on_start)
+            monitor.register_callback(TOOL_ID, monitor.events.PY_RETURN, self.on_return)
+            monitor.register_callback(TOOL_ID, monitor.events.PY_UNWIND, self.on_unwind)
+            monitor.set_events(TOOL_ID, monitor.events.PY_UNWIND)
+            for code in self.codes:
+                monitor.set_local_events(TOOL_ID, code, monitor.events.PY_START | monitor.events.PY_RETURN)
+        except BaseException:
+            self.stop()
+            raise
+
+    def stop(self):
+        if not self.installed:
+            return
+        monitor = sys.monitoring
+        for code in self.codes:
+            monitor.set_local_events(TOOL_ID, code, 0)
+        monitor.set_events(TOOL_ID, 0)
+        for event in (monitor.events.PY_START, monitor.events.PY_RETURN, monitor.events.PY_UNWIND):
+            monitor.register_callback(TOOL_ID, event, None)
+        monitor.free_tool_id(TOOL_ID)
+        self.installed = False
+        self.reader_ref = self.source_ref = self.context_ref = None
+
+    def on_start(self, code, offset):
+        frame = sys._getframe(1)
+        try:
+            self.observe('call', code, frame, None)
+        except BaseException:
+            self.faults.add('observation_failure')
+            raise
+        finally:
+            del frame
+
+    def on_return(self, code, offset, result):
+        frame = sys._getframe(1)
+        try:
+            self.observe('return', code, frame, result)
+        except BaseException:
+            self.faults.add('observation_failure')
+            raise
+        finally:
+            del frame, result
+
+    def on_unwind(self, code, offset, error):
+        if code not in self.codes:
+            return
+        frame = sys._getframe(1)
+        try:
+            self.observe('unwind', code, frame, None)
+        except BaseException:
+            self.faults.add('observation_failure')
+            raise
+        finally:
+            del frame, error
+
+    def select(self, name, values):
+        if name == 'execute':
+            return values.get('operation_id') == OPERATION
+        if not self.active or threading.get_ident() != self.thread:
+            return False
+        if name == 'issue' and self.candidate is None:
+            reader, episode = values['self'], values['episode']
+            if type(reader) is not self.integrity.SqlContinuousIntegrityReader or type(episode) is not self.integrity._OriginalDailyEpisode:
+                self.faults.add('unexpected_issue_types')
+                return False
+            current = episode.current
+            if current.attempt_sources is None:
+                return False
+            self.candidate = (id(reader), id(episode), id(current.attempt_sources), id(current))
+            self.reader_ref = weakref.ref(reader)
+        if self.candidate is None:
+            return False
+        reader_id, episode_id, value_id, current_id = self.candidate
+        if name == 'source_issue':
+            candidate_source = values.get('self')
+            if id(values.get('value')) != value_id or type(candidate_source) is not self.source.SqlContinuousRuntimeAttemptSources:
+                return False
+            if self.source_ref is None:
+                self.source_ref = weakref.ref(candidate_source)
+            return self.source_ref() is candidate_source
+        if name in ('public_require', 'private_require'):
+            return (id(values.get('value')) == value_id and self.source_ref is not None
+                    and values.get('self') is self.source_ref())
+        if name == 'fingerprint':
+            return id(values.get('value')) == value_id
+        if name == 'source_retire':
+            return (id(values.get('proof')) == self.proof_id and self.source_ref is not None
+                    and values.get('self') is self.source_ref())
+        if id(values.get('self')) != reader_id:
+            return False
+        if name in ('borrow', 'begin_borrow', 'episode', 'identity', 'issue'):
+            return id(values.get('episode')) == episode_id
+        if name in ('graph_wrapper', 'daily_graph'):
+            return id(values.get('current')) == current_id
+        return True
+
+    def observe(self, event, code, frame, result):
+        name = self.codes[code]
+        if frame.f_code is not code:
+            self.faults.add('monitor_frame_differs')
+            return
+        identity = id(frame)
+        if event == 'call':
+            if not self.select(name, frame.f_locals):
+                return
+            if name == 'execute':
+                if self.rows['execute']['calls']:
+                    self.faults.add('repeated_execute')
+                    return
+                self.active = True
+                self.thread = threading.get_ident()
+            if self.events + len(self.live) + 2 > MAX_EVENTS or self.spans >= MAX_SPANS or len(self.live) >= MAX_DEPTH:
+                self.faults.add('observation_bound')
+                return
+            parent = frame.f_back
+            parent_id = None
+            try:
+                for _ in range(MAX_DEPTH):
+                    if parent is None:
+                        break
+                    if id(parent) in self.live:
+                        parent_id = id(parent)
+                        break
+                    parent = parent.f_back
+                else:
+                    self.faults.add('frame_depth_bound')
+            finally:
+                del parent
+            self.live[identity] = (name, perf_counter_ns(), parent_id)
+            self.rows[name]['calls'] += 1
+            self.spans += 1
+            self.events += 1
+            return
+        span = self.live.pop(identity, None)
+        if span is None:
+            return
+        self.events += 1
+        name, started, parent_id = span
+        elapsed = perf_counter_ns() - started
+        if elapsed < 0:
+            self.faults.add('negative_elapsed')
+            return
+        row = self.rows[name]
+        row['ns'] += elapsed
+        row['returned' if event == 'return' else 'unwound'] += 1
+        if parent_id is not None and parent_id in self.live:
+            parent_name = self.live[parent_id][0]
+            children = self.rows[parent_name]['child_ns']
+            children[name] = children.get(name, 0) + elapsed
+        if event == 'unwind':
+            self.faults.add('observed_unwind')
+        if name == 'issue' and event == 'return':
+            self.qualify(result)
+        if name == 'retire' and event == 'return' and self.admitted:
+            reader = self.reader_ref()
+            context = self.context_ref()
+            self.retired = (reader is not None
+                            and self.integrity._FACTORY_FINGERPRINT_READERS.get(reader) is None
+                            and (context is None or self.integrity._FACTORY_FINGERPRINTS.get(context) is None)
+                            and self.source._FACTORY_ATTEMPT_PROOFS.get(self.proof_id) is None)
+            if not self.retired:
+                self.faults.add('original_registries_not_retired')
+        if name == 'execute':
+            self.active = False
+            self.thread = None
+
+    def qualify(self, context):
+        reader = self.reader_ref()
+        owner = self.integrity._FACTORY_FINGERPRINTS.get(context) if type(context) is self.integrity._FactoryFingerprintContext else None
+        if (owner is None or reader is None or owner.reader is not reader
+                or self.integrity._FACTORY_FINGERPRINT_READERS.get(reader) is not context
+                or owner.phase != 'active' or owner.proof is None
+                or self.source_ref is None or self.source_ref() is not owner.source
+                or id(owner.value) != self.candidate[2] or not owner.value.sources):
+            self.faults.add('genuine_nonempty_proof_not_issued')
+            return
+        entry = self.source._FACTORY_ATTEMPT_PROOFS.get(id(owner.proof))
+        if (entry is None or entry[0]() is not owner.proof or entry[1].owner() is not owner.source
+                or entry[1].context() is not context or entry[1].value is not owner.value):
+            self.faults.add('original_source_registry_differs')
+            return
+        state = entry[1]
+        self.proof_id = id(owner.proof)
+        self.context_ref = weakref.ref(context)
+        self.source_ref = weakref.ref(owner.source)
+        self.counts = {
+            'data_containers': state.data.containers, 'data_bindings': state.data.bindings,
+            'source_behavior_containers': state.source_behavior.containers,
+            'source_behavior_bindings': state.source_behavior.bindings,
+            'root_behavior_containers': state.root_behavior.containers,
+            'root_behavior_bindings': state.root_behavior.bindings,
+            'root_reserved_containers': self.source._FACTORY_ROOT_CONTAINERS,
+            'root_reserved_bindings': self.source._FACTORY_ROOT_BINDINGS,
+            'source_reserved_containers': self.source._FACTORY_SOURCE_CONTAINERS,
+            'source_reserved_bindings': self.source._FACTORY_SOURCE_BINDINGS,
+        }
+        if any(type(value) is not int for value in self.counts.values()):
+            raise TypeError('noninteger resource metadata')
+        self.admitted = True
+
+    def report(self, exitstatus, before, after):
+        if before != after:
+            self.faults.add('source_hashes_changed')
+        if self.live:
+            self.faults.add('incomplete_spans')
+        if not self.admitted or not self.retired or self.rows['execute']['returned'] != 1:
+            self.faults.add('incomplete_genuine_lifecycle')
+        if (self.rows['issue']['returned'] != 1 or self.rows['retire']['returned'] != 2
+                or self.rows['source_retire']['returned'] != 1
+                or self.rows['private_require']['returned'] != 3 * self.rows['borrow']['returned']
+                or not self.rows['borrow']['returned']):
+            self.faults.add('unexpected_original_lifecycle_counts')
+        public, private = self.rows['public_require'], self.rows['private_require']
+        model = None
+        if public['returned'] and private['returned']:
+            prefix_ns = (public['ns'] - public['child_ns'].get('fingerprint', 0)) / public['returned']
+            original_fp_ns = public['child_ns'].get('fingerprint', 0) / public['returned']
+            wrapper_ns = self.rows['graph_wrapper']['ns'] - self.rows['graph_wrapper']['child_ns'].get('daily_graph', 0)
+            episode = self.rows['episode']
+            dispatch_ns = episode['ns'] - sum(episode['child_ns'].values())
+            borrow_boundary_ns = self.rows['begin_borrow']['ns'] + self.rows['end_borrow']['ns']
+            incremental_checks_ns = private['ns'] - prefix_ns * private['returned'] + wrapper_ns + dispatch_ns + borrow_boundary_ns
+            # Explicit pre-handoff retirement plus the episode finally's
+            # idempotent root call are both charged; source revocation occurs once.
+            lifecycle_ns = self.rows['issue']['ns'] + self.rows['retire']['ns']
+            removed_ns = original_fp_ns * private['returned']
+            modeled_ns = lifecycle_ns + incremental_checks_ns
+            model = dict(original_prefix_mean_ns=prefix_ns, original_fingerprint_mean_ns=original_fp_ns,
+                         observed_issue_and_retirement_ns=lifecycle_ns, incremental_checks_ns=incremental_checks_ns,
+                         removed_fingerprint_estimate_ns=removed_ns, approximate_incremental_model_ns=modeled_ns,
+                         observed_new_span_envelope_ns=lifecycle_ns + private['ns'] + wrapper_ns + dispatch_ns + borrow_boundary_ns,
+                         candidate_over_original_ratio=None if removed_ns <= 0 else modeled_ns / removed_ns,
+                         estimated_saved_ns=removed_ns-modeled_ns,
+                         definition='candidate modeled cost / original removed-fingerprint estimate; lower is faster',
+                         limits='Prefix subtraction uses original full checks from the same authentic graph, not a paired baseline run. Episode residual conservatively includes unchanged dispatch; a few added borrow branch/finally instructions cannot be isolated, while begin/end methods are included. Monitoring overhead and changing guard cost can bias the estimate. The new-span envelope includes unchanged private-method prefixes and is not a rigorous upper bound. No startup acceptance.')
+        return dict(capture_status='valid' if not self.faults and int(exitstatus) == 0 else 'invalid',
+                    test_exitstatus=int(exitstatus), diagnostic_faults=sorted(self.faults),
+                    source_hashes_before=before, source_hashes_after=after,
+                    observation='CPython local PY_START/PY_RETURN and global PY_UNWIND filtered to fixed codes; no changed source bindings, extra validation calls, permit consumption, provider calls or retained graph references',
+                    event_count=self.events, started_span_count=self.spans, bounds=dict(events=MAX_EVENTS,spans=MAX_SPANS,depth=MAX_DEPTH,metadata_bytes=MAX_METADATA_BYTES),
+                    genuine_nonempty_admitted=self.admitted, original_registries_retired=self.retired,
+                    resources=self.counts, spans=self.rows, economics_model=model)
+
+
+def pytest_addoption(parser):
+    parser.addoption('--aqt-complete-cost-dir', default=None)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    output = config.getoption('--aqt-complete-cost-dir')
+    if output is None or sys.version_info[:3] != (3, 12, 13) or not hasattr(sys, 'monitoring'):
+        raise pytest.UsageError('explicit output and verified CPython3.12.13 monitoring required')
+    if os.environ.get('AQT_RETAINED_RESTORE_PROFILE_PATH'):
+        raise pytest.UsageError('do not combine complete-cost observation with cProfile')
+    path = Path(output)
+    if not path.is_absolute() or path.parent.resolve() != Path('/private/tmp/aqt-autonomy-audit'):
+        raise pytest.UsageError('direct new audit subdirectory required')
+    path.mkdir(mode=0o700)
+    # Match the genuine lifecycle module import order before baselines exist.
+    from apps.trader.continuous_simulation_factory import ContinuousSimulationFactory
+    from packages.persistence import continuous_integrity as integrity
+    from packages.persistence import continuous_runtime_attempt_sources as source
+    root = Path(str(config.rootpath)).resolve()
+    config._aqt_complete_cost = (Capture(integrity, source, ContinuousSimulationFactory), path, root, hashes(root))
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    if ([item.nodeid for item in items].count(TARGET) != 1
+            or any(item.nodeid.split('::')[0] not in (SUITE, *OPTIONAL_VALIDATION_FILES) for item in items)):
+        raise pytest.UsageError('genuine lifecycle suite with exactly one original case and only explicit validation modules required')
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_call(item):
+    if item.nodeid != TARGET:
+        yield
+        return
+    capture = item.config._aqt_complete_cost[0]
+    capture.start()
+    try:
+        yield
+    finally:
+        capture.stop()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    state = getattr(session.config, '_aqt_complete_cost', None)
+    if state is None:
+        return
+    capture, path, root, before = state
+    capture.stop()
+    report = capture.report(exitstatus, before, hashes(root))
+    raw = (json.dumps(report, indent=2, sort_keys=True)+'\n').encode('ascii')
+    if len(raw) > MAX_METADATA_BYTES:
+        raise ValueError('COMPLETE_COST_METADATA_BOUND')
+    fd = os.open(path/'economics.json', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(raw)
+    if report['capture_status'] != 'valid' and int(exitstatus) == 0 and not session.config.option.collectonly:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED

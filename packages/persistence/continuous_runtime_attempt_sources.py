@@ -6,12 +6,18 @@ C metadata and immutable source rows before B's canonical financial history repl
 No source reference confers delivery authority.
 """
 
+import sys
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime
+from enum import EnumType
 from hashlib import sha256
+from threading import current_thread
+from types import FunctionType, ModuleType
 from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary, finalize
+from weakref import ref as _weakref
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
@@ -93,6 +99,12 @@ from packages.domain.research_job_contracts import (
 )
 from packages.domain.stateful_venue_contracts import VenueSourceReference
 from packages.domain.submission_attempt import SubmissionAttemptState
+from packages.persistence import _factory_attempt_fingerprint as _factory_data
+from packages.persistence._factory_attempt_behavior import (
+    _AttemptBehaviorChanged,
+    _AttemptBehaviorUnsupported,
+    _capture_attempt_behavior,
+)
 from packages.persistence.continuous_account import (
     ContinuousReferenceSnapshot,
     PreparedContinuousCommit,
@@ -143,6 +155,9 @@ from packages.persistence.durable_journal import (
 )
 from packages.persistence.durable_journal import (
     _has_records as _journal_has_records,
+)
+from packages.persistence.durable_journal import (
+    _ReceiptRows as _FactoryReceiptRows,
 )
 from packages.persistence.durable_journal import (
     _stream_row as _journal_stream_row,
@@ -330,6 +345,120 @@ class ResolvedCommittedContinuousRuntimeAttemptSources:
     original: ResolvedRuntimeAttemptSources
     publication: ResolvedContinuousReference
     seal: object = field(repr=False, compare=False)
+
+
+class _FactoryAttemptFingerprint:
+    """Opaque operation-owned identity; possession alone grants no authority."""
+
+    __slots__ = ("__weakref__",)
+
+
+@dataclass(frozen=True, slots=True)
+class _FactoryFingerprintState:
+    owner: Any
+    context: Any
+    thread: object
+    value: ResolvedRuntimeAttemptSources
+    fingerprint: str
+    data: Any
+    data_fields: tuple[object, ...]
+    source_behavior: Any
+    root_behavior: Any
+    root_module: ModuleType
+
+
+# Registry entries do not strongly retain proof, owner or factory context. A
+# failed issuance never returns its token, so its weak callback releases the graph.
+_FACTORY_ATTEMPT_PROOFS: dict[int, tuple[Any, _FactoryFingerprintState]] = {}
+_FACTORY_FINGERPRINT_RUNTIME: dict[str, Any] = {}
+_FACTORY_ROOT_CONTAINERS = 32
+_FACTORY_ROOT_BINDINGS = 512
+_FACTORY_SOURCE_CONTAINERS = 16
+_FACTORY_SOURCE_BINDINGS = 256
+
+
+def _factory_fingerprint_behaviors() -> tuple[Any, Any, ModuleType]:
+    source = _FACTORY_FINGERPRINT_RUNTIME.get("source")
+    root = _FACTORY_FINGERPRINT_RUNTIME.get("root")
+    module = _FACTORY_FINGERPRINT_RUNTIME.get("module")
+    if source is None or root is None or module is None:
+        raise _AttemptBehaviorUnsupported("ATTEMPT_FACTORY_RUNTIME_UNSUPPORTED")
+    source.require()
+    root.require()
+    return source, root, module
+
+
+def _factory_fingerprint_data_fields(data: Any) -> tuple[object, ...]:
+    mapping = data.mapping
+    return (
+        data.records,
+        data.runtime,
+        mapping,
+        data.containers,
+        data.bindings,
+        mapping.state,
+        mapping.caches,
+        mapping.positive,
+        mapping.negative,
+        mapping.token,
+        mapping.max_members,
+    )
+
+
+def _factory_fingerprint_methods(source: object) -> None:
+    if type(source) is not SqlContinuousRuntimeAttemptSources:
+        raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_OWNER_REQUIRED")
+    namespace = object.__getattribute__(source, "__dict__")
+    if (
+        type(namespace) is not dict
+        or len(namespace) > _FACTORY_SOURCE_BINDINGS // 4
+        or any(type(name) is not str for name in namespace)
+        or any(name in namespace for name in _FACTORY_SOURCE_METHODS)
+    ):
+        raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_METHODS_REQUIRED")
+
+
+def _register_factory_fingerprint_runtime(
+    module: ModuleType, originals: tuple[tuple[Any, ...], ...]
+) -> None:
+    """One import-completion baseline; never first-use or caller-supplied authority."""
+    if (
+        type(module) is not ModuleType
+        or module.__name__ != "packages.persistence.continuous_integrity"
+        or "root" in _FACTORY_FINGERPRINT_RUNTIME
+        or type(originals) is not tuple
+        or not originals
+        or any(
+            type(entry) is not tuple
+            or len(entry) != 4
+            or type(entry[0]) is not FunctionType
+            or entry[0].__code__ is not entry[1]
+            or entry[0].__defaults__ is not entry[2]
+            or entry[0].__kwdefaults__ is not entry[3]
+            for entry in originals
+        )
+    ):
+        raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_RUNTIME_REQUIRED")
+    try:
+        behavior = _capture_attempt_behavior(
+            functions=tuple(entry[0] for entry in originals),
+            modules=(module,),
+            classes=(
+                module.SqlContinuousIntegrityReader,
+                module.SqlContinuousCommitComposer,
+                module._FactoryFingerprintContext,
+                module._FactoryFingerprintUse,
+                module._FactoryFingerprintOwner,
+            ),
+        )
+        behavior.require()
+    except _AttemptBehaviorUnsupported:
+        behavior = None
+    _FACTORY_FINGERPRINT_RUNTIME["module"] = module
+    _FACTORY_FINGERPRINT_RUNTIME["root"] = behavior
+    for name in ("_fail_factory_fingerprint_use", "_retire_factory_fingerprint_context"):
+        callback = vars(module)[name]
+        _FACTORY_FINGERPRINT_RUNTIME[name] = (callback, callback.__code__)
 
 
 class SqlContinuousRuntimeAttemptSources:
@@ -2439,6 +2568,218 @@ class SqlContinuousRuntimeAttemptSources:
                 "ACTIVATION_CANONICAL_COMMAND_OR_EXPIRY_DIFFERS"
             )
 
+    def _issue_factory_fingerprint(
+        self,
+        value: ResolvedRuntimeAttemptSources,
+        *,
+        context: object,
+        max_containers: int,
+        max_bindings: int,
+    ) -> _FactoryAttemptFingerprint | None:
+        """Qualify only a registered original HALTED factory's current episode."""
+        try:
+            source_behavior, root_behavior, root = _factory_fingerprint_behaviors()
+        except (_AttemptBehaviorChanged, _AttemptBehaviorUnsupported):
+            return None
+        if type(self) is not SqlContinuousRuntimeAttemptSources:
+            raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_OWNER_REQUIRED")
+        try:
+            _factory_fingerprint_methods(self)
+        except ContinuousRuntimeAttemptSourceError:
+            return None
+        root._require_factory_fingerprint_context(
+            context,
+            source=self,
+            value=value,
+            max_containers=max_containers,
+            max_bindings=max_bindings,
+        )
+        reserved_containers = (
+            _FACTORY_ROOT_CONTAINERS
+            + _FACTORY_SOURCE_CONTAINERS
+            + source_behavior.containers
+            + root_behavior.containers
+        )
+        reserved_bindings = (
+            _FACTORY_ROOT_BINDINGS
+            + _FACTORY_SOURCE_BINDINGS
+            + source_behavior.bindings
+            + root_behavior.bindings
+        )
+        if reserved_containers >= max_containers or reserved_bindings >= max_bindings:
+            return None
+        # The successful original traversal visits an outer exact tuple. With an
+        # unchanged ABC token this establishes the negative-cache version witness;
+        # admission never calls virtual subclass hooks or primes caches itself.
+        token = _factory_data._GET_ABC_TOKEN()
+        if type(token) is not int:
+            return None
+        data = _factory_data._try_seal_attempt_data(
+            (value,),
+            selectors=_FACTORY_DATA_SELECTORS,
+            selector_roles=_FACTORY_DATA_ROLES,
+            allowed_records=_FACTORY_DATA_RECORDS,
+            selector_objects=_FACTORY_DATA_TABLES,
+            mapping_token=token,
+            max_containers=max_containers - reserved_containers,
+            max_bindings=max_bindings - reserved_bindings,
+        )
+        if data is None:
+            return None
+        # Tentative raw bindings grant no authority. Unsupported shape therefore
+        # falls back without calling custom conversion hooks an extra time. Only
+        # this unchanged complete traversal establishes the fresh cache witness.
+        self.require_resolved(value)
+        if _factory_data._GET_ABC_TOKEN() != token:
+            return None
+        source_behavior.require()
+        root_behavior.require()
+        data.require()
+        root._require_factory_fingerprint_context(
+            context,
+            source=self,
+            value=value,
+            max_containers=max_containers,
+            max_bindings=max_bindings,
+        )
+        proof = _FactoryAttemptFingerprint()
+        identity = id(proof)
+        registry = _FACTORY_ATTEMPT_PROOFS
+
+        def released(dead: object) -> None:
+            original = registry.get(identity)
+            if original is not None and original[0] is dead:
+                registry.pop(identity, None)
+
+        token_ref = _weakref(proof, released)
+        try:
+            state = _FactoryFingerprintState(
+                _weakref(self),
+                _weakref(context),
+                current_thread(),
+                value,
+                self._fingerprints[id(value)],
+                data,
+                _factory_fingerprint_data_fields(data),
+                source_behavior,
+                root_behavior,
+                root,
+            )
+            registry[identity] = (token_ref, state)
+            data.require()
+            source_behavior.require()
+            root_behavior.require()
+            root._require_factory_fingerprint_context(
+                context,
+                source=self,
+                value=value,
+                max_containers=max_containers,
+                max_bindings=max_bindings,
+            )
+            return proof
+        except BaseException:
+            registry.pop(identity, None)
+            raise
+
+    def _require_resolved_for_factory(
+        self,
+        value: ResolvedRuntimeAttemptSources,
+        *,
+        proof: object,
+        use: object,
+    ) -> None:
+        root = _FACTORY_FINGERPRINT_RUNTIME.get("module")
+        try:
+            source_behavior, root_behavior, root = _factory_fingerprint_behaviors()
+            _factory_fingerprint_methods(self)
+            original = _FACTORY_ATTEMPT_PROOFS.get(id(proof))
+            if (
+                type(proof) is not _FactoryAttemptFingerprint
+                or original is None
+                or original[0]() is not proof
+            ):
+                raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_PROOF_REQUIRED")
+            state = original[1]
+            context = state.context()
+            if (
+                state.owner() is not self
+                or state.value is not value
+                or context is None
+                or state.thread is not current_thread()
+                or state.source_behavior is not source_behavior
+                or state.root_behavior is not root_behavior
+                or state.root_module is not root
+            ):
+                raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_PROOF_REQUIRED")
+            root._begin_factory_fingerprint_use(
+                use,
+                context=context,
+                source=self,
+                value=value,
+                proof=proof,
+            )
+            # Keep the preceding original owner/reference/descriptor/outcome
+            # guards in exactly the public method's order. Only its final content
+            # fingerprint is replaced by the admitted original-data proof.
+            self._require(value, ResolvedRuntimeAttemptSources)
+            resolved = cast(_Resolved, value.state)
+            for reference in resolved.references:
+                self.accounts.require_reference(reference)
+            for descriptor in resolved.descriptors:
+                if descriptor is not None:
+                    cast(Any, self.runtime_sources).require_historical_descriptor(descriptor)
+            for outcome in resolved.outcomes:
+                if outcome is not None:
+                    self._outcome_reader().require_resolved(outcome)
+            source_behavior.require()
+            root_behavior.require()
+            _factory_fingerprint_methods(self)
+            if self._fingerprints.get(id(value)) is not state.fingerprint or any(
+                actual is not before
+                for actual, before in zip(
+                    _factory_fingerprint_data_fields(state.data), state.data_fields, strict=True
+                )
+            ):
+                raise ContinuousRuntimeAttemptSourceError(
+                    "ATTEMPT_ORIGINAL_RESOLVED_CONTENT_CHANGED"
+                )
+            state.data.require()
+            root._end_factory_fingerprint_use(
+                use,
+                context=context,
+                source=self,
+                value=value,
+                proof=proof,
+            )
+        except BaseException:
+            if root is not None:
+                with suppress(BaseException):
+                    callback, code = _FACTORY_FINGERPRINT_RUNTIME["_fail_factory_fingerprint_use"]
+                    if type(callback) is FunctionType and callback.__code__ is code:
+                        callback(use, source=self, value=value)
+            raise
+
+    def _retire_factory_fingerprint(self, proof: object, *, context: object) -> None:
+        original = _FACTORY_ATTEMPT_PROOFS.get(id(proof))
+        if (
+            type(proof) is not _FactoryAttemptFingerprint
+            or original is None
+            or original[0]() is not proof
+        ):
+            raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_PROOF_REQUIRED")
+        state = original[1]
+        if state.owner() is not self or state.context() is not context:
+            raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_ORIGINAL_PROOF_REQUIRED")
+        # Retirement may follow a failed data/method/borrow check. Once the exact
+        # source/context is established, a root error cannot strand that graph.
+        try:
+            callback, code = _FACTORY_FINGERPRINT_RUNTIME["_retire_factory_fingerprint_context"]
+            if type(callback) is not FunctionType or callback.__code__ is not code:
+                raise ContinuousRuntimeAttemptSourceError("ATTEMPT_FACTORY_RETIREMENT_CHANGED")
+            callback(context, source=self, value=state.value, proof=proof)
+        finally:
+            _FACTORY_ATTEMPT_PROOFS.pop(id(proof), None)
+
     def require_resolved(self, value: ResolvedRuntimeAttemptSources) -> None:
         self._require(value, ResolvedRuntimeAttemptSources)
         state = cast(_Resolved, value.state)
@@ -3059,3 +3400,125 @@ class SqlContinuousRuntimeAttemptSources:
         self._require(value, ResolvedCommittedContinuousRuntimeAttemptSources)
         self._recheck_original(connection, value.original, after_publication=True)
         self.accounts.recheck_reference_in_transaction(connection, value.publication)
+
+
+# Fixed projection roles distinguish structural owner wrappers from data actually
+# visited by detached_journal_value. Equal types in converted data still receive
+# their complete ordinary dataclass traversal instead of these selectors.
+_FACTORY_DATA_SELECTORS = (
+    (ResolvedRuntimeAttemptSources, ("sources", "state")),
+    (_Resolved, ("captured", "dispatches")),
+    (_Captured, ("plan", "provenance")),
+    (_Plan, ("sources",)),
+    (
+        _Source,
+        (
+            "reference",
+            "closure",
+            "checkpoint",
+            "action",
+            "request",
+            "dispatches",
+            "admission_payloads",
+            "descriptor",
+            "unsent_key_payload",
+        ),
+    ),
+    (RuntimeTableSnapshot, ("table", "account_id", "rows")),
+    (sa.Table, ("name",)),
+)
+_FACTORY_DATA_ROLES = (
+    (ResolvedRuntimeAttemptSources, (True, False)),
+    (_Resolved, (False, True)),
+    (_Captured, (False, False)),
+    (_Plan, (False,)),
+    (_Source, (True,) * 9),
+    (RuntimeTableSnapshot, (False, True, True)),
+    (sa.Table, (False,)),
+)
+
+_FACTORY_DOMAIN_RECORDS = tuple(
+    value
+    for module_name, module in tuple(sys.modules.items())
+    if module_name.startswith("packages.domain.") and type(module) is ModuleType
+    for value in tuple(vars(module).values())
+    if (type(value) is type or type(value) is EnumType)
+    and type.__getattribute__(value, "__module__") == module_name
+)
+_FACTORY_DATA_RECORDS = (
+    *_FACTORY_DOMAIN_RECORDS,
+    ResolvedRuntimeAttemptSources,
+    _Resolved,
+    _Captured,
+    _Plan,
+    _Source,
+    RuntimeTableSnapshot,
+    sa.Table,
+    RuntimeAttemptAccountingSource,
+    ResolvedJournalRead,
+    JournalReadSnapshot,
+    _FactoryReceiptRows,
+)
+_FACTORY_DATA_TABLES = (
+    continuous_account_commits,
+    daily_runtime_assignments,
+    daily_runtime_consumptions,
+    daily_runtime_attempt_events,
+    daily_runtime_observed_hold_groups,
+    phase5_operational_control_transitions,
+    phase5_operational_control_completions,
+    phase5_operational_control_heads,
+)
+_FACTORY_SOURCE_METHODS = (
+    "_issue_factory_fingerprint",
+    "_require_resolved_for_factory",
+    "_retire_factory_fingerprint",
+    "require_resolved",
+    "_require",
+    "_require_bindings",
+    "_binding_values",
+    "_outcome_reader",
+    "_fingerprint",
+)
+try:
+    _FACTORY_FINGERPRINT_RUNTIME["source"] = _capture_attempt_behavior(
+        functions=cast(
+            tuple[FunctionType, ...],
+            (
+                *tuple(
+                    getattr(SqlContinuousRuntimeAttemptSources, name)
+                    for name in _FACTORY_SOURCE_METHODS
+                ),
+                _factory_fingerprint_behaviors,
+                _factory_fingerprint_data_fields,
+                _factory_fingerprint_methods,
+                _register_factory_fingerprint_runtime,
+                _FactoryFingerprintState.__init__,
+                current_thread,
+                suppress.__init__,
+                suppress.__enter__,
+                suppress.__exit__,
+                _factory_data._try_seal_attempt_data,
+                _factory_data._class_attribute,
+                _factory_data._class_metadata,
+                _factory_data._same,
+                _factory_data._runtime,
+                _factory_data._supported_runtime,
+                _factory_data._AttemptDataSeal.require,
+                _factory_data._AttemptDataSeal.__init__,
+                _factory_data._MappingCacheSeal.require,
+                _factory_data._MappingCacheSeal.__init__,
+            ),
+        ),
+        modules=(sys.modules[__name__], _factory_data),
+        classes=(
+            SqlContinuousRuntimeAttemptSources,
+            suppress,
+            _FactoryAttemptFingerprint,
+            _FactoryFingerprintState,
+            _factory_data._AttemptDataSeal,
+            _factory_data._MappingCacheSeal,
+        ),
+    )
+except _AttemptBehaviorUnsupported:
+    _FACTORY_FINGERPRINT_RUNTIME["source"] = None

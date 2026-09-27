@@ -100,7 +100,33 @@ gains from the withdrawn shortcuts are historical evidence only. Performance
 must be remeasured without changing acceptance limits. Do not reinstate the
 shortcuts solely to meet a timing gate.
 
-**Pending choice:** the [factory-only verification proposal](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md)
-describes a separate restricted data-proof contract. It is not implemented or
-approved. Existing handoff seals alone do not authorize substituting source
-fingerprints; SQL/object/fence observations and all current limits remain.
+**Subsequent owner decision:** the owner explicitly approved the bounded offline
+[factory-only verification design](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md).
+This permits developing its separate restricted data-proof contract. Existing
+handoff seals alone still do not prove fingerprint equivalence; detailed design,
+tests and original gates are required. SQL/object/fence observations and all
+current limits remain; no wider optimization or operational authority is granted.
+
+## 2026-09-26 — bounded original factory attempt proof pilot
+
+**Decision:** implement the explicitly approved A2.3 experiment at the private
+factory daily-borrow boundary. Restrict admission to effect-free original data
+and a finite implementation inventory; preserve the public source method and all
+fresh observation/ownership checks. Use opaque operation/thread/borrow-bound
+proofs, poison on rejected post-issuance use, and retire before handoff retention.
+
+**Rationale:** the authentic retained-source diagnostic counted 72 eligible
+fingerprints costing 3.169 s. Its data-only model suggested possible savings,
+but omitted complete ownership/behavior costs. This justified implementation and
+measurement, not adoption. Existing handoff seals do not establish fingerprint
+equivalence; the owner separately approved this restricted contract.
+
+**Consequences/constraints:** the CPython 3.12.13 native proxy/Mapping witness is
+explicit and bounded; unsupported profiles use ordinary validation. The private
+verifier, baseline state and ordinary interpreter remain trusted. Do not extend
+this into arbitrary code attestation or a hostile-code sandbox. Original data,
+implementation bindings and method identities are checked without accepting a
+new baseline after issuance. All proof metadata counts against existing limits.
+A useful complete-cost measurement, adverse genuine lifecycle tests, original
+unprofiled retained/worker tests and exact-source Linux CI remain required.
+Reject the pilot rather than enlarging limits or declaring partial tests complete.

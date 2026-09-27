@@ -28,6 +28,37 @@ This section describes the `b1156ba` baseline and subsequent reviewed additions 
 | `packages/persistence/` | SQLAlchemy repositories for catalog/jobs, immutable financial facts, leases/fences, controls, risk assignments/reservations, attempts, journals, source captures and reconciliation. New continuous structures use migration `0040_personal_continuous`; `0039_personal_research` remains a separately recognized research revision. |
 | `packages/adapters/` | External I/O boundaries: private immutable artifacts, licensed data import/capture, explicitly selected E*TRADE GET/OAuth transports, clock observations and historical alert/trusted-time/broker components. Importing adapters is not authority to invoke them. |
 
+### Bounded factory proof pilot (implementation under validation)
+
+The owner-approved pilot connects `continuous_integrity.py`'s original HALTED
+factory/daily episode to a private attempt-source proof. It can replace only the
+final resolved attempt fingerprint in that episode's three existing per-borrow
+graph checks. Ordinary source validation and all preceding source-owner,
+reference, descriptor and outcome checks remain. Full entry/final verification,
+fresh SQL/object checks and real clock/fence observations remain in place.
+
+`_factory_attempt_fingerprint.py` admits a narrow effect-free projection using
+original raw slots, exact built-ins, dictionary-backed proxies and qualified
+native Mapping classification. `_factory_attempt_behavior.py` checks a finite
+inventory of original conversion/canonicalization and ownership code. The native
+profile is restricted to qualified CPython 3.12.13; other profiles must retain
+ordinary validation. The interpreter and private verifier/baselines remain
+trusted; this is no sandbox for hostile Python or native memory changes.
+
+Source proofs and root permits belong to one original reader/source/value,
+thread, factory operation, episode and borrow. Copies, replacement data, changed
+behavior, wrong-thread or reentrant use fail closed. Unsupported admission
+returns to full validation before issuance; failed issued proofs cannot reseal or
+rescue the operation. Retirement revokes the source registration before the
+existing handoff structure is retained, including failure cleanup. Combined data,
+behavior and lifecycle metadata share the original 16,384-container / 131,072-
+binding allowance; lease, operation, process and risk bounds do not increase.
+
+This is a candidate implementation, not accepted restore performance or new
+execution authority. [STATUS.md](STATUS.md) records tests and remaining gates;
+the [approved design](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md)
+permits rejecting the pilot if complete cost or proof burden does not justify it.
+
 ### Actual data and execution flows
 
 The supported historical research flow is explicit licensed Tiingo input plus declaration/calendar → validated personal research dataset/archive → `EngineInputs` and retained build/configuration/data pins → canonical causal engine → target portfolio → intent batch → daily risk → simulated execution/accounting → derived report. Durable catalog/jobs/artifacts connect that same engine to the local API/browser. The older Compose demo deliberately invokes `autoquant-golden-oracle`; its fixture ingestion and golden backtest are separate historical slices, not the default research worker.

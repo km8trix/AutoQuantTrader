@@ -1,17 +1,28 @@
-# Proposed factory-only verification substitution — decision required
+# Factory-only verification substitution — approved development scope
 
-Status: **proposal only; no implementation or approval inferred**. This is a
-possible next decision if the remaining behavior-preserving fixes cannot make
-the original retained restore reliable. It is not a claim that pure optimization
-is mathematically exhausted or that this design will meet the original deadline.
+Status: **owner approved the bounded offline design on 2026-09-26**. The explicit
+reply was “approve the bounded offline design.” Detailed proof/handshake review,
+implementation, independent adverse tests and original acceptance gates remain
+required. This approval does not establish validity or performance, expand the
+pilot, change limits, or authorize live/provider effects. The proposal below
+records the approved scope and remaining engineering obligations.
 
-## Concrete decision
+Current checkpoint: the candidate is implemented and independently reviewed.
+Original local restore and 177 original integration/worker tests pass, as do
+100 new tests together. The [complete observed cost model](factory-proof-complete-economics.json)
+includes the behavior/lifecycle spans absent from the early data-only experiment;
+its estimated 1.303 s benefit remains approximate. Exact-source Linux acceptance
+is pending. See [current validation](factory-proof-local-validation.json) and
+[final economics review](factory-proof-final-economics-review.md). The dated
+proposal and early measurements below retain their original context.
 
-May the existing HALTED factory restore use an owner/thread/operation-bound seal
+## Approved decision and measurement checkpoint
+
+Develop a pilot in which the existing HALTED factory restore uses an owner/thread/operation-bound seal
 of a narrowly admitted, already authenticated source-data graph to substitute a
 fresh structural/identity check for **one repeated pure fingerprint operation**,
 while retaining all existing ownership checks, fresh external observations and
-full entry/terminal verification?
+full entry/terminal verification. Adopt it only after the requirements below pass.
 
 The smallest pilot is the final `_fingerprint(value)` comparison in
 `SqlContinuousRuntimeAttemptSources.require_resolved` at
@@ -29,7 +40,7 @@ attribute all 29 calls to the proposed resolved path. This is a target for
 measurement, not a promised saving. Its descendants account
 for other time that this initial pilot deliberately does not remove.
 
-Owner alternatives:
+The reviewed alternatives were:
 
 1. **Keep the current validation contract.** Continue only changes proven to
    preserve all current reads/callbacks/errors, and leave retained acceptance
@@ -37,6 +48,17 @@ Owner alternatives:
 2. **Authorize the bounded factory-only proof substitution above.** Develop and
    independently review this specific contract, with no assumption of success
    and no authority outside the original active factory operation.
+
+The owner selected alternative 2. An initial original-test timing diagnostic
+then completed restore in 47.151 seconds and passed the original assertions,
+but exhausted its 30-call diagnostic cap. Those first 30 calls were all resolved
+fingerprints, totaling 1.139 seconds. The incomplete attribution must not be
+reported as the total cost, a speedup or acceptance. Source hashes were unchanged;
+[invalid metadata](attempt-fingerprint-baseline-invalid.json) and the
+[original output](attempt-fingerprint-baseline-invalid.txt) are preserved.
+That checkpoint required measuring the proposed proof cost on authentic source
+data before adding the lifecycle machinery. The permitted outcome includes rejecting this pilot
+when its benefit does not justify the implementation or proof burden.
 
 Neither alternative authorizes changing the lease/operation/process/resource
 bounds, weakening tests, enabling trading, changing risk policy or adopting a

@@ -8,6 +8,7 @@ readiness, dispatch or trading capability and never renews original source times
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -32,6 +33,7 @@ from packages.domain.continuous_persistence_contracts import (
 )
 from packages.domain.daily_observed_hold_contracts import daily_runtime_effect_watermark
 from packages.domain.durable_journal_contracts import JournalKey, empty_head
+from packages.domain.operational_control import OperationalControlState
 from packages.domain.reconciliation_contracts import ReconciliationScope
 from packages.domain.research_job_contracts import ObjectRef
 from packages.persistence.account_coordinator import (
@@ -160,6 +162,7 @@ class _OriginalDailyEpisode:
 class _DailyEpisodeState:
     episode: _OriginalDailyEpisode
     originals: tuple[object, ...]
+    fingerprint_context: _FactoryFingerprintContext | None = None
     borrows: int = 0
     failed: bool = False
 
@@ -408,6 +411,253 @@ _MAX_FACTORY_BINDINGS = 131_072
 _FactoryBinding = tuple[str, object, type[object], tuple[str, ...], tuple[object, ...]]
 _FACTORY_SCALARS = (type(None), bool, int, str, bytes, date, datetime, Decimal)
 _FACTORY_TABLES = (*TABLES, *CONTINUOUS_INTEGRITY_DEPENDENCY_TABLES)
+
+
+class _FactoryFingerprintContext:
+    """Opaque original-operation registration key, never standalone authority."""
+
+    __slots__ = ("__weakref__",)
+
+
+class _FactoryFingerprintUse:
+    """One source check in one original daily borrow."""
+
+    __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _FactoryFingerprintOwner:
+    reader: SqlContinuousIntegrityReader
+    factory: _FactoryReadState
+    daily: _DailyEpisodeState
+    source: Any
+    value: Any
+    issue: Any
+    require: Any
+    retire: Any
+    phase: str = "issuing"
+    proof: object | None = None
+    borrow: object | None = None
+    use: _FactoryFingerprintUse | None = None
+
+
+_FACTORY_FINGERPRINTS: dict[_FactoryFingerprintContext, _FactoryFingerprintOwner] = {}
+_FACTORY_FINGERPRINT_READERS: dict[SqlContinuousIntegrityReader, _FactoryFingerprintContext] = {}
+_FACTORY_FINGERPRINT_USES: dict[
+    _FactoryFingerprintUse, tuple[_FactoryFingerprintContext, object, str]
+] = {}
+_FACTORY_FINGERPRINT_READER_METHODS = (
+    "_require_factory_read",
+    "_select_factory_read",
+    "_require_daily_episode_identity",
+    "_require_graph",
+    "_graph",
+    "_issue_daily_fingerprint",
+    "_retire_daily_fingerprint",
+    "_begin_daily_fingerprint_borrow",
+    "_end_daily_fingerprint_borrow",
+    "_require_borrow_daily_graph",
+    "_require_daily_graph",
+    "_require_daily_episode",
+    "_original_daily_episode",
+    "_borrow_original_daily",
+)
+
+
+def _factory_fingerprint_method_profile(reader: SqlContinuousIntegrityReader) -> bool:
+    # Inspect exact dictionaries before any method lookup. This finite metadata
+    # allowance is included in the source's 512-binding root lifecycle reserve.
+    if type(reader) is not SqlContinuousIntegrityReader:
+        return False
+    namespace = _FACTORY_FINGERPRINT_READER_DICT.__get__(reader, type(reader))
+    if (
+        type(namespace) is not dict
+        or len(namespace) > 128
+        or not all(type(key) is str for key in namespace)
+    ):
+        return False
+    composer = dict.get(namespace, "composer")
+    if type(composer) is not SqlContinuousCommitComposer:
+        return False
+    namespaces = (
+        (namespace, _FACTORY_FINGERPRINT_READER_METHODS),
+        (
+            _FACTORY_FINGERPRINT_COMPOSER_DICT.__get__(composer, type(composer)),
+            ("_require_integrity_daily",),
+        ),
+    )
+    if any(type(namespace) is not dict for namespace, _ in namespaces):
+        return False
+    if sum(len(namespace) for namespace, _ in namespaces) > 128:
+        return False
+    return all(
+        all(type(key) is str for key in namespace) and not any(name in namespace for name in names)
+        for namespace, names in namespaces
+    )
+
+
+def _fail_factory_fingerprint(owner: _FactoryFingerprintOwner) -> None:
+    owner.daily.failed = True
+    _fail_factory(owner.factory)
+
+
+def _factory_fingerprint_owner(
+    context: object, *, source: object, value: object
+) -> _FactoryFingerprintOwner:
+    owner = (
+        _FACTORY_FINGERPRINTS.get(context) if type(context) is _FactoryFingerprintContext else None
+    )
+    if owner is None:
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_CONTEXT_REQUIRED")
+    try:
+        reader, state, daily = owner.reader, owner.factory, owner.daily
+        if not _factory_fingerprint_method_profile(reader):
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_METHOD_CHANGED")
+        reader._require_factory_read(state)
+        if type(daily) is not _DailyEpisodeState:
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_DAILY_REQUIRED")
+        episode = daily.episode
+        reader._require_daily_episode_identity(episode)
+        producer = reader.daily.producers
+        assert type(producer) is SqlContinuousRuntimeSources
+        scope = _FACTORY_SCOPES.get(state.scope) if state.scope is not None else None
+        if (
+            _FACTORY_FINGERPRINT_READERS.get(reader) is not context
+            or reader._daily_episode is not daily
+            or source is not owner.source
+            or value is not owner.value
+            or episode.current.attempt_sources is not value
+            or daily.fingerprint_context is not context
+            or scope is None
+            or scope.reader is not reader
+            or scope.thread is not current_thread()
+            or scope.closed
+            or scope.state.failed
+            or scope.state.phase != "entering"
+            or scope.state.operation is not state
+            or not _factory_scope_fields(scope)
+            or episode.current.control is None
+            or episode.current.control.effective_state is not OperationalControlState.HALTED
+            or producer._attempt_reader() is not source
+            or cast(Any, source._issue_factory_fingerprint).__func__ is not owner.issue.__func__
+            or cast(Any, source._require_resolved_for_factory).__func__
+            is not owner.require.__func__
+            or cast(Any, source._retire_factory_fingerprint).__func__ is not owner.retire.__func__
+        ):
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_CONTEXT_CHANGED")
+        episode.composer._require_integrity_daily(reader, episode)
+        return owner
+    except BaseException:
+        _fail_factory_fingerprint(owner)
+        raise
+
+
+def _require_factory_fingerprint_context(
+    context: object,
+    *,
+    source: object,
+    value: object,
+    max_containers: int,
+    max_bindings: int,
+) -> None:
+    owner = _factory_fingerprint_owner(context, source=source, value=value)
+    if (
+        owner.phase != "issuing"
+        or owner.proof is not None
+        or owner.borrow is not None
+        or type(max_containers) is not int
+        or max_containers != _MAX_FACTORY_CONTAINERS
+        or type(max_bindings) is not int
+        or max_bindings != _MAX_FACTORY_BINDINGS
+    ):
+        _fail_factory_fingerprint(owner)
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_ISSUANCE_REQUIRED")
+
+
+def _factory_fingerprint_use(
+    use: object, *, context: object, source: object, value: object, proof: object, phase: str
+) -> _FactoryFingerprintOwner:
+    owner = _factory_fingerprint_owner(context, source=source, value=value)
+    permit = _FACTORY_FINGERPRINT_USES.get(use) if type(use) is _FactoryFingerprintUse else None
+    if (
+        owner.phase != "active"
+        or owner.proof is not proof
+        or proof is None
+        or owner.borrow is None
+        or owner.use is not use
+        or permit is None
+        or permit[0] is not context
+        or permit[1] is not owner.borrow
+        or permit[2] != phase
+    ):
+        _fail_factory_fingerprint(owner)
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_USE_REQUIRED")
+    return owner
+
+
+def _begin_factory_fingerprint_use(
+    use: object, *, context: object, source: object, value: object, proof: object
+) -> None:
+    owner = _factory_fingerprint_use(
+        use, context=context, source=source, value=value, proof=proof, phase="ready"
+    )
+    assert type(use) is _FactoryFingerprintUse
+    assert type(context) is _FactoryFingerprintContext
+    assert owner.borrow is not None
+    _FACTORY_FINGERPRINT_USES[use] = (context, owner.borrow, "checking")
+
+
+def _end_factory_fingerprint_use(
+    use: object, *, context: object, source: object, value: object, proof: object
+) -> None:
+    owner = _factory_fingerprint_use(
+        use, context=context, source=source, value=value, proof=proof, phase="checking"
+    )
+    assert type(use) is _FactoryFingerprintUse
+    assert type(context) is _FactoryFingerprintContext
+    assert owner.borrow is not None
+    _FACTORY_FINGERPRINT_USES[use] = (context, owner.borrow, "complete")
+
+
+def _fail_factory_fingerprint_use(use: object, *, source: object, value: object) -> None:
+    """Latch an original permit's failure without repeating failed data guards."""
+    permit = _FACTORY_FINGERPRINT_USES.get(use) if type(use) is _FactoryFingerprintUse else None
+    owner = _FACTORY_FINGERPRINTS.get(permit[0]) if permit is not None else None
+    if owner is None:
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_USE_REQUIRED")
+    # Possession of a registered permit only permits failure, never validation.
+    # A rejected foreign claim cannot leave its original operation successful.
+    _fail_factory_fingerprint(owner)
+    if (
+        source is not owner.source
+        or value is not owner.value
+        or owner.use is not use
+        or permit is None
+        or permit[1] is not owner.borrow
+        or permit[2] not in ("ready", "checking", "complete")
+    ):
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_FAILURE_OWNER_REQUIRED")
+
+
+def _retire_factory_fingerprint_context(
+    context: object, *, source: object, value: object, proof: object
+) -> None:
+    # Cleanup must still revoke a failed operation. Do not re-run data or graph
+    # guards here: their failure cannot strand the original source registration.
+    owner = (
+        _FACTORY_FINGERPRINTS.get(context) if type(context) is _FactoryFingerprintContext else None
+    )
+    if (
+        owner is None
+        or source is not owner.source
+        or value is not owner.value
+        or proof is not owner.proof
+        or owner.phase != "retiring"
+        or owner.factory.thread is not current_thread()
+    ):
+        if owner is not None:
+            _fail_factory_fingerprint(owner)
+        raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_RETIREMENT_REQUIRED")
 
 
 def _factory_structure(
@@ -1254,13 +1504,25 @@ class SqlContinuousIntegrityReader:
         ):
             raise ContinuousIntegrityError("ORIGINAL_INTEGRITY_CONFIGURATION_CHANGED")
 
-    def _require_daily_graph(self, current: ResolvedDailyRuntimeSnapshot) -> None:
+    def _require_daily_graph(
+        self, current: ResolvedDailyRuntimeSnapshot, use: _FactoryFingerprintUse | None = None
+    ) -> None:
         self._require_graph()
         self.daily.require_resolved_snapshot(current)
         producer = self.daily.producers
         assert type(producer) is SqlContinuousRuntimeSources
         if current.attempt_sources is not None:
-            producer._attempt_reader().require_resolved(current.attempt_sources)
+            source = producer._attempt_reader()
+            if use is None:
+                source.require_resolved(current.attempt_sources)
+            else:
+                permit = _FACTORY_FINGERPRINT_USES.get(use)
+                if permit is None:
+                    raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_USE_REQUIRED")
+                owner = _FACTORY_FINGERPRINTS[permit[0]]
+                source._require_resolved_for_factory(
+                    current.attempt_sources, proof=owner.proof, use=use
+                )
         if current.observed_sources is not None:
             producer._observed_reader().require_resolved(current.observed_sources)
         self.daily.require_resolved_snapshot(current)
@@ -1305,10 +1567,186 @@ class SqlContinuousIntegrityReader:
         self.account.coordinator._require_observations(episode.observations)
         return state
 
-    def _require_daily_episode(self, episode: _OriginalDailyEpisode) -> _DailyEpisodeState:
+    def _require_daily_episode(
+        self,
+        episode: _OriginalDailyEpisode,
+        borrow: tuple[_FactoryFingerprintContext, object] | None = None,
+    ) -> _DailyEpisodeState:
         state = self._require_daily_episode_identity(episode)
-        self._require_daily_graph(episode.current)
+        if borrow is None:
+            self._require_daily_graph(episode.current)
+        else:
+            self._require_borrow_daily_graph(episode.current, borrow)
         return state
+
+    def _issue_daily_fingerprint(
+        self, episode: _OriginalDailyEpisode, daily: _DailyEpisodeState
+    ) -> _FactoryFingerprintContext | None:
+        if not _factory_fingerprint_method_profile(self):
+            return None
+        state = self._select_factory_read()
+        current = episode.current
+        if (
+            state is None
+            or state.scope is None
+            or current.attempt_sources is None
+            or current.control is None
+            or current.control.effective_state is not OperationalControlState.HALTED
+        ):
+            return None
+        if self in _FACTORY_FINGERPRINT_READERS or daily.fingerprint_context is not None:
+            _fail_factory(state)
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_ALREADY_ACTIVE")
+        producer = self.daily.producers
+        assert type(producer) is SqlContinuousRuntimeSources
+        source = producer._attempt_reader()
+        context = _FactoryFingerprintContext()
+        owner = _FactoryFingerprintOwner(
+            self,
+            state,
+            daily,
+            source,
+            current.attempt_sources,
+            source._issue_factory_fingerprint,
+            source._require_resolved_for_factory,
+            source._retire_factory_fingerprint,
+        )
+        _FACTORY_FINGERPRINTS[context] = owner
+        _FACTORY_FINGERPRINT_READERS[self] = context
+        daily.fingerprint_context = context
+        try:
+            proof = owner.issue(
+                owner.value,
+                context=context,
+                max_containers=_MAX_FACTORY_CONTAINERS,
+                max_bindings=_MAX_FACTORY_BINDINGS,
+            )
+            # Retain any issued proof before the post-issuance guard, so a
+            # callback failure cannot strand its original source registration.
+            _FACTORY_FINGERPRINTS[context] = replace(owner, proof=proof, phase="active")
+            _factory_fingerprint_owner(context, source=source, value=owner.value)
+            if proof is None:
+                self._retire_daily_fingerprint(context)
+                return None
+            return context
+        except BaseException:
+            _fail_factory_fingerprint(owner)
+            with suppress(BaseException):
+                self._retire_daily_fingerprint(context)
+            raise
+
+    def _retire_daily_fingerprint(self, context: _FactoryFingerprintContext) -> None:
+        owner = _FACTORY_FINGERPRINTS.get(context)
+        if owner is None:
+            return
+        if owner.reader is not self:
+            _fail_factory_fingerprint(owner)
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_RETIREMENT_OWNER")
+        error: BaseException | None = None
+        if owner.borrow is not None or owner.use is not None:
+            _fail_factory_fingerprint(owner)
+            error = ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_BORROW_ACTIVE")
+        try:
+            # Keep retirement authority until the original source revokes its
+            # proof, even if a failed borrow damaged its nonce or use record.
+            _FACTORY_FINGERPRINTS[context] = replace(owner, phase="retiring")
+            if owner.proof is not None:
+                owner.retire(owner.proof, context=context)
+        except BaseException as failure:
+            _fail_factory_fingerprint(owner)
+            if error is None:
+                error = failure
+        finally:
+            # This operation owns at most one permit. Never copy or traverse
+            # other operations' registry entries to retire our own bounded state.
+            use = owner.use
+            permit = _FACTORY_FINGERPRINT_USES.get(use) if use is not None else None
+            if use is not None and permit is not None and permit[0] is context:
+                _FACTORY_FINGERPRINT_USES.pop(use, None)
+            _FACTORY_FINGERPRINTS.pop(context, None)
+            if _FACTORY_FINGERPRINT_READERS.get(self) is context:
+                _FACTORY_FINGERPRINT_READERS.pop(self, None)
+            if owner.daily.fingerprint_context is context:
+                owner.daily.fingerprint_context = None
+        if error is not None:
+            raise error
+
+    def _begin_daily_fingerprint_borrow(
+        self, episode: _OriginalDailyEpisode, consumer: SqlContinuousCommitComposer
+    ) -> tuple[_FactoryFingerprintContext, object] | None:
+        context = _FACTORY_FINGERPRINT_READERS.get(self)
+        if context is None:
+            daily = self._daily_episode
+            if daily is not None and daily.fingerprint_context is not None:
+                daily.failed = True
+                raise ContinuousIntegrityError("UNREGISTERED_FACTORY_FINGERPRINT_CONTEXT")
+            return None
+        owner = _FACTORY_FINGERPRINTS[context]
+        owner = _factory_fingerprint_owner(context, source=owner.source, value=owner.value)
+        if (
+            owner.daily.episode is not episode
+            or owner.phase != "active"
+            or owner.proof is None
+            or owner.borrow is not None
+            or owner.use is not None
+            or consumer is not self.composer
+            or owner.daily.borrows >= episode.maximum_borrows
+        ):
+            _fail_factory_fingerprint(owner)
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_BORROW_REQUIRED")
+        nonce = object()
+        _FACTORY_FINGERPRINTS[context] = replace(owner, borrow=nonce)
+        return context, nonce
+
+    def _end_daily_fingerprint_borrow(
+        self, borrow: tuple[_FactoryFingerprintContext, object] | None
+    ) -> None:
+        if borrow is None:
+            return
+        context, nonce = borrow
+        owner = _FACTORY_FINGERPRINTS.get(context)
+        if owner is not None:
+            if owner.reader is not self or owner.borrow is not nonce:
+                _fail_factory_fingerprint(owner)
+                raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_BORROW_CHANGED")
+            _FACTORY_FINGERPRINTS[context] = replace(owner, borrow=None)
+
+    def _require_borrow_daily_graph(
+        self,
+        current: ResolvedDailyRuntimeSnapshot,
+        borrow: tuple[_FactoryFingerprintContext, object],
+    ) -> None:
+        context, nonce = borrow
+        owner = _FACTORY_FINGERPRINTS[context]
+        owner = _factory_fingerprint_owner(context, source=owner.source, value=owner.value)
+        if (
+            owner.borrow is not nonce
+            or current is not owner.daily.episode.current
+            or owner.use is not None
+        ):
+            _fail_factory_fingerprint(owner)
+            raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_BORROW_CHANGED")
+        use = _FactoryFingerprintUse()
+        _FACTORY_FINGERPRINT_USES[use] = (context, nonce, "ready")
+        _FACTORY_FINGERPRINTS[context] = replace(owner, use=use)
+        try:
+            self._require_daily_graph(current, use)
+            permit = _FACTORY_FINGERPRINT_USES.get(use)
+            if (
+                permit is None
+                or permit[0] is not context
+                or permit[1] is not nonce
+                or permit[2] != "complete"
+            ):
+                raise ContinuousIntegrityError("ORIGINAL_FACTORY_FINGERPRINT_CHECK_INCOMPLETE")
+        except BaseException:
+            _fail_factory_fingerprint(owner)
+            raise
+        finally:
+            _FACTORY_FINGERPRINT_USES.pop(use, None)
+            active = _FACTORY_FINGERPRINTS.get(context)
+            if active is not None and active.use is use:
+                _FACTORY_FINGERPRINTS[context] = replace(active, use=None)
 
     @contextmanager
     def _original_daily_episode(
@@ -1357,8 +1795,10 @@ class SqlContinuousIntegrityReader:
         )
         self._daily_episode = state
         primary_failure = False
+        fingerprint_context = None
         try:
             composer._bind_integrity_daily(self, episode)
+            fingerprint_context = self._issue_daily_fingerprint(episode, state)
             yield episode
             # The final SQL/fence check has already run. Only exact context and
             # binding identities are inspected during normal scope cleanup.
@@ -1368,11 +1808,17 @@ class SqlContinuousIntegrityReader:
             primary_failure = True
             raise
         finally:
+            cleanup_error: BaseException | None = None
+            try:
+                if fingerprint_context is not None:
+                    self._retire_daily_fingerprint(fingerprint_context)
+            except BaseException as error:
+                cleanup_error = error
             try:
                 composer._unbind_integrity_daily(self, episode)
-            except BaseException:
-                if not primary_failure:
-                    raise
+            except BaseException as error:
+                if cleanup_error is None:
+                    cleanup_error = error
             finally:
                 # Even failed cleanup cannot strand our original binding or
                 # replace a primary failure. Never clear another episode.
@@ -1389,12 +1835,21 @@ class SqlContinuousIntegrityReader:
                 state.failed = True
                 if self._daily_episode is state:
                     self._daily_episode = None
+            if cleanup_error is not None and not primary_failure:
+                raise cleanup_error
 
     def _borrow_original_daily(
         self, episode: _OriginalDailyEpisode, *, consumer: SqlContinuousCommitComposer
     ) -> ResolvedDailyRuntimeSnapshot:
+        borrow = None
+        failed = False
         try:
-            state = self._require_daily_episode(episode)
+            borrow = self._begin_daily_fingerprint_borrow(episode, consumer)
+            state = (
+                self._require_daily_episode(episode, borrow)
+                if borrow is not None
+                else self._require_daily_episode(episode)
+            )
             if consumer is not self.composer or state.borrows >= episode.maximum_borrows:
                 raise ContinuousIntegrityError("ORIGINAL_DAILY_EPISODE_CONSUMER_OR_BOUND")
             consumer._require_integrity_daily(self, episode)
@@ -1403,7 +1858,10 @@ class SqlContinuousIntegrityReader:
             # Its new receipt must never replace the original B/source receipt.
             self.account.coordinator.revalidate(self.fence)
             episode.objects.recheck()
-            self._require_daily_episode(episode)
+            if borrow is None:
+                self._require_daily_episode(episode)
+            else:
+                self._require_daily_episode(episode, borrow)
             with _repeatable_read_transaction(self.engine) as connection:
                 self.account.coordinator.recheck_committed_observations_in_transaction(
                     connection, episode.observations
@@ -1414,13 +1872,23 @@ class SqlContinuousIntegrityReader:
                 self.account.coordinator.revalidate_for_commit_in_transaction(
                     connection, self.fence
                 )
-            self._require_daily_episode(episode)
+            if borrow is None:
+                self._require_daily_episode(episode)
+            else:
+                self._require_daily_episode(episode, borrow)
             consumer._require_integrity_daily(self, episode)
             return episode.current
         except BaseException:
+            failed = True
             if self._daily_episode is not None:
                 self._daily_episode.failed = True
             raise
+        finally:
+            try:
+                self._end_daily_fingerprint_borrow(borrow)
+            except BaseException:
+                if not failed:
+                    raise
 
     def _capture(self) -> ContinuousIntegritySnapshot | None:
         with _repeatable_read_transaction(self.engine) as connection:
@@ -1548,6 +2016,11 @@ class SqlContinuousIntegrityReader:
                 objects.inspect(association)
                 with _repeatable_read_transaction(self.engine) as connection:
                     self.associations.recheck_in_transaction(connection, association)
+            # The fingerprint proof and handoff structure share one allowance;
+            # retire the proof before retaining any handoff structure records.
+            context = _FACTORY_FINGERPRINT_READERS.get(self)
+            if context is not None:
+                self._retire_daily_fingerprint(context)
             result = None
             state = self._select_factory_read()
             if state is not None and actual is not None:
@@ -1745,3 +2218,55 @@ class SqlContinuousIntegrityReader:
         ):
             raise ContinuousIntegrityError("FINAL_CANONICAL_DAILY_ACCOUNT_HEADS_DIFFER")
         return previous
+
+
+# Baseline original code at module completion, before any factory can issue a
+# proof. The source module accepts this registration once; it never learns new
+# behavior at proof issuance. Ordinary APIs do not consult this inventory.
+_FACTORY_FINGERPRINT_READER_DICT = vars(SqlContinuousIntegrityReader)["__dict__"]
+_FACTORY_FINGERPRINT_COMPOSER_DICT = vars(SqlContinuousCommitComposer)["__dict__"]
+_FACTORY_FINGERPRINT_ORIGINAL_FUNCTIONS = tuple(
+    (function, function.__code__, function.__defaults__, function.__kwdefaults__)
+    for function in (
+        _require_factory_fingerprint_context,
+        _begin_factory_fingerprint_use,
+        _end_factory_fingerprint_use,
+        _fail_factory_fingerprint_use,
+        _retire_factory_fingerprint_context,
+        _factory_fingerprint_owner,
+        _factory_fingerprint_use,
+        _fail_factory_fingerprint,
+        _factory_fingerprint_method_profile,
+        _factory_scope_fields,
+        _fail_factory,
+        SqlContinuousIntegrityReader._require_factory_read,
+        SqlContinuousIntegrityReader._select_factory_read,
+        SqlContinuousIntegrityReader._require_daily_episode_identity,
+        SqlContinuousIntegrityReader._require_graph,
+        SqlContinuousIntegrityReader._graph,
+        SqlContinuousCommitComposer._require_integrity_daily,
+        SqlContinuousIntegrityReader._issue_daily_fingerprint,
+        SqlContinuousIntegrityReader._retire_daily_fingerprint,
+        SqlContinuousIntegrityReader._begin_daily_fingerprint_borrow,
+        SqlContinuousIntegrityReader._end_daily_fingerprint_borrow,
+        SqlContinuousIntegrityReader._require_borrow_daily_graph,
+        SqlContinuousIntegrityReader._require_daily_graph,
+        SqlContinuousIntegrityReader._require_daily_episode,
+        SqlContinuousIntegrityReader._original_daily_episode,
+        cast(Any, SqlContinuousIntegrityReader._original_daily_episode).__wrapped__,
+        SqlContinuousIntegrityReader._borrow_original_daily,
+    )
+)
+
+
+def _register_factory_fingerprint_originals() -> None:
+    from packages.persistence.continuous_runtime_attempt_sources import (
+        _register_factory_fingerprint_runtime,
+    )
+
+    _register_factory_fingerprint_runtime(
+        sys.modules[__name__], _FACTORY_FINGERPRINT_ORIGINAL_FUNCTIONS
+    )
+
+
+_register_factory_fingerprint_originals()

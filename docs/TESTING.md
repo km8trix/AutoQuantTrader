@@ -257,3 +257,35 @@ runbooks only when work actually targets those systems.
   `test:coverage` but does not declare a Vitest coverage-provider package; the
   supported CI gate is `test --run`, not an assumed coverage result.
 - No backtest, paper result or historical return implies future profitability.
+
+## Bounded factory fingerprint proof pilot
+
+A2.3 is an owner-approved offline experiment, not an accepted timing change. Use
+this focused selection with the clean environment above:
+
+```sh
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_continuous_attempt_fingerprint_proof.py \
+  tests/unit/test_continuous_attempt_fingerprint_behavior.py \
+  tests/unit/test_continuous_attempt_fingerprint_method_profile.py \
+  tests/integration/test_continuous_attempt_factory_proof.py
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/integration/test_continuous_attempt_factory_proof_lifecycle.py
+```
+
+The first group covers narrow data admission, changed conversion behavior,
+resource bounds and real-owned pending/source negative controls. The lifecycle
+group shares only immutable signed history: each case constructs a fresh genuine
+factory, real clock and original lease, then exercises positive use, copied or
+retired proofs, wrong-thread/reentrant use, method replacement or deep data
+changes and original cleanup. It does not fabricate a successful owner registry.
+Coordinate expensive signed-history setup; do not run several heavy fixtures at
+once and mistake resource contention for the implementation's cost.
+
+Also run the A2.3 original integration selections in PLAN, the unchanged unprofiled
+`test_actual_signed_retained_outcome_restores_with_original_utc_and_lease`, worker
+lifecycle gates, full static/API checks and exact-source Linux/PostgreSQL CI.
+Diagnostic instrumentation is separate from the original acceptance timing.
+The standard runner's `test_continuous_*.py` patterns include these regressions;
+verify actual collection when changing filenames or selection rules. Current
+results and unresolved gaps belong in STATUS and the dated evidence, not here.
