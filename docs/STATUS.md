@@ -1,19 +1,18 @@
 # Current status
 
-Updated 2026-09-26. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
+Updated 2026-09-27. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md)
 and the [evidence index](reviews/2026-09-26-autonomy/README.md).
 
-- **Current milestone:** A2/A2.1 open; A2.3 pilot unaccepted; A2.4 observation
-  complete; A2.5
-  rejects the stated per-node layout. Wave 4 remains incomplete. A0/A1 and A3's offline scope are complete.
-- **Current task:** finish exact-revision Linux diagnostics, preserve each failure,
-  and repair only a concrete established defect. The owner separately approved the bounded daily-identity
-  feasibility experiment only; its reviewed resource screen rejects the first
-  concrete layout. No further safe small implementation is established. No new daily
-  proof, changed verification schedule or production substitution is approved.
+- **Current milestone:** A2/A2.1 open; A2.3 pilot unaccepted. A2.4 is complete;
+  A2.5 rejects the stated per-node layout. A0/A1 and A3's offline scope are complete.
+  Wave 4 remains incomplete.
+- **Current task:** review final evidence and obtain the separate owner decision
+  for A2.6's bounded pre-lease study. No further safe small repair is established.
+  No new daily proof, verification schedule or production substitution is approved.
 - **Checkout:** `codex/autonomous-development` in `Documents/AutoQuantTrader/autonomous-development`.
-  Published revision `26631c66854c754533f5d6d82749e1fb8b5e3dcf`,
-  [draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) → W4 integration.
+  Tested code/diagnostic revision `26631c66854c754533f5d6d82749e1fb8b5e3dcf`;
+  later commits update documentation/evidence only.
+  [Draft PR #56](https://github.com/km8trix/AutoQuantTrader/pull/56) → W4 integration.
   Draft PR #55 → `main` is preserved. Neither may merge here. Preserve the
   integration checkout and its preexisting architecture edit.
 - **Completed implementation:** operating documents, runner/sharding coverage,
@@ -23,18 +22,23 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   [Pilot local evidence](reviews/2026-09-26-autonomy/factory-proof-local-validation.json)
   includes 100 new cases together, 177 original integration/worker cases and
   original local restore at 40.246 s. These do not override failed Linux gates.
-- **Current CI:** [run 36289760186](https://github.com/km8trix/AutoQuantTrader/actions/runs/36289760186)
+- **Last completed code CI:** [run 36289760186](https://github.com/km8trix/AutoQuantTrader/actions/runs/36289760186)
   tests `26631c6`; [verified merge/tree binding](reviews/2026-09-26-autonomy/linux-26631c6-source-binding.json).
-  Foundations/installed wheel and 139 browser tests pass. Fourteen financial shards
-  have finished: 4,350 passed, two failed, no skips; shards 12/15 remain.
+  Foundations/installed wheel and 139 browser tests pass. All 16 financial shards
+  have finished: 4,964 passed, three failed, no skips, exactly 4,967 selected
+  tests. [Complete matrix](reviews/2026-09-26-autonomy/linux-26631c6-financial-summary.json).
+  The backend aggregate and separate diagnostic fail. The diagnostic expires at
+  60.509 s; capture is valid but execute does not return. [Final run/artifact record](reviews/2026-09-26-autonomy/linux-26631c6-ci-failure.json).
   The original worker passes, so its failure-only metadata is silent and the
-  earlier observation subtype remains unknown. Do not push and cancel this run.
+  earlier observation subtype remains unknown. The run and monitor are complete.
 - **Known failures:** current positive original proof case expires at 60.278 s
   during borrow commit-fence validation; `private_entry_seen=true` records entry,
   not completed proof. [Record](reviews/2026-09-26-autonomy/linux-26631c6-proof-positive-failure.json).
   Current unchanged original restore expires at 60.113 s during initial borrow
   coordinator validation. [Record](reviews/2026-09-26-autonomy/linux-26631c6-original-restore-failure.json).
-  Both logs explicitly report expired-lease cleanup release failure too.
+  The [retired positive case](reviews/2026-09-26-autonomy/linux-26631c6-proof-retired-failure.json)
+  also expires at 61.292 s with private entry observed.
+  All three logs explicitly report expired-lease cleanup release failure too.
   Previous `2a9fc2c` run finished with 4,944 passed/four failed/no skips: worker
   observation plus original and both positive proof restore failures. Its valid
   partial profile also expires and proves route use, not completed restoration.
@@ -49,25 +53,25 @@ and the [evidence index](reviews/2026-09-26-autonomy/README.md).
   edges do not establish a new proof's charge or eligibility. Observer mechanics
   passed 29 cases and independent review. [Result](reviews/2026-09-26-autonomy/daily-identity-original-result.json)
   and [independent interpretation](reviews/2026-09-26-autonomy/daily-identity-original-result-assessment.md).
-- **Work in progress:** docs/evidence updates after the measurement are local.
-  No local heavy fixture is active. CI monitor owns tool session 17864 and writes
-  `/private/tmp/aqt-autonomy-audit/ci-26631c6-latest.json`; no duplicate monitor,
-  cancellation or rerun. Worker/proof diagnostic implementation passed 102 local
-  tests; standard runner collection is 4,967. Production changes remain frozen.
-- **Next actions:** inspect remaining shards and automatic failure profile, bind
-  their logs/artifacts to the exact tree, then finalize CI evidence and publish
-  focused documentation without cancelling active work. Do not repeat A2.4
-  without a specific new question. Identity-classification and SQL projection
-  shortcuts are rejected; no safe material small repair is established. The
-  [separate feasibility proposal](reviews/2026-09-26-autonomy/daily-identity-feasibility-proposal.md)
-  was approved and its first concrete layout is now rejected: joint minimum
-  16,743 containers/139,661 bindings exceeds original caps by 359/8,589, before
-  added metadata or construction. Both author and independent reviewer passed
-  37 scalar mechanics cases. [Resource verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
+- **Work in progress:** no local fixture or CI monitor remains. Final docs/evidence
+  accompany this commit. Normal PR CI may start on publication; inspect
+  `gh pr checks 56` on resume and bind each result to its source/test tree.
+  A repeated pass alone does not repair the known failures.
+- **Next actions:** await the separate owner decision on the
+  [bounded pre-lease study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md)
+  (A2.6). No implementation-ready handoff or guaranteed benefit is established.
+  If approved, first resolve original before/after acquisition ownership, exact
+  permitted delta and resource/cost model before any new fixture or production code.
+  Canonical, identity and projection shortcut investigations established no safe
+  material small repair. Do not repeat A2.4 without a specific new question.
+- **Feasibility disposition:** the separately approved daily per-node layout is
+  rejected: joint minimum 16,743 containers/139,661 bindings exceeds original
+  caps by 359/8,589 before added metadata or construction. Both author and reviewer
+  passed 37 scalar mechanics cases. [Verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
   No graph/behavior/timing prototype or additional fixture was needed. Other
-  representations are untested; this is not a proof that all are impossible.
-  [Pre-lease review](reviews/2026-09-26-autonomy/prelease-restoration-seam-assessment.md)
-  identifies a new ownership-contract boundary, not a safe existing rescheduling API.
+  representations remain untested, not proved impossible. The
+  [pre-lease review](reviews/2026-09-26-autonomy/prelease-restoration-seam-assessment.md)
+  identifies a new ownership-contract boundary, not an existing safe rescheduling API.
 - **Other blockers:** A4 needs the supervised Mac's measured-time source and a
   non-secret qualification record, then review of the
   [genuine producer contract](reviews/2026-09-26-autonomy/capture-bridge-contract.md).

@@ -693,3 +693,64 @@ across writer-lease acquisition. The coherent snapshot includes lease/head rows
 that acquisition changes; daily captures also carry an original fenced receipt.
 Moving those owned results across acquisition would change lifecycle/error-order
 and exact-snapshot contracts. No such implementation or approval is inferred.
+
+The final [canonical encoding review](canonical-cost-assessment.md) confirms that
+the useful scalar BUILD_STRING change is already present. Previously captured
+tuple variants do not establish material overall benefit; batching/caching lack
+required hook, error-order or lifetime compatibility. The replay's omitted large
+outputs and unsupported Enum samples prevent an end-to-end speedup claim. No
+new imports, experiments or source changes were made for this review.
+
+The resulting [owner-decision proposal](prelease-restoration-decision-proposal.md)
+limits any future study to a fixed HALTED account with an inactive head. It identifies
+the exact proposed acquisition delta and missing original before/after witness;
+old receipts may never be rebound to the new fence. This is a separate pending
+architecture decision, not an approved implementation or performance claim.
+
+### Completed diagnostic follow-up run
+
+[Run 36289760186](https://github.com/km8trix/AutoQuantTrader/actions/runs/36289760186)
+completed with **4,964 passed, three failed and no skipped financial tests**,
+covering all 4,967 selected cases. Foundations/installed wheel and all 139 browser
+cases pass; the backend aggregate fails. The
+[final source-bound run record](linux-26631c6-ci-failure.json) preserves every
+job log digest and the exact candidate/merge tree. The
+[complete matrix](linux-26631c6-financial-summary.json) records every shard.
+Raw records retain their original temporary filenames; the
+[publication map](linux-26631c6-publication-map.json) resolves exact-copy artifacts
+to the durable repository names.
+
+The final failure is the [retired positive case](linux-26631c6-proof-retired-failure.json)
+at 61.292 s. Its [trace](linux-26631c6-proof-retired-trace.json) reaches initial
+borrow coordinator revalidation and records `private_entry_seen=true`. Both
+positive cases entered the private route, without completing restore or later
+retirement assertions. All five genuine adverse cases pass, including the precise
+nested mutation case. The original worker passes this run, without revealing the
+earlier observation failure's subtype. No repeat result is a repair by itself.
+
+The separate [profile](linux-26631c6-diagnostic-profile.json) is valid with no
+capture faults, but execute did not return; the
+[test exits 1](linux-26631c6-diagnostic-test-exit.json) after a 60.509 s restore
+expiry and explicit expired-lease cleanup in a two-error ExceptionGroup. The
+[static failure trace](linux-26631c6-diagnostic-failure.txt) is separate from the
+profile's scope, which excludes factory construction and cleanup.
+
+The artifact archive SHA256 matches GitHub's digest; the final run record binds
+archive/profile/exit hashes and [artifact metadata](linux-26631c6-artifacts.json).
+The selected profile has 309 rows from 4,852 entries. It records one proof-issuance
+entry, 26 private-check entries and 29 data-check entries. Entries do not prove
+completion; borrow-generator entries include resumptions. Top-N omissions do not
+prove fallback, and inclusive timings overlap. This failed instrumented partial
+execution neither establishes startup savings nor supersedes unprofiled gates.
+
+Production and test files remain unchanged by subsequent documentation commits.
+The bounded daily layout is rejected, the attempt pilot remains unaccepted, and
+the separate pre-lease study requires its own owner decision. No limits, tests
+or verification gates were relaxed.
+
+Publication validation: `git diff --check` passes; production, tests, scripts and
+CI files are unchanged from the tested `26631c6` revision. All evidence JSON
+parses; all 20 raw-log hashes, archive/file digests and durable-copy hashes match,
+including the GitHub archive digest. All 315 checked local links in 37 operating
+and evidence documents resolve. No additional behavioral test run was needed
+for these documentation/evidence-only changes.

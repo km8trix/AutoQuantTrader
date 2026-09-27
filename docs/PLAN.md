@@ -230,7 +230,32 @@ credentials, start live services or authorize provider traffic.
   359/8,589 before overhead. [Independent verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
   All 37 scalar mechanics checks pass; no further fixture, graph/behavior proof
   or timing work is warranted for this layout. Other representations remain
-  untested, not proved impossible. Preserve the failed A2 gates and finish CI.
+  untested, not proved impossible. The completed follow-up CI has 4,964 passed,
+  three failed and no skips; the diagnostic also fails. Preserve these A2 failures.
+  A2.6 is blocked on its distinct owner decision.
+
+### A2.6 — bounded pre-lease handoff study (blocked on separate decision)
+
+- **Objective:** determine whether bounded provisional historical preparation can
+  reduce lease-held work without changing the original complete validation or limits.
+- **Scope:** the [concrete proposed study](reviews/2026-09-26-autonomy/prelease-restoration-decision-proposal.md),
+  restricted to an existing HALTED account/inactive head. No production implementation
+  or reuse of old receipts under a new fence.
+- **Dependencies:** failed original Linux gates, rejected A2.5 layout and a new
+  owner decision; the attempt/daily feasibility approvals do not cover this new
+  acquisition ownership contract.
+- **Acceptance criteria:** first specify a finite useful pure-work subset and exact
+  acquisition-owned delta; preserve every other captured row/object dependency,
+  fresh SQL/object/fence/control/terminal observation and original timer/resource cap.
+  Resolve original before/after transition ownership and race/ABA questions before
+  any prototype can issue qualified results. Record changed failure ordering.
+- **Validation commands:** architecture and finite mechanics first; a separately
+  reviewed temporary experiment with literal commands/source hashes only if the
+  ownership/resource/cost model survives. Existing retained/worker acceptance
+  remains required for any later separately approved production adoption.
+- **Completion criteria:** independently reviewed finite feasibility or documented
+  rejection. Do not run a heavy fixture before a concrete plan, add broad lease-table
+  exclusions, move timers to hide work, or treat faster execute time as total benefit.
 
 ## A3 — genuine capture bridge contract and offline guards
 
