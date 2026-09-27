@@ -1,0 +1,31 @@
+{
+  "scope": "pure import/object.__new__/copy; no fixture or database",
+  "results": [
+    {
+      "class": "SqlContinuousIntegrityReader",
+      "added_keys": [
+        "__slotnames__"
+      ],
+      "unchanged_existing_bindings": true,
+      "copy_is_distinct": true,
+      "after_copy": {
+        "type": "_AttemptBehaviorChanged",
+        "code": "FACTORY_BEHAVIOR_CLASS_NAMESPACE_CHANGED"
+      },
+      "after_restoration": "passed"
+    },
+    {
+      "class": "SqlContinuousCommitComposer",
+      "added_keys": [
+        "__slotnames__"
+      ],
+      "unchanged_existing_bindings": true,
+      "copy_is_distinct": true,
+      "after_copy": {
+        "type": "_AttemptBehaviorChanged",
+        "code": "FACTORY_BEHAVIOR_CLASS_NAMESPACE_CHANGED"
+      },
+      "after_restoration": "passed"
+    }
+  ]
+}

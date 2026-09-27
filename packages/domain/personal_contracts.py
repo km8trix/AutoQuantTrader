@@ -21,7 +21,7 @@ def semantic_value(value: object) -> object:
     # Exact builtins cannot carry dataclass fields; preserve the reflection
     # path for every subclass, record and other value without caching results.
     if type(value) is tuple:
-        return tuple(semantic_value(v) for v in value)
+        return tuple(semantic_value(item) for item in value)
     if (
         value is None
         or type(value) is str
@@ -31,6 +31,8 @@ def semantic_value(value: object) -> object:
     ):
         return value
     if is_dataclass(value) and not isinstance(value, type):
+        # Generator boundaries preserve StopIteration chaining and release prior
+        # results on failure; expression temporaries must not survive the next getter.
         return (
             type(value).__module__ + "." + type(value).__qualname__,
             tuple((f.name, semantic_value(getattr(value, f.name))) for f in fields(value)),
@@ -90,6 +92,14 @@ def _hints(cls: type) -> dict[str, object]:
 
 
 def _check_type(value: object, annotation: object, name: str) -> None:
+    # Matching exact primitives need no typing introspection. Keep mismatches,
+    # aliases, compound annotations and subclasses on the original path.
+    if (
+        annotation is str or annotation is int or annotation is bool or annotation is type(None)
+    ) and type(value) is annotation:
+        if type(value) is str and len(value) > 65536:
+            raise ValueError(f"{name} exceeds text bound")
+        return
     if isinstance(annotation, TypeAliasType):
         _check_type(value, annotation.__value__, name)
         return

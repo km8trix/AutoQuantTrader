@@ -322,13 +322,26 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
     tmp_path,
     monkeypatch,
 ):
-    fixture, config = configured
+    _exercise_post_exit_probe(configured, tmp_path, monkeypatch, observation_failure=False)
+
+
+def test_post_exit_probe_hook_preserves_observation_failure_and_cleanup(
+    configured,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+):
+    _exercise_post_exit_probe(configured, tmp_path, monkeypatch, observation_failure=True)
+
+
+def _exercise_post_exit_probe(configured_case, tmp_path, monkeypatch, *, observation_failure):
+    fixture, config = configured_case
     install_initial_signed_assignment(fixture)
     release(fixture)
     request = request_for(fixture, config)
     probe = SqlContinuousParentProbe(request)
     original_launch = process_module.subprocess.Popen
     original_child_observe = process_module._observe_child
+    original_terminate = process_module._terminate_owned_child
     original_observe = probe.observe
     original_require_result = probe.require_result
     zombie_seen = threading.Event()
@@ -337,6 +350,18 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
     waits = []
     delayed_observation = False
     post_exit_sample = False
+    cleaning_up = False
+    cleanup_observations = 0
+    failure_injected = False
+    result_checks = 0
+
+    def terminate(*args, **kwargs):
+        nonlocal cleaning_up
+        cleaning_up = True
+        try:
+            return original_terminate(*args, **kwargs)
+        finally:
+            cleaning_up = False
 
     def launch(*args, **kwargs):
         child = original_launch(*args, **kwargs)
@@ -356,9 +381,19 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
         return child
 
     def observe_child(pid, **kwargs):
+        nonlocal cleanup_observations, failure_injected
         assert threading.current_thread() is threading.main_thread()
         assert owned_children and owned_children[0].returncode is None
         observation = original_child_observe(pid, **kwargs)
+        if cleaning_up:
+            # Cleanup can run after the SQL probe has stopped. Keep its real
+            # observation, but never wait for the success-path handshake there.
+            cleanup_observations += 1
+            return observation
+        if observation.exited and observation_failure:
+            assert not failure_injected
+            failure_injected = True
+            raise process_module.subprocess.TimeoutExpired("test observation", kwargs["timeout"])
         if observation.exited and not zombie_seen.is_set():
             # Hold the main thread's real, non-reaping observation just long
             # enough for the SQL thread to sample the still-false exit latch.
@@ -377,6 +412,9 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
         return original_observe(**kwargs)
 
     def require_result(payload):
+        nonlocal result_checks
+        result_checks += 1
+        assert not observation_failure
         assert delayed_observation and post_exit_sample
         assert supervisor._cleanup is not None and supervisor._cleanup.complete
         assert owned_children[0].returncode == 0 and len(waits) == 1
@@ -384,6 +422,7 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
 
     monkeypatch.setattr(process_module.subprocess, "Popen", launch)
     monkeypatch.setattr(process_module, "_observe_child", observe_child)
+    monkeypatch.setattr(process_module, "_terminate_owned_child", terminate)
     monkeypatch.setattr(probe, "observe", observe_after_delay)
     monkeypatch.setattr(probe, "require_result", require_result)
     tmp_path.chmod(0o700)
@@ -392,8 +431,16 @@ def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
         result = supervisor.run(
             request, lock_descriptor=lock.fileno(), stop_requested=lambda: False, lifecycle=probe
         )
-    assert pre_exit_sample_started.is_set() and delayed_observation and post_exit_sample
-    assert result.status == "completed", result.reason
-    assert probe._observed_exit
+    if observation_failure:
+        assert result.status == "failed" and result.reason == "child_observation_failed", result
+        assert result.receipt is None and failure_injected and cleanup_observations > 0
+        assert not zombie_seen.is_set() and not pre_exit_sample_started.is_set()
+        assert not delayed_observation and not post_exit_sample and result_checks == 0
+    else:
+        assert result.status == "completed", result.reason
+        assert pre_exit_sample_started.is_set() and delayed_observation and post_exit_sample
+        assert probe._observed_exit and result_checks == 1
+    assert supervisor._cleanup is not None and supervisor._cleanup.complete
+    assert owned_children[0].returncode == 0 and len(waits) == 1
     assert supervisor._probe_thread is not None and not supervisor._probe_thread.is_alive()
     assert not tuple(tmp_path.glob(".continuous-operation-*"))

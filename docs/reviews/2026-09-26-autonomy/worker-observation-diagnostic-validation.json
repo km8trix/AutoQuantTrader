@@ -1,0 +1,41 @@
+{
+  "scope": "Test-only observation evidence, not a production repair or closure of prior CI failure. Original process calls/assertions/limits retained.",
+  "validation": {
+    "passed": 102,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 24.34,
+    "selection": [
+      "tests/unit/test_continuous_process.py",
+      "tests/unit/test_continuous_process_observation_diagnostic.py",
+      "tests/integration/test_continuous_simulation_worker.py"
+    ],
+    "architecture": "pass before imports",
+    "scoped_ruff": "pass",
+    "scoped_format": "3 files pass",
+    "standard_runner_collection": 4967,
+    "collection_seconds": 13.14,
+    "new_diagnostic_cases": 19
+  },
+  "source_sha256": {
+    "tests/fixtures/continuous_process_observation.py": "76222043208a82b773cc59384fe24964ea05012cfe7d018c47c0991016e028eb",
+    "tests/unit/test_continuous_process_observation_diagnostic.py": "ba38e24850a56b2068ca2e6ced0966dfa61ae5057d024693fddec04cb97d4ff6",
+    "tests/integration/test_continuous_simulation_worker.py": "a7fd409943b8e42178cc77264b7930ad53ea8b1f27dcb8dedfd9f62c7ebee753",
+    "packages/application/continuous_process.py": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517"
+  },
+  "production_diff_from_candidate": "",
+  "original_failure": "linux-2a9fc2c-worker-failure.json",
+  "limits": [
+    "Local pass validates instrumentation; it does not identify the earlier CI subtype or prove a fix.",
+    "Instrumentation adds bounded timing/metadata overhead under original deadlines.",
+    "Raw original exception arguments, text, output, PID, paths and traceback are not retained in diagnostic state."
+  ],
+  "independent_review": "worker-observation-diagnostic-review.md",
+  "additional_failure_visibility": {
+    "path": "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py",
+    "sha256": "f53ca584da453b94961946c314401cab81fab683bf52c03b0ebca467adf34cd9",
+    "scope": "Only original/retired execution failure prints static case plus private_entry_seen boolean after existing cleanup. No original call, monitor, assertion or limit changed.",
+    "checks": "2 injected-before-fixture failures preserve exception identity and original monitoring slots; output has exactly case and false private_entry_seen. Scoped Ruff/format pass.",
+    "limitation": "No new genuine-source acceptance claimed for these fault-plumbing checks."
+  }
+}

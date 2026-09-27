@@ -1,5 +1,10 @@
 # AutoQuantTrader implementation plan
 
+Continuation entry point: [PLAN.md](PLAN.md) is the executable task breakdown of
+this preserved wave roadmap; [STATUS.md](STATUS.md) holds current results and
+blockers. Dated handoffs below remain historical evidence, not a substitute for
+checking the current revision. No wave requirements or approval gates are removed.
+
 Status: sole authoritative delivery plan. Waves 0/1 closed through [PR #52](https://github.com/km8trix/AutoQuantTrader/pull/52), Wave 2 through [PR #53](https://github.com/km8trix/AutoQuantTrader/pull/53), and Wave 3 through [PR #54](https://github.com/km8trix/AutoQuantTrader/pull/54), merged as `e1bcea18eaa18ad144bc3b03a4891d11ecdd9b06` with verified PR and post-merge checks. Wave 4 implementation and acceptance are in progress. Broker connected-execution qualification remains blocked; trading and deployment stay disabled.
 
 Implement the [architecture](ARCHITECTURE.md) using the evidence-backed priorities in the [design review](reviews/2026-09-08-design-review.md). The new waves replace the previous Phase 0–8/subphase/Wave 1–7 roadmaps. Existing local passes remain historical evidence; they do not mark any new wave passed.

@@ -1,0 +1,5 @@
+>               assert outcome.status == "completed", outcome.reason
+E               AssertionError: child_observation_failed
+tests/integration/test_continuous_simulation_worker.py:40: AssertionError
+FAILED tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history
+1 failed, 326 passed, 4621 deselected, 1 warning in 761.33s (0:12:41)

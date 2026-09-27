@@ -1,0 +1,148 @@
+{
+  "schema": "aqt-exact-head-ci-failed-job/1",
+  "captured_at_utc": "2026-09-27T06:00:20.283696+00:00",
+  "run_id": 36297439151,
+  "job_id": 108558977357,
+  "shard_index": 3,
+  "job_conclusion": "failure",
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "this_log_checkout_merge_verified": true,
+  "binding_provenance": {
+    "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-initial.json",
+    "sha256": "9c98497e535f24c33af7005dc203ed3fd35fefcb53cf8f670c624a812e4fd4ba"
+  },
+  "result": {
+    "selected": 327,
+    "passed": 326,
+    "failed": 1,
+    "skipped": 0,
+    "deselected": 4640,
+    "warnings": 1,
+    "elapsed_seconds": 823.69,
+    "skipped_evidence": "No skipped count in complete pytest summary; all327selected accounted for by326passed+1failed."
+  },
+  "failed_node": "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history",
+  "assertion": {
+    "path": "tests/integration/test_continuous_simulation_worker.py",
+    "line": 47,
+    "type": "AssertionError",
+    "reason": "child_observation_failed",
+    "actual_status": "failed",
+    "expected_status": "completed"
+  },
+  "child_observation_diagnostic": {
+    "call_count": 82,
+    "counts": {
+      "OSError": 0,
+      "SubprocessError": 0,
+      "TimeoutExpired": 1,
+      "ValueError": 0,
+      "other": 0,
+      "returned": 81
+    },
+    "first_failure": {
+      "call": 68,
+      "category": "TimeoutExpired",
+      "elapsed_ns": 379105127,
+      "requested_timeout_seconds": 0.1
+    },
+    "iteration": 2,
+    "overflow": false
+  },
+  "cleanup_evidence": {
+    "separate_application_cleanup_trace_present": false,
+    "claim": "No separate application execution/lease release/cleanup exception chain appears in the failed node output. The Actions Post job cleanup line is runner housekeeping, not evidence that application cleanup succeeded."
+  },
+  "raw_log": {
+    "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-raw.log",
+    "bytes": 51951,
+    "sha256": "b1a77aeae13356faaa34c723f2e67ee03c54e07be752ec48986369dcf8d6b9d5"
+  },
+  "bounded_static_extracts": [
+    {
+      "start_line": 390,
+      "end_line": 390,
+      "lines": [
+        "2026-09-27T05:46:54.4587153Z _ test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history _"
+      ]
+    },
+    {
+      "start_line": 395,
+      "end_line": 429,
+      "lines": [
+        "2026-09-27T05:46:54.4593244Z     def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history(",
+        "2026-09-27T05:46:54.4594000Z         configured,",
+        "2026-09-27T05:46:54.4594348Z         monkeypatch,",
+        "2026-09-27T05:46:54.4595106Z     ):",
+        "2026-09-27T05:46:54.4595434Z         fixture, config = configured",
+        "2026-09-27T05:46:54.4595874Z         pair = fixture[0]",
+        "2026-09-27T05:46:54.4596407Z         factory_fixture.install_initial_signed_assignment(fixture)",
+        "2026-09-27T05:46:54.4597103Z         original = pair.account.restore(pair.base.scope)",
+        "2026-09-27T05:46:54.4597649Z         counts = pair.counts()",
+        "2026-09-27T05:46:54.4598187Z         factory_fixture.release(fixture)",
+        "2026-09-27T05:46:54.4598762Z         request = factory_fixture.request_for(fixture, config)",
+        "2026-09-27T05:46:54.4599524Z         private = Path(config.database_path).parent / \"supervised\"",
+        "2026-09-27T05:46:54.4600144Z         private.mkdir(mode=0o700)",
+        "2026-09-27T05:46:54.4600832Z         supervisor = ContinuousProcessSupervisor(artifact_directory=private)",
+        "2026-09-27T05:46:54.4601615Z         with LocalInstanceGuard(private / \"instance.lock\") as lock:",
+        "2026-09-27T05:46:54.4602200Z             results = []",
+        "2026-09-27T05:46:54.4602583Z             for iteration in range(1, 3):",
+        "2026-09-27T05:46:54.4603230Z                 diagnostic = ChildObservationDiagnostic(process_module._observe_child)",
+        "2026-09-27T05:46:54.4603969Z                 with monkeypatch.context() as observation_patch:",
+        "2026-09-27T05:46:54.4604964Z                     observation_patch.setattr(process_module, \"_observe_child\", diagnostic.observe)",
+        "2026-09-27T05:46:54.4605696Z                     outcome = supervisor.run(",
+        "2026-09-27T05:46:54.4606137Z                         request,",
+        "2026-09-27T05:46:54.4606563Z                         lock_descriptor=lock.fileno(),",
+        "2026-09-27T05:46:54.4607059Z                         stop_requested=lambda: False,",
+        "2026-09-27T05:46:54.4607920Z                         lifecycle=SqlContinuousParentProbe(request),",
+        "2026-09-27T05:46:54.4608446Z                     )",
+        "2026-09-27T05:46:54.4608772Z                 try:",
+        "2026-09-27T05:46:54.4609205Z >                   assert outcome.status == \"completed\", outcome.reason",
+        "2026-09-27T05:46:54.4609804Z E                   AssertionError: child_observation_failed",
+        "2026-09-27T05:46:54.4610356Z E                   assert 'failed' == 'completed'",
+        "2026-09-27T05:46:54.4610784Z E                     ",
+        "2026-09-27T05:46:54.4611138Z E                     - completed",
+        "2026-09-27T05:46:54.4611514Z E                     + failed",
+        "2026-09-27T05:46:54.4611749Z ",
+        "2026-09-27T05:46:54.4612082Z tests/integration/test_continuous_simulation_worker.py:47: AssertionError"
+      ]
+    },
+    {
+      "start_line": 473,
+      "end_line": 474,
+      "lines": [
+        "2026-09-27T05:46:55.5144306Z ----------------------------- Captured stdout call -----------------------------",
+        "2026-09-27T05:46:55.5146985Z AQT_CHILD_OBSERVATION_DIAGNOSTIC {\"call_count\": 82, \"counts\": {\"OSError\": 0, \"SubprocessError\": 0, \"TimeoutExpired\": 1, \"ValueError\": 0, \"other\": 0, \"returned\": 81}, \"first_failure\": {\"call\": 68, \"category\": \"TimeoutExpired\", \"elapsed_ns\": 379105127, \"requested_timeout_seconds\": 0.1}, \"iteration\": 2, \"overflow\": false}"
+      ]
+    },
+    {
+      "start_line": 480,
+      "end_line": 485,
+      "lines": [
+        "2026-09-27T05:46:55.5154386Z -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "2026-09-27T05:46:55.5155324Z =========================== short test summary info ============================",
+        "2026-09-27T05:46:55.5157286Z FAILED tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history",
+        "2026-09-27T05:46:55.5158481Z 1 failed, 326 passed, 4640 deselected, 1 warning in 823.69s (0:13:43)",
+        "2026-09-27T05:46:56.7196885Z ##[error]Process completed with exit code 1.",
+        "2026-09-27T05:46:56.7335279Z Post job cleanup."
+      ]
+    }
+  ],
+  "limitations": [
+    "Completed failed job only; full run remains incomplete at the previous snapshot and was not polled again.",
+    "One child observation TimeoutExpired is observed with a requested0.1second timeout; no broader scheduling, process, or lease root cause is inferred.",
+    "Diagnostic timings and counts describe this instrumented observation; no production bound was changed.",
+    "Initial gh api attempt refused ANSI escape sequences and produced an empty output; retry used documented --allow-escape-sequences to preserve exact log bytes."
+  ]
+}

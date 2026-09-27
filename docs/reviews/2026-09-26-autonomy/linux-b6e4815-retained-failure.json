@@ -1,0 +1,21 @@
+{
+  "source_revision": "b6e481547b0f2de63d56961e91ddf7c487ecdc84",
+  "run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36222039834",
+  "job_id": 108349236540,
+  "scope": "required unprofiled shard 7",
+  "test": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "result": "failed",
+  "restore_seconds": 61.2,
+  "fixture_setup_seconds": 256.106,
+  "lease_seconds_unchanged": 60,
+  "operation_seconds_unchanged": 120,
+  "parent_seconds_unchanged": 150,
+  "cause": "AccountLeaseOwnershipLost at continuous_integrity._validate_original -> _recheck_final -> account coordinator revalidation",
+  "cleanup_failure": "OFFLINE_LEASE_RELEASE_FAILED / AccountLeaseOwnershipLost",
+  "shard_passed": 280,
+  "shard_failed": 1,
+  "shard_deselected": 4271,
+  "diagnostic_profile": "completed and failed separately at60.562s; valid bounded profile summary in linux-b6e4815-profile-summary.json",
+  "limitations": "Local46.681-second result remained local only. Current run is complete; required failure remains failure. No limit or authority change.",
+  "final_other_required_gates": "foundations, browser and other15shards passed; aggregatefailed"
+}

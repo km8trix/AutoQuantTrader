@@ -7,6 +7,7 @@ private helper calls and exact resource-exhaustion boundaries are not promised.
 from __future__ import annotations
 
 import hashlib
+import sys
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
@@ -188,3 +189,92 @@ def test_failed_call_does_not_leave_pending_output_for_later_calls():
         canonical.canonical_json_bytes(value)
     ChangeableDate.output = "valid"
     assert canonical.canonical_json_bytes(value) == _legacy_bytes(value)
+
+
+@pytest.mark.parametrize(
+    "value,wire",
+    [
+        ("{}", b'{"type":"string","value":"{}"}'),
+        ('"\n\\é\ud800', b'{"type":"string","value":"\\"\\n\\\\\\u00e9\\ud800"}'),
+        (-(2**128), b'{"type":"int","value":"-340282366920938463463374607431768211456"}'),
+        (b'\x00\xff"\\', b'{"type":"bytes","value":"00ff225c"}'),
+    ],
+)
+def test_scalar_fragment_construction_keeps_literal_escaping_and_type_tags(value, wire):
+    for material, expected in (
+        (value, wire),
+        ((value,), b'{"type":"tuple","value":[' + wire + b"]}"),
+    ):
+        assert _legacy_bytes(material) == expected
+        actual = canonical.canonical_json_bytes(material)
+        assert actual == expected
+        assert hashlib.sha256(actual).digest() == hashlib.sha256(expected).digest()
+
+
+@pytest.mark.parametrize("base", [str, int, bytes])
+def test_scalar_subclasses_do_not_acquire_format_string_or_hex_hooks(base):
+    def factory(reads):
+        class HostileScalar(base):
+            def __format__(self, specification):
+                reads.append("scalar.format")
+                raise AssertionError("subclass formatting is not admitted")
+
+            def __str__(self):
+                reads.append("scalar.str")
+                raise AssertionError("subclass string conversion is not admitted")
+
+            def hex(self):
+                reads.append("scalar.hex")
+                raise AssertionError("subclass hex conversion is not admitted")
+
+        class LaterDate(date):
+            def isoformat(self):
+                reads.append("later.convert")
+                return "later"
+
+        value = HostileScalar({str: "value", int: 7, bytes: b"value"}[base])
+        return ("head", (value, LaterDate(2026, 9, 26)))
+
+    expected = _outcome(_legacy_bytes, factory)
+    actual = _outcome(canonical.canonical_json_bytes, factory)
+    assert actual == expected
+    assert actual[0] == (
+        "error",
+        TypeError,
+        "unsupported canonical JSON value type: "
+        "test_scalar_subclasses_do_not_acquire_format_string_or_hex_hooks.<locals>."
+        "factory.<locals>.HostileScalar",
+        None,
+    )
+    assert actual[1] == []
+
+
+def test_integer_string_failure_keeps_conversion_timing_and_deferred_error_precedence():
+    original_limit = sys.get_int_max_str_digits()
+
+    def factory(reads):
+        sys.set_int_max_str_digits(0)
+
+        class InvalidDate(date):
+            def isoformat(self):
+                reads.append("earlier.convert")
+                sys.set_int_max_str_digits(640)
+                return b"pending JSON serialization failure"
+
+        class LaterDate(date):
+            def isoformat(self):
+                reads.append("later.convert")
+                return "later"
+
+        return (InvalidDate(2026, 9, 26), (10**640, LaterDate(2026, 9, 26)))
+
+    try:
+        expected = _outcome(_legacy_bytes, factory)
+        actual = _outcome(canonical.canonical_json_bytes, factory)
+        assert actual == expected
+        assert actual[0][0:2] == ("error", ValueError)
+        assert "Exceeds the limit (640 digits)" in actual[0][2]
+        assert actual[0][3] is None
+        assert actual[1] == ["earlier.convert"]
+    finally:
+        sys.set_int_max_str_digits(original_limit)

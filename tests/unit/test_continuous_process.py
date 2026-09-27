@@ -202,7 +202,7 @@ def test_child_observation_reads_only_state_and_rss_without_reaping(
         return subprocess.CompletedProcess(command, 0, stdout=output)
 
     monkeypatch.setattr(process_module.subprocess, "run", ps)
-    assert process_module._observe_child(1234) == process_module._ChildObservation(exited, rss)
+    assert process_module._observe_ps_child(1234) == process_module._ChildObservation(exited, rss)
     assert calls[0][0] == ("/bin/ps", "-o", "state=,rss=", "-p", "1234")
     assert calls[0][1]["timeout"] == 0.1
     assert calls[0][1]["env"] == {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
@@ -228,7 +228,7 @@ def test_unavailable_or_unknown_child_state_is_not_exit(monkeypatch, code, outpu
         lambda command, **_kwargs: subprocess.CompletedProcess(command, code, stdout=output),
     )
     with pytest.raises(ValueError, match="child observation unavailable"):
-        process_module._observe_child(1234)
+        process_module._observe_ps_child(1234)
 
 
 @pytest.fixture
@@ -724,7 +724,7 @@ def test_exiting_transition_keeps_platform_rss_and_shape_rejection(
         lambda command, **_kwargs: subprocess.CompletedProcess(command, code, stdout=raw),
     )
     with pytest.raises(ValueError, match="child observation unavailable"):
-        process_module._observe_child(1234)
+        process_module._observe_ps_child(1234)
 
 
 def test_cleanup_exit_transition_requires_later_positive_z_before_reap(cleanup_model, monkeypatch):

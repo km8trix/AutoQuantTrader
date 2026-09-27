@@ -1,0 +1,472 @@
+"""Finite mechanics only: synthetic objects/codes, no project imports or authority."""
+import gc
+import json
+import sys
+import threading
+from types import SimpleNamespace
+import weakref
+
+import pytest
+
+import aqt_daily_identity_cost as plugin
+
+
+class Current:
+    def __init__(self, children=()):
+        self.children = children
+        self.control = SimpleNamespace(effective_state=HALTED)
+        self.attempt_sources = object()
+        self.builder_error = self.public_error = None
+
+
+HALTED = object()
+
+
+class Store:
+    def __init__(self, current):
+        self.before = tuple(current.children)
+
+    @staticmethod
+    def _assignment_identity_fields(value):
+        seen = {id(value), id(value.children)}
+        if value.builder_error is not None:
+            raise value.builder_error
+        return tuple(value.children)
+
+    def require_resolved_snapshot(self, value):
+        before = self.before
+        current = self._assignment_identity_fields(value)
+        if value.public_error is not None:
+            raise value.public_error
+        assert len(before) == len(current)
+        assert all(a is b for a, b in zip(before, current, strict=True))
+
+
+class Episode(SimpleNamespace):
+    pass
+
+
+class State(SimpleNamespace):
+    pass
+
+
+class Operation(SimpleNamespace):
+    pass
+
+
+class Reader:
+    def __init__(self, current, proof=True):
+        self.current = current
+        self.daily = Store(current)
+        self.composer = object()
+        self._factory_read = Operation(reader=self, thread=threading.current_thread(),
+                                      failed=False, scope=object())
+        episode = Episode(reader=self, composer=self.composer, current=current,
+                          thread=threading.current_thread())
+        self._daily_episode = State(episode=episode, failed=False, fingerprint_context=None)
+        self.proof = proof
+
+    def _require_daily_graph(self, current, use=None):
+        self.daily.require_resolved_snapshot(current)
+        self.daily.require_resolved_snapshot(current)
+
+    def _require_borrow_daily_graph(self, current, borrow):
+        self._require_daily_graph(current, borrow)
+
+    def _require_daily_episode(self, episode, borrow=None):
+        if borrow is None:
+            self._require_daily_graph(episode.current)
+        else:
+            self._require_borrow_daily_graph(episode.current, borrow)
+
+    def _borrow_original_daily(self, episode, *, consumer):
+        for _ in range(3):
+            self._require_daily_episode(episode, object() if self.proof else None)
+        return episode.current
+
+
+class Factory:
+    def __init__(self, reader):
+        self.integrity = reader
+        self.extra = None
+
+    def execute(self, *, operation_id):
+        if self.extra is not None:
+            self.extra()
+        reader = self.integrity
+        return reader._borrow_original_daily(reader._daily_episode.episode, consumer=reader.composer)
+
+
+class Token:
+    pass
+
+
+def fixture(*, children=(), proof=True):
+    current = Current(children)
+    reader = Reader(current, proof)
+    factory = Factory(reader)
+    integrity = SimpleNamespace(
+        SqlContinuousIntegrityReader=Reader, _OriginalDailyEpisode=Episode,
+        _DailyEpisodeState=State, _FactoryReadState=Operation,
+        OperationalControlState=SimpleNamespace(HALTED=HALTED),
+        _ACTIVE_FACTORY_READS={reader: reader._factory_read},
+        _FACTORY_FINGERPRINTS={}, _FACTORY_FINGERPRINT_READERS={},
+        _MAX_FACTORY_CONTAINERS=16384, _MAX_FACTORY_BINDINGS=131072,
+    )
+    source = SimpleNamespace(_FACTORY_ATTEMPT_PROOFS={},
+                             _FACTORY_ROOT_CONTAINERS=32, _FACTORY_ROOT_BINDINGS=512,
+                             _FACTORY_SOURCE_CONTAINERS=16, _FACTORY_SOURCE_BINDINGS=256)
+    daily = SimpleNamespace(SqlDailyRuntimeRisk=Store,
+                            **dict.fromkeys(plugin.DAILY_RECORDS, Current))
+    capture = plugin.Capture(integrity, source, daily, Factory)
+    if proof:
+        context, token, owner_source = Token(), Token(), Token()
+        reader._daily_episode.fingerprint_context = context
+        owner = SimpleNamespace(reader=reader, daily=reader._daily_episode,
+                                factory=reader._factory_read, phase='active',
+                                value=current.attempt_sources, proof=token, source=owner_source)
+        integrity._FACTORY_FINGERPRINT_READERS[reader] = context
+        integrity._FACTORY_FINGERPRINTS[context] = owner
+        counts = SimpleNamespace(containers=2, bindings=3)
+        state = SimpleNamespace(owner=weakref.ref(owner_source), context=weakref.ref(context),
+                                value=current.attempt_sources, data=counts,
+                                source_behavior=counts, root_behavior=counts)
+        source._FACTORY_ATTEMPT_PROOFS[id(token)] = (weakref.ref(token), state)
+    return capture, factory, current
+
+
+def run(capture, factory):
+    capture.start()
+    try:
+        return factory.execute(operation_id=plugin.OPERATION)
+    finally:
+        capture.stop()
+
+
+def clean(capture):
+    assert not capture.installed
+    assert sys.monitoring.get_tool(plugin.TOOL_ID) is None
+    assert sys.monitoring.get_events(plugin.TOOL_ID) == 0
+    for code in capture.codes:
+        assert sys.monitoring.get_local_events(plugin.TOOL_ID, code) == 0
+    assert capture.factory_ref is capture.reader_ref is capture.store_ref is capture.current_ref is None
+
+
+@pytest.mark.parametrize('proof', [False, True])
+def test_exact_two_sites_both_routes_original_return_and_resource_math(proof):
+    capture, factory, current = fixture(children=('x', 2, object(), ()), proof=proof)
+    assert run(capture, factory) is current
+    assert capture.faults == set()
+    assert capture.live == {}
+    for name in ('public_first', 'public_second', 'builder_first', 'builder_second'):
+        assert capture.rows[name]['returned'] == 3
+        assert capture.rows[name]['returned_ns'] > 0
+    assert capture.routes['attempt_proof' if proof else 'original_fallback'] == 6
+    assert capture.sample['validation'] == 'public_returned'
+    assert capture.sample['vector_length'] == capture.sample['stored_original_length'] == 4
+    assert capture.sample['seen_size'] == 2
+    assert sum(capture.sample['histogram'].values()) == 4
+    resources = capture.sample['attempt_proof']
+    if proof:
+        assert resources['total'] == dict(containers=54, bindings=777)
+        assert resources['remaining'] == dict(containers=16330, bindings=130295)
+    else:
+        assert resources['status'] == 'inactive'
+        assert resources['total'] is None
+    report = capture.report(0, {}, {})
+    assert report['capture_status'] == 'valid'
+    assert report['observation_extent'] == 'complete_execute'
+    assert len(json.dumps(report).encode('ascii')) < plugin.MAX_METADATA_BYTES
+    assert report['acceptance'] is False
+    clean(capture)
+
+
+@pytest.mark.parametrize('kind', [ValueError, TimeoutError, KeyboardInterrupt, SystemExit])
+def test_original_builder_exception_identity_unwind_and_cleanup(kind):
+    capture, factory, current = fixture()
+    error = kind('must not appear in metadata')
+    current.builder_error = error
+    with pytest.raises(kind) as raised:
+        run(capture, factory)
+    assert raised.value is error
+    assert capture.faults == set()
+    assert capture.sample is None
+    for name in ('builder_first', 'public_first', 'borrow', 'execute'):
+        assert capture.rows[name]['unwound'] == 1
+        assert capture.rows[name]['unwound_ns'] > 0
+    report = capture.report(1, {}, {})
+    assert report['capture_status'] == 'valid'
+    assert report['observation_extent'] == 'partial_original_unwind'
+    assert 'must not appear' not in json.dumps(report)
+    assert capture.live == {}
+    clean(capture)
+
+
+def test_vector_summary_remains_rejected_until_same_public_return():
+    capture, factory, current = fixture(children=('x',))
+    error = ValueError('original public comparison failure')
+    current.public_error = error
+    with pytest.raises(ValueError) as raised:
+        run(capture, factory)
+    assert raised.value is error
+    assert capture.sample['validation'] == 'public_unwound'
+    assert capture.rows['builder_first']['returned'] == 1
+    assert capture.rows['public_first']['unwound'] == 1
+    assert capture.report(1, {}, {})['capture_status'] == 'valid'
+    clean(capture)
+
+
+def test_non_borrow_and_other_snapshot_calls_excluded():
+    capture, factory, current = fixture(children=('x',))
+    other = Current(('x',))
+    def extra():
+        factory.integrity._require_daily_graph(current)
+        factory.integrity.daily.require_resolved_snapshot(other)
+        Store._assignment_identity_fields(current)
+    factory.extra = extra
+    run(capture, factory)
+    assert capture.excluded_builder_calls == 4
+    assert capture.rows['builder_first']['calls'] == capture.rows['builder_second']['calls'] == 3
+    clean(capture)
+
+
+def test_wrong_current_inside_borrow_is_excluded(monkeypatch):
+    other = Current(('x',))
+    def wrong_graph(self, current, use=None):
+        current = other
+        self.daily.require_resolved_snapshot(current)
+        self.daily.require_resolved_snapshot(current)
+    # Only synthetic classes are altered; constructor resolves this function's
+    # own two call positions. The foreign current must still be excluded.
+    monkeypatch.setattr(Reader, '_require_daily_graph', wrong_graph)
+    capture, factory, current = fixture(children=('x',))
+    assert run(capture, factory) is current
+    assert capture.rows['public_first']['calls'] == capture.rows['public_second']['calls'] == 0
+    assert capture.excluded_builder_calls == 6
+    assert capture.report(0, {}, {})['capture_status'] == 'invalid'
+    clean(capture)
+
+
+def test_histogram_uses_identity_no_custom_type_hash_equality_or_classnames():
+    calls = []
+    class Meta(type):
+        def __hash__(self):
+            calls.append('hash')
+            raise AssertionError
+        def __eq__(self, other):
+            calls.append('eq')
+            raise AssertionError
+        def __getattribute__(self, name):
+            calls.append('getattribute')
+            raise AssertionError
+    class Unknown(metaclass=Meta):
+        pass
+    value = Unknown()
+    capture, factory, current = fixture(children=(value,))
+    run(capture, factory)
+    assert calls == []
+    assert capture.sample['histogram']['unknown'] == 1
+    clean(capture)
+
+
+def test_summary_does_not_retain_returned_children():
+    class Payload:
+        pass
+    value = Payload()
+    ref = weakref.ref(value)
+    capture, factory, current = fixture(children=(value,))
+    run(capture, factory)
+    current.children = ()
+    factory.integrity.daily.before = ()
+    del value
+    gc.collect()
+    assert ref() is None
+    assert all(type(part) in (str, int) for part in capture.candidate)
+    clean(capture)
+
+
+def test_first_summary_only_and_type_bound(monkeypatch):
+    capture, factory, current = fixture(children=(1, 2))
+    monkeypatch.setattr(plugin, 'MAX_HISTOGRAM', 1)
+    run(capture, factory)
+    assert capture.sample['vector_length'] == 2
+    assert capture.sample['histogram'] is None
+    assert capture.sample['shape_status'] == 'shape_over_bound'
+    assert capture.faults == {'histogram_shape_bound'}
+    assert capture.rows['builder_first']['returned'] == 3
+    clean(capture)
+
+
+def test_event_limit_reserves_all_outstanding_returns(monkeypatch):
+    capture, factory, current = fixture()
+    monkeypatch.setattr(plugin, 'MAX_EVENTS', 4)
+    run(capture, factory)
+    assert capture.events == 4
+    assert capture.spans == 2
+    assert capture.live == {}
+    assert capture.faults == {'observation_bound'}
+    assert capture.report(0, {}, {})['capture_status'] == 'invalid'
+    clean(capture)
+
+
+def test_span_limit_does_not_change_original_work(monkeypatch):
+    capture, factory, current = fixture()
+    monkeypatch.setattr(plugin, 'MAX_SPANS', 1)
+    assert run(capture, factory) is current
+    assert capture.spans == 1
+    assert capture.events == 2
+    assert capture.live == {}
+    assert capture.faults == {'observation_bound'}
+    clean(capture)
+
+
+def test_no_target_cleanup_and_preexisting_slot_preserved():
+    capture, factory, current = fixture()
+    capture.start()
+    capture.stop()
+    assert capture.events == 0
+    clean(capture)
+    sys.monitoring.use_tool_id(plugin.TOOL_ID, 'preexisting-owner')
+    try:
+        with pytest.raises(pytest.UsageError):
+            capture.start()
+        assert sys.monitoring.get_tool(plugin.TOOL_ID) == 'preexisting-owner'
+    finally:
+        sys.monitoring.free_tool_id(plugin.TOOL_ID)
+
+
+def test_preexisting_profiler_preserved():
+    capture, factory, current = fixture()
+    def profile(frame, event, arg):
+        return None
+    previous = sys.getprofile()
+    sys.setprofile(profile)
+    try:
+        with pytest.raises(pytest.UsageError):
+            capture.start()
+        assert sys.getprofile() is profile
+    finally:
+        sys.setprofile(previous)
+    clean(capture)
+
+
+@pytest.mark.parametrize('kind', [TimeoutError, KeyboardInterrupt, SystemExit])
+def test_observer_fault_propagates_without_replacement_and_cleanup(kind):
+    capture, factory, current = fixture()
+    error = kind('mechanics only')
+    def broken(*args):
+        raise error
+    capture.select = broken
+    with pytest.raises(kind) as raised:
+        run(capture, factory)
+    assert raised.value is error
+    assert 'observer_failure' in capture.faults
+    clean(capture)
+
+
+def test_setup_failure_releases_owned_slot(monkeypatch):
+    capture, factory, current = fixture()
+    original = sys.monitoring.set_local_events
+    calls = 0
+    def fail_once(tool, code, events):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ValueError('setup only')
+        return original(tool, code, events)
+    monkeypatch.setattr(sys.monitoring, 'set_local_events', fail_once)
+    with pytest.raises(ValueError):
+        capture.start()
+    clean(capture)
+
+
+def test_counter_saturation_and_source_hash_change(monkeypatch):
+    capture, factory, current = fixture()
+    capture.excluded_builder_calls = plugin.MAX_EVENTS
+    factory.extra = lambda: Store._assignment_identity_fields(current)
+    run(capture, factory)
+    assert capture.excluded_builder_calls == plugin.MAX_EVENTS
+    assert capture.excluded_counter_saturated
+    report = capture.report(0, {'x': 'before'}, {'x': 'after'})
+    assert report['capture_status'] == 'invalid'
+    assert report['diagnostic_faults'] == ['source_hashes_changed']
+    clean(capture)
+
+
+def test_exact_node_only_and_fixed_call_sites():
+    assert len(plugin.call_sites(Reader._require_daily_graph.__code__)) == 2
+    with pytest.raises(ValueError):
+        plugin.call_sites(Store.require_resolved_snapshot.__code__)
+    plugin.pytest_collection_modifyitems(None, [SimpleNamespace(nodeid=plugin.TARGET)])
+    with pytest.raises(pytest.UsageError):
+        plugin.pytest_collection_modifyitems(None, [SimpleNamespace(nodeid='other')])
+
+
+def test_ancestry_depth_limit_does_not_change_return(monkeypatch):
+    capture, factory, current = fixture()
+    reader = factory.integrity
+    def recurse(depth):
+        if depth:
+            return recurse(depth - 1)
+        return reader._borrow_original_daily(reader._daily_episode.episode, consumer=reader.composer)
+    factory.extra = lambda: recurse(plugin.MAX_DEPTH + 2)
+    assert run(capture, factory) is current
+    assert 'ancestry_depth_bound' in capture.faults
+    assert capture.live == {}
+    clean(capture)
+
+
+def test_histogram_exact_limit_and_one_summary(monkeypatch):
+    capture, factory, current = fixture(children=(1, 2))
+    monkeypatch.setattr(plugin, 'MAX_HISTOGRAM', 2)
+    calls = 0
+    original = capture.summarize
+    def counted(*args):
+        nonlocal calls
+        calls += 1
+        return original(*args)
+    capture.summarize = counted
+    run(capture, factory)
+    assert calls == 1
+    assert capture.sample['histogram']['int'] == 2
+    assert capture.faults == set()
+    clean(capture)
+
+
+def test_literal_project_graph_offsets_without_project_imports():
+    import ast
+    from pathlib import Path
+    source = Path('/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/packages/persistence/continuous_integrity.py')
+    tree = ast.parse(source.read_text())
+    owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'SqlContinuousIntegrityReader')
+    function = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == '_require_daily_graph')
+    prefix = ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0)
+    module = ast.fix_missing_locations(ast.Module(body=[prefix, function], type_ignores=[]))
+    namespace = {}
+    exec(compile(module, '<literal source, never invoked>', 'exec'), namespace)
+    sites = plugin.call_sites(namespace['_require_daily_graph'].__code__)
+    assert len(sites) == 2
+    assert sites[0][0] < sites[1][0]
+    assert not any(name.startswith(('apps.', 'packages.')) for name in sys.modules)
+
+
+@pytest.mark.parametrize('original_kind', [ValueError, TimeoutError, KeyboardInterrupt, SystemExit])
+def test_unwind_observer_fault_preserves_original_primary(original_kind):
+    capture, factory, current = fixture()
+    original_error = original_kind('original sentinel')
+    diagnostic_error = RuntimeError('secondary diagnostic sentinel')
+    current.builder_error = original_error
+    original_observe = capture.observe
+    def fail_on_unwind(event, *args):
+        if event == 'unwind':
+            raise diagnostic_error
+        return original_observe(event, *args)
+    capture.observe = fail_on_unwind
+    with pytest.raises(original_kind) as raised:
+        run(capture, factory)
+    assert raised.value is original_error
+    report = capture.report(1, {}, {})
+    assert report['capture_status'] == 'invalid'
+    assert 'observer_failure_during_original_unwind' in report['diagnostic_faults']
+    assert 'sentinel' not in json.dumps(report)
+    clean(capture)

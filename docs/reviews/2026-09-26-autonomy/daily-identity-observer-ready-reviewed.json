@@ -1,0 +1,65 @@
+{
+  "schema": "aqt-daily-identity-observer-readiness/1",
+  "status": "independent_review_passed_released_by_root",
+  "scope": "Temporary original-only observation; no validation substitution or new daily proof approved.",
+  "independent_review": {
+    "result": "no_remaining_blocker",
+    "record": "daily-identity-observer-independent-review.md",
+    "mechanics": {
+      "passed": 29,
+      "failed": 0,
+      "seconds": 0.07
+    }
+  },
+  "author_mechanics": {
+    "passed": 29,
+    "failed": 0,
+    "seconds": 0.07
+  },
+  "frozen_files_unchanged_from_readiness": true,
+  "observed_project_files_unchanged_from_revision": "2a9fc2c",
+  "source_comparison": "git diff --quiet 2a9fc2c -- the seven explicitly observed source/test paths returned 0 before this record",
+  "source_and_diagnostic_hashes": {
+    "packages/persistence/daily_runtime_risk.py": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "aqt_daily_identity_cost.py": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "test_aqt_daily_identity_cost.py": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8"
+  },
+  "files": {
+    "aqt_daily_identity_cost.py": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "test_aqt_daily_identity_cost.py": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8",
+    "daily-identity-observer-plan.md": "ee12efe4a71bcb9bc5f0d6875a852cda8298a0b395cd5a4fb6cd8805a4a91fdc",
+    "daily-identity-mechanics-final.txt": "61a73421e4fee9eff1f6d61ba39680424441f26da4eca90505d43f8667900dda",
+    "daily-identity-observer-independent-review.md": "03e7a69b3456d0e544718bd0deae05ed1d11ebc76218893ac09e2aea280d7230"
+  },
+  "root_run": {
+    "session": 37394,
+    "state": "released_and_running_per_root_message",
+    "result": "not_observed_or_claimed_by_this_record"
+  },
+  "target": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "operation": "restore-original-retained-outcome",
+  "output_environment": "AQT_DAILY_IDENTITY_PROFILE_PATH",
+  "output_path": "/private/tmp/aqt-autonomy-audit/daily-identity-original-first.json",
+  "bounds": {
+    "selected_events": 20000,
+    "spans": 4096,
+    "depth": 64,
+    "metadata_bytes": 32768,
+    "histogram_bindings": 131072
+  },
+  "project_edits_by_this_task": false,
+  "project_imports_by_this_task": false,
+  "genuine_run_by_this_agent": false,
+  "limits": [
+    "This is readiness evidence, not a measurement result or acceptance.",
+    "Original test outcome and failure/cleanup output remain authoritative.",
+    "One root-scheduled instrumented run; global filtered unwind overhead and one bounded histogram are disclosed in the plan.",
+    "The failed approved attempt-proof pilot remains unaccepted; a new daily-proof substitution requires a separate decision."
+  ]
+}

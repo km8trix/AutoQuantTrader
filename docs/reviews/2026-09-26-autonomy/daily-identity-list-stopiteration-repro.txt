@@ -1,0 +1,2 @@
+prior: RuntimeError 'generator raised StopIteration'; cause=StopIteration 'field failed'
+candidate: StopIteration 'field failed'; cause=LookupError 'cause'

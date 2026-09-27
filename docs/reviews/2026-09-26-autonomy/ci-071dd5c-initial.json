@@ -1,0 +1,191 @@
+{
+  "schema": "aqt-exact-head-ci-initial/1",
+  "read_at_utc": "2026-09-27T05:40:25.370034+00:00",
+  "pr": {
+    "number": 56,
+    "url": "https://github.com/km8trix/AutoQuantTrader/pull/56",
+    "state": "OPEN",
+    "headRefName": "codex/autonomous-development",
+    "headRefOid": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "baseRefName": "codex/personal-v1-w4-integration"
+  },
+  "run": {
+    "id": 36297439151,
+    "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151",
+    "created_at": "2026-09-27T05:31:12Z"
+  },
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "jobs": [
+    {
+      "id": 108558785272,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558785368,
+      "name": "Browser regressions",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977322,
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977336,
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977356,
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977357,
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977363,
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977389,
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977397,
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977399,
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "status": "in_progress",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977400,
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977403,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977404,
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977406,
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977480,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977496,
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977903,
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    },
+    {
+      "id": 108558977959,
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "071dd5c5624b35bef114275d4431823c9c82edeb"
+    }
+  ],
+  "evidence": {
+    "ci-071dd5c-pr56.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-pr56.json",
+      "sha256": "7fed47a392e98726b866cb3ed1c6612dbd42c7627a774624bbb323e6fdd116fc"
+    },
+    "ci-071dd5c-runs.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-runs.json",
+      "sha256": "3e51ad511c73c88fa6d71580141509006939dc032d3f036f083549d9693b26b2"
+    },
+    "ci-071dd5c-jobs.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-jobs.json",
+      "sha256": "5c5ff7c3ada597c130277a1d488e3c44ed799a7e56f748091ecc805f15e4f034"
+    },
+    "ci-071dd5c-merge-ref.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-merge-ref.json",
+      "sha256": "171428e9eac50a220d02b803693f7c595bfa47950f0ac022daea1f667eb2e0f0"
+    },
+    "ci-071dd5c-merge-commit.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-merge-commit.json",
+      "sha256": "bb64e9015d73633cafc973d1959dd0ede0b5a13698137f709bf9766ad82b51cb"
+    },
+    "ci-071dd5c-foundations-initial.log": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-foundations-initial.log",
+      "sha256": "0decb87fee3c5f3948fbf83d95be8c1774e56edb87c7bc32e05666bdf39cca1e"
+    }
+  },
+  "limitations": [
+    "One read-only initial inspection; no continuing monitor or workflow mutation.",
+    "Run incomplete; foundations/browser passed, first4financial active,12queued. No financial gate result inferred.",
+    "Run-level queued status was observed before the following job snapshot; these are bounded sequential reads, not an atomic GitHub snapshot."
+  ]
+}

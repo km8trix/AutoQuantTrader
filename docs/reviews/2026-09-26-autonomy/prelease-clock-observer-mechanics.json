@@ -1,0 +1,35 @@
+{
+  "schema": "aqt-prelease-clock-observer-mechanics/1",
+  "acceptance": false,
+  "fixture_run": false,
+  "source_edits": false,
+  "first_run": {
+    "failed": 1,
+    "passed": 22,
+    "seconds": 0.08,
+    "raw_preservation": "Tool-returned output transcribed verbatim to first-raw.txt; original draft files were not snapshotted/hash-bound before correction. No recreated test run.",
+    "repair": "Assert original synthetic AttributeError for unknown missing-payload record; observer rejects before getter. No production behavior change."
+  },
+  "final_run": {
+    "passed": 29,
+    "seconds": 0.06
+  },
+  "collect_only": {
+    "collected": 1,
+    "seconds": 3.05
+  },
+  "hashes": {
+    "aqt_prelease_clock_cost.py": "71b13b67ae6a5293bf1c979a044e2ceacacdac6b93e6695673e6b83b4a73246c",
+    "test_aqt_prelease_clock_cost.py": "15f26dcc27a8a53552358c5c5e1c56fb0e0a742e1d2040397cb9506b74f91149",
+    "prelease-clock-selfchecks-first-raw.txt": "f7007061b2e9b713b2916d72229f1fa762b3fe1fc1ecf7dc1c89d6721635bd8f",
+    "prelease-clock-selfchecks-first-result.txt": "fc44378a5d7fd4db9db660460a9e102b9e209155cd062f9b590ca438d450a147",
+    "prelease-clock-selfchecks-final.txt": "c7830d2f13f8e0f9b8ec8e0c14b457d7634c13c96f3c88b5841197d54704f008",
+    "prelease-clock-collect-only.txt": "602877ef2b0764bfc317628c252d91e8b6a404ff4c488ed2aa7a74c3a413fb03"
+  },
+  "command": "/usr/bin/env -i PATH=/usr/bin:/bin PYTHONPATH=/private/tmp/aqt-autonomy-audit PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -m pytest -q /private/tmp/aqt-autonomy-audit/test_aqt_prelease_clock_cost.py",
+  "limitations": [
+    "Synthetic mechanics only, no production ownership or reuse qualification.",
+    "First/repeated candidate cost is observed original work, not measured speedup.",
+    "Parent and peer review required before one genuine fixture."
+  ]
+}

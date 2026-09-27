@@ -1,0 +1,37 @@
+{
+  "scope": "genuine signed-history proof lifecycle with global profile until first proof use; not unprofiled timing acceptance",
+  "source_hashes": {
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "301967ab19ba4638c29ff6ba3afba507336875765eb27b7a8b25a34468048def"
+  },
+  "source_unchanged": true,
+  "passed": 7,
+  "failed": 0,
+  "seconds": 374.05,
+  "positive_restore_seconds": 52.482,
+  "retired_proof_positive_restore_seconds": 52.946,
+  "misuse_cases": [
+    "copied proof plus cleanup callback replacement",
+    "foreign thread",
+    "caught reentrancy",
+    "nested provenance scalar mutation",
+    "reader method shadow"
+  ],
+  "misuse_restore_seconds": [
+    17.017,
+    16.901,
+    17.295,
+    16.785,
+    16.826
+  ],
+  "original_limits_unchanged": true,
+  "original_history_and_cleanup_assertions": true,
+  "limitations": [
+    "Global sys.setprofile adds unrelated-call overhead; replace test observation with bounded local sys.monitoring events before Linux CI.",
+    "The copied-proof case proves rejection and cleanup, but later root callback replacement independently forces outer failure; add immediate poisoned-state assertion to isolate copied-denial poisoning.",
+    "Original unprofiled retained test and complete-cost diagnostic are separate required gates."
+  ]
+}

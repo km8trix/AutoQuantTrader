@@ -1,10 +1,136 @@
 # AutoQuantTrader architecture
 
-Status: authoritative design, consolidated 2026-09-08; Wave 0 supporting contracts remain frozen. Waves 0–2 are accepted, including the exploratory data port, standard halted process foundation and canonical offline economic engine. Wave 3 local research-workspace gates passed; GitHub release verification remains open. E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Continuous account coordination and connected execution remain later targets; no trading permission is changed by this document.
+Status: authoritative design, consolidated 2026-09-08; Wave 0 supporting contracts remain frozen. Waves 0–3 are accepted, including the exploratory data port, standard halted process foundation and canonical offline economic engine. Wave 3 research-workspace PR CI and exact merge verification passed. Wave 4 applied reconciliation, account coordination and continuous simulation are implemented with incomplete acceptance; their operational/source gates remain open. E*TRADE production read traversal passed under the owner-authorized margin-privilege amendment, retaining cash-funded strategy limits and separate connected-execution qualification gates. Connected execution readiness remains a later target; no trading permission is changed by this document.
 
-This is the sole current architecture. [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is the sole delivery plan. The [design review](reviews/2026-09-08-design-review.md) records the independent baseline, comparison with the previous GPT-5.6 Sol design, and code evidence. Historical ADRs retain their factual record; the explicit decisions below supersede conflicting future requirements. Implemented behavior remains unchanged until its migration wave passes.
+This is the current architecture. [PLAN.md](PLAN.md) is the executable queue within the preserved [implementation wave roadmap](IMPLEMENTATION_PLAN.md); [STATUS.md](STATUS.md) records current progress. The [design review](reviews/2026-09-08-design-review.md) records the independent baseline, comparison with the previous GPT-5.6 Sol design, and code evidence. Historical ADRs retain their factual record; the explicit decisions below supersede conflicting future requirements. Implemented behavior remains unchanged until its migration wave passes.
 
 Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/README.md), including [scope/defaults](contracts/personal-v1/scope-defaults.md), [core engine](contracts/personal-v1/core-engine.md), [account/runtime](contracts/personal-v1/account-runtime.md), [native dependency inventory](contracts/personal-v1/native-dependency-map.md) and [file ownership](contracts/personal-v1/migration-ownership.md). Apply the owner-authorized [account eligibility amendment](contracts/personal-v1/account-eligibility-amendment.md) to the frozen pack: margin privileges may be admitted for read qualification while cash funding, no borrowing and other strategy constraints remain. The historical contract bytes remain frozen. These specify this architecture; they are not competing roadmaps or implemented features. The [baseline](reviews/2026-09-08-wave0/baseline.md) records passing checks, six inherited document-check failures and unavailable qualification environments.
+
+## Current implementation map (verified 2026-09-26)
+
+This section describes the `b1156ba` baseline and subsequent reviewed additions recorded in [STATUS.md](STATUS.md); later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, and the revised retained-restore candidate passed one full Linux/PostgreSQL run but failed its same-source repeat; retained restore acceptance remains reopened. The subsequent terminal-probe repair passes the original local worker gates and the `7c73cd6` worker shard. The later `2a9fc2c` attempt-proof pilot fails exact-source Linux acceptance: three positive restore gates expire and an original worker reports a separate observation failure. The diagnostic follow-up and preserved failures are recorded in STATUS; no repeat pass alone establishes repair. Actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
+
+### Components and entry points
+
+| Component | Actual responsibility and boundary |
+|---|---|
+| `packages/domain/` | Immutable versioned contracts and pure financial, time, strategy, risk, order and reconciliation reducers. Domain imports are limited to this layer and the standard library. Existing historical contracts coexist with personal-v1 contracts; neither may be silently reinterpreted. |
+| `packages/application/causal_engine.py` | Shared deterministic knowledge-frontier scheduler for historical runs and continuous checkpoints. Feeds the strategy only available observations, converts portfolio targets, invokes whole-batch daily risk, and delegates accounting through `ExecutionAccountingPort`. |
+| `packages/backtest/personal_accounting.py` | Personal engine adapter over retained order, ledger, FIFO, settlement and corporate-action reducers. Simulator economics are explicit policy inputs. It is not a broker-connected execution adapter. |
+| `apps/worker/personal_research.py` | Explicit dataset or labeled `flat`/`regime` fixture research CLI, with bounded child process, resource/time/event/output limits, and new report files. Both `autoquant-worker` and `autoquant-research` enter this path. |
+| `apps/worker/research_jobs.py`, `research_runner.py` | Explicit empty-database migration, catalog registration and durable queued research worker. The worker resolves immutable input references, claims a lease, launches the actual engine in a bounded process and publishes verified reports. |
+| `apps/api/` | Local-only FastAPI composition and query/command adapters. Personal catalog/runs/reports/comparisons/experiments coexist with historical fixture, data and operations routes. Configuring `paper` or `live` causes `create_app` to reject startup. |
+| `apps/web/` | React 19 / TypeScript / Vite browser workspace with Material UI, React Query and React Router. It reads API projections and submits bounded research/control requests; it has no broker credentials or direct order transport. Python contracts generate the checked-in TypeScript API surface. |
+| `apps/trader/personal_simulation.py` | `autoquant-personal-simulation`: conventional local-instance lock, standard clock sampling and signal shutdown. Always HALTED; no database, strategy or broker execution. Its simulated clock-health model does not qualify a host. |
+| `apps/trader/main.py` | `autoquant-trader`: historical paper-smoke artifact/readiness preflight. Live is explicitly rejected; the repository-only result remains non-authorizing. It is not the continuous session launcher. |
+| `apps/trader/continuous_session.py` | Finite in-process routing across exact retained source, account, attempt, simulation-delivery and reconciliation owners, with cooperative Stop and single-operation exclusion. No provider I/O, independent model events or initialization is granted here. |
+| `apps/trader/continuous_simulation.py`, `continuous_simulation_factory.py` | Supervised fixed worker restores or checks integrity of existing private HALTED account/venue SQLite stores. Requires preexisting schema and separate account/venue storage, acquires/revalidates a lease and releases resources. It does not initialize a deployment, re-arm it or reconstruct a first-send token. |
+| `packages/persistence/` | SQLAlchemy repositories for catalog/jobs, immutable financial facts, leases/fences, controls, risk assignments/reservations, attempts, journals, source captures and reconciliation. New continuous structures use migration `0040_personal_continuous`; `0039_personal_research` remains a separately recognized research revision. |
+| `packages/adapters/` | External I/O boundaries: private immutable artifacts, licensed data import/capture, explicitly selected E*TRADE GET/OAuth transports, clock observations and historical alert/trusted-time/broker components. Importing adapters is not authority to invoke them. |
+
+### Bounded factory proof pilot (implementation under validation)
+
+The owner-approved pilot connects `continuous_integrity.py`'s original HALTED
+factory/daily episode to a private attempt-source proof. It can replace only the
+final resolved attempt fingerprint in that episode's three existing per-borrow
+graph checks. Ordinary source validation and all preceding source-owner,
+reference, descriptor and outcome checks remain. Full entry/final verification,
+fresh SQL/object checks and real clock/fence observations remain in place.
+
+`_factory_attempt_fingerprint.py` admits a narrow effect-free projection using
+original raw slots, exact built-ins, dictionary-backed proxies and qualified
+native Mapping classification. `_factory_attempt_behavior.py` checks a finite
+inventory of original conversion/canonicalization and ownership code. The native
+profile is restricted to qualified CPython 3.12.13; other profiles must retain
+ordinary validation. The interpreter and private verifier/baselines remain
+trusted; this is no sandbox for hostile Python or native memory changes.
+
+Source proofs and root permits belong to one original reader/source/value,
+thread, factory operation, episode and borrow. Copies, replacement data, changed
+behavior, wrong-thread or reentrant use fail closed. Unsupported admission
+returns to full validation before issuance; failed issued proofs cannot reseal or
+rescue the operation. Retirement revokes the source registration before the
+existing handoff structure is retained, including failure cleanup. Combined data,
+behavior and lifecycle metadata share the original 16,384-container / 131,072-
+binding allowance; lease, operation, process and risk bounds do not increase.
+
+This is a candidate implementation, not accepted restore performance or new
+execution authority. [STATUS.md](STATUS.md) records tests and remaining gates;
+the [approved design](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md)
+permits rejecting the pilot if complete cost or proof burden does not justify it.
+Both daily `require_resolved_snapshot` calls in each graph check remain unchanged.
+A2.4 measures those original calls only; it does not authorize replacing daily
+identity validation or extending the attempt proof to that different predicate.
+
+The subsequent bounded pre-lease study added no acquisition witness, preparation
+owner or codec-verdict cache. Its CLOCK-only candidate was rejected after an
+original-path observation found only 8.2 ms of repeated codec work in a 44.15 s
+execute. The factory still acquires the actual lease before constructing fenced
+owners; current SQL, daily/source, object and terminal checks remain unchanged.
+This result does not establish that all other pre-lease designs are impossible.
+See the [source-bound result](reviews/2026-09-26-autonomy/prelease-clock-original-result.json).
+
+### Actual data and execution flows
+
+The supported historical research flow is explicit licensed Tiingo input plus declaration/calendar → validated personal research dataset/archive → `EngineInputs` and retained build/configuration/data pins → canonical causal engine → target portfolio → intent batch → daily risk → simulated execution/accounting → derived report. Durable catalog/jobs/artifacts connect that same engine to the local API/browser. The older Compose demo deliberately invokes `autoquant-golden-oracle`; its fixture ingestion and golden backtest are separate historical slices, not the default research worker.
+
+The integrated continuous simulation flow is retained forward observations and clock/control/source evidence → closed frontier → canonical checkpoint transition → atomic account publication and daily runtime admission → persisted attempt/send claim → independent stateful simulated venue → retained observations/outcomes → reconciliation/application back into the same engine. `SqlContinuousSimulationDelivery` binds exact current owners and rechecks source, fence and SQL state; modeled fills are not external broker fills. Account and venue journals remain independently persisted so the comparison cannot obtain expected balances from the observed venue projection.
+
+`personal_forward_capture.py` and `forward_capture_publication.py` retain bounded raw read evidence and normalized observations with original timestamps, expiry, calendar/session bindings and evidence class. Synthetic fixture captures and genuine HTTPS reads are separate classes. Fresh non-fixture publication currently rejects with `CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED`; the calendar content-check helper alone supplies no admission authority. The optional `personal_tiingo_capture_selection.py` additionally matches existing profile/authorization/calendar content and request scope; it returns no token and does not authenticate source-reference provenance. Replaying receipt-time data does not create historical point-in-time provenance, provider rights, quote freshness or clock qualification.
+
+`ChronyStandardTimeSource.read_observation` can retain the exact bounded source
+reading and its converted measurement. Its optional owner registry rejects copied
+owners/observations, changed records and source bindings without another read.
+This is process-local conversion evidence only: unchanged historical observations
+remain verifiable, and injected fixture runners remain possible. `StandardClock`
+still owns health classification. Optional `PersonalMeasuredClock` composes a fresh
+private reducer and retains its original source conversions and history. Its inert
+verification proves historical process ownership only; arbitrary/prewarmed clocks,
+simulated sources, copied owners and changed history reject. Actual host qualification,
+capture-time currentness and the genuine capture-clock producer remain unfinished.
+
+### Child process observations
+
+`packages/application/continuous_process.py` observes only its owned, unreaped
+child. Linux uses a no-follow, nonblocking regular-file read of `/proc/<pid>/status`,
+bounded to 16 KiB plus one rejection byte. It validates process identity, known
+state, current `VmRSS` and a mandatory post-memory completeness marker; only `Z`
+means exited. A complete no-memory record has zero RSS without implying exit.
+Other platforms retain the original `ps` adapter. One original observation
+deadline covers acquisition, parsing and close; Linux failure has no fallback
+or retry. Group signals still precede the sole reap, and group absence and the
+original lifecycle result remain required. This does not make kernel I/O
+preemptible or change lease, memory, work or cleanup limits. Actual Linux
+qualification for this implementation is tracked in STATUS.
+
+### API, persistence and configuration
+
+The local API exposes `/health/live`, `/health/ready`, and `/api/v1` read models. Personal research routes under `/api/v1/research/personal` cover catalog, runs, launch/cancel, reports, bounded row pages/export, comparison and experiment registration. Mutating launch/cancel/registration requires the local signed session cookie, CSRF token and idempotency key. Readiness checks schema/persistence, not permission to trade. Local authentication requires explicit loopback origins and binding (or the explicit trusted loopback container proxy); CORS wildcard and accidental public local-auth binding are rejected. The default placeholder secret is a local-development setting, not a remote deployment credential.
+
+`apps/api/config.py` centralizes `AQT_ENVIRONMENT`, database URL, loopback/CORS/session settings, data-lake/artifact paths and typed credential references. The research-jobs CLI takes explicit database/artifact arguments; the continuous worker takes bounded private configuration/request references. Do not inspect `.env` or private runtime records merely to discover readiness.
+
+PostgreSQL is the intended operational database and has dedicated transaction/concurrency tests. File SQLite is also an implemented local research/continuous-fixture store, with foreign keys and opt-in WAL configuration; in-memory SQLite is classified ephemeral. The application's label `durable` for a file store does not establish production durability. Alembic migrations are additive history; schema verification checks retained rows and their semantic bindings, not only table existence. Broker calls belong outside account SQL transactions. The new journal contract is explicitly scoped to `stateful_simulation` and its capture/venue/coordinator namespaces.
+
+`LocalResearchArtifactStore` requires owner-controlled `0700` directories and bounded hash-addressed objects, uses no-follow access and durable no-overwrite publication, and verifies retained hashes/lengths. Personal JSON artifacts and historical Parquet catalog artifacts coexist. The actual dependency set is Python 3.12–3.13, SQLAlchemy/Alembic/psycopg, FastAPI/Pydantic/Uvicorn, PyArrow, cryptography and existing HTTP/telemetry libraries, pinned in `uv.lock`; Node/pnpm and `pnpm-lock.yaml` govern the browser. DuckDB is a target option, not a current required runtime dependency.
+
+### External services and authority
+
+E*TRADE is the selected future execution broker. Current personal-v1 code has bounded account/balance/portfolio/order/activity/quote GET transports and separate supervised OAuth acquisition/renewal workflows. Data/order origins, sandbox/production identity and secret-reference scopes are fixed. The old recorded `etrade.py` capability pack is non-authorizing; the current GET transport is separate. No ready E*TRADE Preview/Place/Cancel composition is established by those reads. OAuth operations can change external session state and must not run as ordinary tests.
+
+Tiingo is the first historical/forward data candidate. Import and capture implementations do not establish rights or ongoing entitlement; genuine reads require their own scoped admission. Alpaca paper contract/recovery modules remain historical and provider-specific, not an alternate live path. PagerDuty/Twilio alert adapters, Sentry/OTLP exporters and Supabase trusted-time storage exist in the older operational profile; their presence is not evidence that the personal runtime currently starts or qualifies them.
+
+Native C launchers, signatures, trusted-time supervisor, systemd/seccomp sources and historical migrations remain in the repository. The ordinary wheel's native hook is now opt-in (`enable-by-default = false`), and the standard architecture checker is `scripts/check_personal_architecture.py`. The historical seal checker remains a separate `legacy-architecture-check`. The frozen native dependency inventory records an older baseline; do not mistake its old default packaging/CI descriptions for current configuration or delete it as stale evidence. Personal boundary checks preserve pure domain rules and deny broker/network/native reachability from the halted simulation and offline research entry points; they are static regression guards, not a security sandbox or proof covering every runtime composition.
+
+### Critical invariants
+
+- Preserve existing behavior and history unless a versioned requirement explicitly changes it. Never rewrite journal entries, policy/attempt bindings, provider identities, retained clocks, source timestamps or historical evidence to manufacture eligibility.
+- Strategies emit targets; risk approves the complete batch against one causal snapshot. Missing, stale, mismatched or unavailable producers deny approval. The daily simulation/runtime policy is distinct from the historical paper-only advanced risk envelope; neither authorizes live limits.
+- Cash-funded long-only whole-share behavior remains mandatory even for an eligible account with MARGIN privileges. Pending sells cannot finance buys; UNKNOWN, working, partial and pending-cancel obligations retain conservative capacity.
+- Use exact Decimal financial arithmetic, append-only balanced accounting and deterministic ordering. Actual confirmed economic events must be represented even when their cost exceeds an earlier estimate; projections are derived, not independently editable truth.
+- Persist/revalidate the ownership generation, controls, risk decision/reservations and immutable attempt before effects. A recorded send claim cannot be replayed as new authority. An ambiguous effect remains unresolved; cancellation requests alone do not release exposure. An E*TRADE client ID does not support the historical Alpaca lookup recovery assumption.
+- Stop is cooperative denial, never permission. Restart/restore remains halted, and no health check, CI pass, code merge, OAuth receipt or capture receipt re-arms an account.
+- Secrets belong in explicitly selected private stores, never logs, raw ordinary journals, fixtures or Git. Test only with repository fixtures and isolated stores; do not use production credentials.
+- Financial reducers, broker adapters, lease/transaction code, authentication, risk/attempt/control boundaries, immutable artifact/schema contracts and migration history require focused regression and boundary tests before meaningful changes.
 
 ## 1. Product and scope
 
@@ -29,9 +155,9 @@ E*TRADE's documented session lifecycle requires user participation: inactive tok
 
 ## 2. Current state versus target
 
-Reviewed integrated code: `107fa79` in the active checkout. The older workspace checkout is `8685b56`, 161 commits behind that main revision. This is a static design/code review, not a fresh claim that tests or deployment qualification passed.
+The original design review used `107fa79`. The implementation map above starts from `b1156ba` and includes subsequent reviewed additions; current test evidence and exact revision belong in STATUS. The nearby `repo/` checkout is historical and must not be used as the active implementation merely because it is under the surrounding workspace.
 
-Waves 0–2 supply admitted historical archives, the sole causal economic engine, retained financial reducers and derived reports. Wave 3 integrates a local selectable dataset/run/report/comparison UI, durable research jobs and descriptive trial registration; its exact acceptance status is recorded in the implementation plan. The former golden path remains explicitly labelled history. The trader is still a non-ready preflight: authoritative broker application/reconciliation and a continuously operating execution path remain later work. Research completion cannot close those connected-execution gaps.
+Waves 0–3 supply historical research archives, the canonical causal economic engine, retained financial reducers, derived reports, durable research jobs and the local research UI. Wave 4 adds account coordination, applied reconciliation and continuous simulation source, with incomplete acceptance. The historical trader remains a non-ready preflight; the fixed personal continuous worker restores/checks HALTED state. A ready connected execution path remains later work. Research completion cannot close those connected-execution gaps.
 
 Target readiness must be reported separately as service health, research usability, source quality, account reconciliation, execution eligibility and live authorization. A healthy API or a passing fixture cannot set trading readiness.
 

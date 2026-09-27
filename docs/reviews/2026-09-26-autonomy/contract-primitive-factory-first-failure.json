@@ -1,0 +1,35 @@
+{
+  "schema": "aqt-contract-primitive-factory-first-failure/1",
+  "date": "2026-09-27",
+  "tests": {
+    "passed": 172,
+    "failed": 2,
+    "seconds": 808.46
+  },
+  "cause": "Earlier original-reader copies add stdlib lazy __slotnames__ class metadata; later pinned behavior guards correctly reject the changed namespace. A fixture-free actual-class reproduction confirms this independently of the primitive prefix.",
+  "disposition": "Repair test-created metadata isolation using established proof-test precedent; retain strict production class inventory and failures. No retained acceptance claimed.",
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-factory-integration.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-factory-integration.txt",
+      "sha256": "13dfc4660b9a6f62a6646a2899de6a52b36c7798f35df03d166f40b9ff0d169f",
+      "source_sha256": "0639896f9cd617293fc0b4aded1c79423b2ff3c47bdc764592cfdb0936452484",
+      "encoding": "display text with trailing whitespace removed; exact original in verbatim-validation-logs.json"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-class-copy-reproduction.json",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-class-copy-reproduction.json",
+      "sha256": "08e42520cf0b2ed6813c6613e017dc65f62b76197c1035fa5618d1f0998308e9"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-observation-design-review.md",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-observation-design-review.md",
+      "sha256": "3543c1428815e13829468120248830c0f266de973c9a4d4c499674eb02dd755c"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-child-native-static-check.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-child-native-static-check.json",
+      "sha256": "d866e05435155577cc0b282fdd20c50c1711d6a6a3e9127d733ced54532aa222"
+    }
+  ]
+}

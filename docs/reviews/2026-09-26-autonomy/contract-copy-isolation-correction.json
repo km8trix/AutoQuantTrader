@@ -1,0 +1,47 @@
+{
+  "schema": "aqt-copy-isolation-correction/1",
+  "date": "2026-09-27",
+  "scope": "Three test-only copy sites; original production namespace guard unchanged.",
+  "unit": {
+    "passed": 5,
+    "seconds": 1.15
+  },
+  "ordered_integration": {
+    "passed": 5,
+    "seconds": 26.65,
+    "nodes": [
+      "test_continuous_integrity_daily_episode.py::test_original_episode_rejects_copies_foreign_consumers_threads_and_reentry[reader]",
+      "test_continuous_integrity_daily_episode.py::test_original_episode_rejects_copies_foreign_consumers_threads_and_reentry[consumer]",
+      "test_continuous_factory_integrity_result.py::test_copied_reader_does_not_gain_an_operation",
+      "test_continuous_attempt_factory_proof.py::test_deep_provenance_change_reaches_the_original_final_fingerprint_guard",
+      "test_continuous_attempt_factory_proof.py::test_actual_owned_pending_source_cannot_issue_factory_proof_from_an_opaque_claim"
+    ]
+  },
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-class-copy-reproduction.json",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-class-copy-reproduction-expanded.json",
+      "sha256": "3c39b386fae83f2c041140c86150d48478e623b35eb66083a2c88e922bedc886"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-copy-isolation-review.md",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-copy-isolation-review.md",
+      "sha256": "ce8545ab53ad92c83d0834761f0fb55cd4cdbbea8966493765a1a6ca5d5d031b"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-copy-isolation-unit-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-copy-isolation-unit-first.txt",
+      "sha256": "e55faee4c3e39a0bc0350f7c79a1eca849c08ab6c3eb47c5b7a93ef5efc897ec"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-copy-isolation-ordered.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-copy-isolation-ordered.txt",
+      "sha256": "6979c458476db22afd4318745c5556a20f786ba2838cc75ed077e5f1c0d2a754"
+    }
+  ],
+  "limits": [
+    "Initial 172-pass/two-failure full selection remains preserved; only affected ordered cases were rerun after focused isolation fix.",
+    "Expanded two-class reproduction is separately published; original one-class checkpoint remains unchanged. The review refers to the expanded capture under its temporary original filename.",
+    "Retained restore, worker and exact-source Linux acceptance remain separate."
+  ]
+}

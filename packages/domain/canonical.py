@@ -163,7 +163,7 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
             parts.append(",")
         if type(item) is str:
             parts.append(
-                '{"type":"string","value":' + json.encoder.encode_basestring_ascii(item) + "}"
+                f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item)}}}'
             )
         elif type(item) is tuple:
             _append_typed_text(item, parts, deferred)
@@ -175,11 +175,11 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
             )
         elif type(item) is int:
             parts.append(
-                '{"type":"int","value":' + json.encoder.encode_basestring_ascii(str(item)) + "}"
+                f'{{"type":"int","value":{json.encoder.encode_basestring_ascii(str(item))}}}'
             )
         elif type(item) is bytes:
             parts.append(
-                '{"type":"bytes","value":' + json.encoder.encode_basestring_ascii(item.hex()) + "}"
+                f'{{"type":"bytes","value":{json.encoder.encode_basestring_ascii(item.hex())}}}'
             )
         else:
             # Complete conversion hooks in traversal order before serializing

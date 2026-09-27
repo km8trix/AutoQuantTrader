@@ -58,6 +58,7 @@ def test_default_selection_is_isolated_and_propagates_pytest_exit(monkeypatch, p
     assert targets == sorted(set(targets))
     assert {
         "tests/unit/test_personal_ci_runner.py",
+        "tests/unit/test_pytest_sharding.py",
         "tests/unit/test_accounting.py",
         "tests/unit/test_attempt_resolved_fingerprint.py",
         "tests/integration/test_continuous_session_acceptance.py",
@@ -65,7 +66,6 @@ def test_default_selection_is_isolated_and_propagates_pytest_exit(monkeypatch, p
         "tests/integration/test_phase2_postgres_exit.py::test_two_owners_racing_for_first_coordinator_lease_have_one_winner",
         "tests/integration/test_phase2_postgres_exit.py::test_same_owner_conditional_generation_race_advances_only_once",
     } <= set(targets)
-    assert "tests/unit/test_pytest_sharding.py" not in targets
     assert "--aqt-shard-count" not in command and "--aqt-shard-index" not in command
     if postgres:
         assert command[-2:] == ["--aqt-test-postgres-url", POSTGRES]

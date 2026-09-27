@@ -1,0 +1,178 @@
+{
+  "schema": "aqt-exact-head-ci-snapshot/1",
+  "observed_at_utc": "2026-09-27T05:58:39.316418+00:00",
+  "run": {
+    "databaseId": 36297439151,
+    "headSha": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "headBranch": "codex/autonomous-development",
+    "status": "queued",
+    "conclusion": "",
+    "event": "pull_request",
+    "createdAt": "2026-09-27T05:31:12Z",
+    "updatedAt": "2026-09-27T05:32:42Z",
+    "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151"
+  },
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "source_binding_provenance": "Reused previously verified exact run/candidate/merge binding from immutable ci-071dd5c-initial.json; current run head matches. No new merge-ref read.",
+  "financial_job_counts": {
+    "success": 3,
+    "in_progress": 4,
+    "failure": 1,
+    "queued": 8
+  },
+  "jobs": [
+    {
+      "id": 108558785272,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "shard": null,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558785368,
+      "name": "Browser regressions",
+      "shard": null,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977322,
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "shard": 0,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977336,
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "shard": 1,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977356,
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "shard": 5,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 108558977357,
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "shard": 3,
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 108558977363,
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "shard": 9,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977389,
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "shard": 11,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977397,
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "shard": 6,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 108558977399,
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "shard": 2,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558977400,
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "shard": 10,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977403,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "shard": 7,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 108558977404,
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "shard": 8,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977406,
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "shard": 13,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977480,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "shard": 4,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 108558977496,
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "shard": 12,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977903,
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "shard": 14,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 108558977959,
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "shard": 15,
+      "status": "queued",
+      "conclusion": null
+    }
+  ],
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-run-read.json",
+      "sha256": "e40fbab48dda1cdeb967218897847bb01bb02adc1a1bfe62b4afa55a653ef3fb"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-initial.json",
+      "sha256": "9c98497e535f24c33af7005dc203ed3fd35fefcb53cf8f670c624a812e4fd4ba"
+    }
+  ],
+  "limitations": [
+    "One status read only, no polling or workflow mutation.",
+    "Run incomplete: completed shard3 reports failure, but no log retrieval was performed under the instructed running-run snapshot branch; its failure cause and cleanup are not yet established.",
+    "No final financial test counts or automatic profile result exists in this snapshot.",
+    "Run-level queued status is preserved verbatim despite active/completed jobs."
+  ]
+}

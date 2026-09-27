@@ -1,0 +1,81 @@
+{
+  "scope": "Owner-approved offline factory-only candidate; exact original gates and caps unchanged. Combined run precedes final nested-data injection-point refinement, whose targeted result is recorded separately.",
+  "combined_tests": {
+    "passed": 100,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 321.91,
+    "log": "factory-proof-combined-cost-first.txt"
+  },
+  "original_integration_tests": {
+    "passed": 177,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 811.28,
+    "evidence": "factory-proof-original-integrations-first.json"
+  },
+  "original_unprofiled_restore": {
+    "passed": 1,
+    "restore_seconds": 40.246,
+    "fixture_seconds": 179.754,
+    "test_seconds": 222.75,
+    "evidence": "factory-proof-original-retained-first.json"
+  },
+  "observed_resources": {
+    "containers": 7389,
+    "bindings": 66263,
+    "container_cap": 16384,
+    "binding_cap": 131072
+  },
+  "economics": {
+    "approximate_incremental_model_ns": 1042580999.0,
+    "candidate_over_original_ratio": 0.44448408820794605,
+    "definition": "candidate modeled cost / original removed-fingerprint estimate; lower is faster",
+    "estimated_saved_ns": 1303017025.0,
+    "incremental_checks_ns": 869527583.0,
+    "limits": "Prefix subtraction uses original full checks from the same authentic graph, not a paired baseline run. Episode residual conservatively includes unchanged dispatch; a few added borrow branch/finally instructions cannot be isolated, while begin/end methods are included. Monitoring overhead and changing guard cost can bias the estimate. The new-span envelope includes unchanged private-method prefixes and is not a rigorous upper bound. No startup acceptance.",
+    "observed_issue_and_retirement_ns": 173053416,
+    "observed_new_span_envelope_ns": 6094311959,
+    "original_fingerprint_mean_ns": 32577750.333333332,
+    "original_prefix_mean_ns": 70162930.0,
+    "removed_fingerprint_estimate_ns": 2345598024.0
+  },
+  "checks": {
+    "architecture": "pass before imports",
+    "ruff_format": "1030 files pass",
+    "ruff_check": "pass",
+    "mypy": "421 source files pass",
+    "api_contracts": "current",
+    "standard_runner_collection": 4948,
+    "collection_seconds": 13.89,
+    "documentation_links": "8 operating documents/README resolve",
+    "git_diff_check": "pass"
+  },
+  "limits": [
+    "No exact-source Linux acceptance yet.",
+    "Approximate prefix-subtraction model is not a controlled paired speedup or complete instruction accounting.",
+    "Monitoring overhead and guard-cost variation remain; observed span envelope includes unchanged guards.",
+    "Local unprofiled restore passes independently; timing differences from earlier revisions are not controlled comparisons.",
+    "Native proof profile is qualified only for CPython 3.12.13; unsupported profiles keep full original validation."
+  ],
+  "source_hashes": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_factory_complete_cost.py": "93a15bf6daf4d4cbe6f0769a0eafea7cf049bd2c1a555ad9466464554462c104",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "tests/integration/test_continuous_attempt_factory_proof.py": "a54dff3961aceb11684076a0883bf8e4a5f489a0d0dd5658359136a3656ada6e",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "6d3948a41d2bb216174cd6d6c5daf96bccb8702e817650152f522a8d29246751",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "tests/unit/test_continuous_attempt_fingerprint_behavior.py": "26556988b85fd56d9f409bd2ae9d54a67497074964d27930212928dd10849bef",
+    "tests/unit/test_continuous_attempt_fingerprint_method_profile.py": "716db019731fade27ca482b64c02297da58036af1eaafc68fd159fc450f3fbf6",
+    "tests/unit/test_continuous_attempt_fingerprint_proof.py": "e6d24ca1db3e1a8f859ce37265834177ebe880157a4a27e04cd60d45e8ce3b1a"
+  },
+  "final_targeted_refinement": {
+    "evidence": "factory-proof-nested-final.json",
+    "passed": 1,
+    "seconds": 204.63,
+    "purpose": "Reject at substituted final data check after original preceding guards; exact failure, no completed permit, poisoning and retirement."
+  }
+}

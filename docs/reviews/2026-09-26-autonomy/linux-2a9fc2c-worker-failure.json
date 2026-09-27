@@ -1,0 +1,35 @@
+{
+  "run_id": 36285774497,
+  "head_sha": "2a9fc2c5adda25c49e7d1c1ca78e2845b7bb64eb",
+  "job_id": 108526370943,
+  "shard": 3,
+  "conclusion": "failure",
+  "failed": 1,
+  "passed": 326,
+  "deselected": 4621,
+  "reported_skipped": 0,
+  "warnings": 1,
+  "seconds": 761.33,
+  "failed_node": "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history",
+  "assertion": "outcome.status == completed",
+  "actual_status": "failed",
+  "reason": "child_observation_failed",
+  "source_location": "tests/integration/test_continuous_simulation_worker.py:40",
+  "checkout_merge_ref": "a1a015b9337888eaab7f6f3216e395c8eecfb396",
+  "limitations": [
+    "Run head SHA identifies approved candidate; Actions checks out generated PR merge ref.",
+    "The job log exposes the coarse supervisor reason, not an underlying child-observation exception; root cause is not established by this log.",
+    "No rerun, cancellation, workflow dispatch, repository edit, or local test performed."
+  ],
+  "raw_log": "/private/tmp/aqt-autonomy-audit/ci-2a9fc2c-shard3.log",
+  "raw_log_sha256": "b5a40d641dc1cfcb1083ef086b89a08d376f6e38b4a6eff7e491947d738a015d",
+  "verified_checkout_tree": {
+    "tree": "27e9050e5c778f365c0e4c5a2916691ed28b6aff",
+    "equals_candidate_tree": true,
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "2a9fc2c5adda25c49e7d1c1ca78e2845b7bb64eb"
+    ],
+    "verification": "Read-only GitHub git-commit API for generated merge and local git rev-parse candidate^{tree} agree."
+  }
+}

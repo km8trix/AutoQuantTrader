@@ -1,0 +1,93 @@
+{
+  "schema": "retained-canonical-shape-investigation/1",
+  "diagnostic_only": true,
+  "source_sha256": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "diagnostic_plugin": "d6290230a36c8a77e51b0658fd66fb5f009b6c8f8bf0d7fc9964d44997e9c952",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "0525ffa5ac23c22c2c266ab7e62efe7d22663f1b572d04f56d6f0ac7160578e6",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "artifacts_sha256": {
+    "canonical-capture-retained-02a8/capture.json": "a990cbc50776915bf8b9127dd37160e2e9425cf2cfb97078a63e0e4876617dcc",
+    "canonical-capture-retained-02a8/replay.json": "5e9703ab9c9ac3601fd2fa58bdf90b60511f4f36306dfa01388fa417dd622f9b",
+    "canonical-retained-replay-benchmark.json": "41fd45ee8a4d2eee37e5052793b0212a90d9f58dbfdaca7fe0ca3f657849df62",
+    "canonical-retained-replay-benchmark-longer.json": "5ea9c8e838989551de4c0c0aee72ad09bd5d01ae30361c0e166d9f2ffd3ea989",
+    "canonical-retained-replay-benchmark.py": "662cd3a1e09391c3f195a60188d3c49b14898bae1ab0ba381939459e7cef5ef5",
+    "canonical-retained-typed-shapes.json": "f453ece2116d337acdfbe83200d6112285095752eb81dd81d539744555fc7a86"
+  },
+  "capture": {
+    "capture_status": "valid",
+    "diagnostic_faults": [],
+    "pytest_exitstatus": 0,
+    "execute_started": 1,
+    "execute_returned": 1,
+    "execute_elapsed_ns": 46696054417,
+    "canonical_calls": 62011,
+    "canonical_failed_calls": 0,
+    "canonical_inclusive_elapsed_ns": 10860592460,
+    "oversized_results": 253,
+    "oversized_elapsed_ns": 4306194076,
+    "retained_bytes": 2982859,
+    "sample_count": 30
+  },
+  "replay": {
+    "verified_samples": 22,
+    "skipped_samples": 8,
+    "skipped_reason": "enum_original_class_unavailable",
+    "note": "One skipped enum-containing sample also contains a mapping. Decoder does not import encoded class names or invent classes."
+  },
+  "coverage": {
+    "oversized_omitted_canonical_cost_fraction": 0.3964971608924547,
+    "represented_bucket_call_weight": 53631.5,
+    "represented_bucket_cost_weight_ns": 3372204051.5,
+    "represented_bucket_cost_fraction": 0.31049908777260204,
+    "weight_definition": "Each admitted sample represents observed bucket calls/cost divided by all sampled members in that bucket. This is a two-sample size-bucket estimate, not exact semantic shape frequency or statistical confidence."
+  },
+  "benchmark": {
+    "precision_batch": "7 alternating-order repeats per sample; 5,000,000/output_bytes iterations, clamped1..2000; 22 admitted samples; finished7.57s.",
+    "ratio_definition": "candidate median elapsed seconds / current median elapsed seconds; below1 is faster.",
+    "estimated_bucket_count_weighted_ratio": {
+      "current": 1.0,
+      "entry_pair": 0.9857866715110803,
+      "entry_empty": 1.0090060246746628,
+      "entry_extend": 0.9856681263309227,
+      "entry_builtin_pair_exploratory": 0.9490490532692735
+    },
+    "all_candidate_output_bytes_equal_current_on_admitted_samples": true
+  },
+  "assessment": [
+    {
+      "candidate": "function-entry exact two-string tuple, complete each scalar fragment first",
+      "ratio": 0.9857866715110803,
+      "disposition": "No recommendation: only1.42% estimated covered-sample gain, with regressions on other shapes; no material retained-workload improvement established."
+    },
+    {
+      "candidate": "function-entry exact empty tuple",
+      "ratio": 1.0090060246746628,
+      "disposition": "Reject for this workload:0.90% slower estimated covered-sample mix; empty-tuple isolated speedup does not carry overall."
+    },
+    {
+      "candidate": "function-entry exact two-string tuple, extend original complete fragments",
+      "ratio": 0.9856681263309227,
+      "disposition": "No recommendation: only1.43% estimated covered-sample gain; earlier compatibility probes passed but material startup benefit unproved."
+    },
+    {
+      "candidate": "function-entry combined two-string tuple fragment guarded by original builtin encoder identity",
+      "ratio": 0.9490490532692735,
+      "disposition": "Do not implement:5.10% estimated covered-sample gain is modest and current guard cannot establish behavior under concurrent/signal encoder rebinding. No original hook/lifetime/depth acceptance claim."
+    },
+    {
+      "candidate": "arbitrary exact-string escaping memoization",
+      "disposition": "Not implemented or benchmarked: retains potentially credential-bearing text and changes global data lifetimes; not warranted by this evidence."
+    }
+  ],
+  "conclusion": "No materially helpful behavior-preserving canonical change is established by these bounded captured shapes. Stop this tuple-specialization exploration; preserve evidence and pursue independently justified costs or escalate a consequential architectural decision if necessary.",
+  "limits": [
+    "253 outputs above1MiB omitted by fixed policy consumed4.306194076s,39.65% of measured canonical inclusive time. Do not increase capture caps or rerun fixture for this investigation.",
+    "Eight unsupported enum-containing samples omitted; admitted samples represent estimated31.05% of canonical cost,86.49% of calls. No extrapolation to omitted graphs or end-to-end speedup.",
+    "Canonical output shape loses original subclasses, aliases, hooks, read/error order and lifetimes. Byte equality is necessary but does not establish compatibility.",
+    "The instrumented original test passed locally; it is not the separate unprofiled acceptance gate or Linux CI acceptance.",
+    "No production source/test/limits/authority changes, no caching, no provider calls and no additional heavy fixture by this worker."
+  ]
+}

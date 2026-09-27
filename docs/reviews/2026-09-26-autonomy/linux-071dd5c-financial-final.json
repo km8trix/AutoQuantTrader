@@ -1,0 +1,430 @@
+{
+  "schema": "aqt-exact-head-financial-completed/1",
+  "observed_at_utc": "2026-09-27T06:44:45.471176+00:00",
+  "run_id": 36297439151,
+  "run_status": "in_progress",
+  "run_conclusion": null,
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "financial_shards": [
+    {
+      "shard": 0,
+      "job_id": 108558977322,
+      "conclusion": "success",
+      "selected": 289,
+      "passed": 289,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4678,
+      "elapsed_seconds": 987.45,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T05:49:37.1664557Z 289 passed, 4678 deselected, 1 warning in 987.45s (0:16:27)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard0-raw.log",
+        "bytes": 40038,
+        "sha256": "dd773dded0bc9509363afeaa09efe9dce761d1a9c9c64d251cd8966abd756792"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 1,
+      "job_id": 108558977336,
+      "conclusion": "success",
+      "selected": 304,
+      "passed": 304,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4663,
+      "elapsed_seconds": 932.69,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T05:48:37.8193319Z 304 passed, 4663 deselected, 1 warning in 932.69s (0:15:32)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard1-raw.log",
+        "bytes": 40031,
+        "sha256": "6b3aa6d7c22369177edb6c6d168146138358634da54ad9444e35c1e0780cd90f"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 2,
+      "job_id": 108558977399,
+      "conclusion": "success",
+      "selected": 327,
+      "passed": 327,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4640,
+      "elapsed_seconds": 980.9,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T05:49:30.3941153Z 327 passed, 4640 deselected, 1 warning in 980.90s (0:16:20)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard2-raw.log",
+        "bytes": 40394,
+        "sha256": "3f0ed3da2559aef6e61fdf1d8b45504347f246c0bc27aa0ad35ea391d62aa01c"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 3,
+      "job_id": 108558977357,
+      "conclusion": "failure",
+      "selected": 327,
+      "passed": 326,
+      "failed": 1,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4640,
+      "elapsed_seconds": 823.69,
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history"
+      ],
+      "summary_line": "2026-09-27T05:46:55.5158481Z 1 failed, 326 passed, 4640 deselected, 1 warning in 823.69s (0:13:43)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-raw.log",
+        "bytes": 51951,
+        "sha256": "b1a77aeae13356faaa34c723f2e67ee03c54e07be752ec48986369dcf8d6b9d5"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 4,
+      "job_id": 108558977480,
+      "conclusion": "failure",
+      "selected": 341,
+      "passed": 340,
+      "failed": 1,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4626,
+      "elapsed_seconds": 789.46,
+      "failed_nodes": [
+        "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]"
+      ],
+      "summary_line": "2026-09-27T06:01:07.3963903Z 1 failed, 340 passed, 4626 deselected, 1 warning in 789.46s (0:13:09)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard4-raw.log",
+        "bytes": 56094,
+        "sha256": "f3e99f748a1c1e7a1ac067b5154b6de220e8c24356c3dbd0fc01b0b35e69dd18"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 5,
+      "job_id": 108558977356,
+      "conclusion": "success",
+      "selected": 299,
+      "passed": 299,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4668,
+      "elapsed_seconds": 675.73,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:00:37.1958919Z 299 passed, 4668 deselected, 1 warning in 675.73s (0:11:15)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard5-raw.log",
+        "bytes": 45713,
+        "sha256": "b8082bc7b87a445e54454276c08d7d0e2cb3db63409a4c532aa9411dcd2e3ae2"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 6,
+      "job_id": 108558977397,
+      "conclusion": "success",
+      "selected": 339,
+      "passed": 339,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4628,
+      "elapsed_seconds": 652.37,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:00:52.0925513Z 339 passed, 4628 deselected, 1 warning in 652.37s (0:10:52)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard6-raw.log",
+        "bytes": 40100,
+        "sha256": "1230b72ed2659d0ad3e941148f07893badc8725f68cbb85ab8422d0e516b3caf"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 7,
+      "job_id": 108558977403,
+      "conclusion": "failure",
+      "selected": 304,
+      "passed": 303,
+      "failed": 1,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4663,
+      "elapsed_seconds": 995.97,
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+      ],
+      "summary_line": "2026-09-27T06:06:38.0730608Z 1 failed, 303 passed, 4663 deselected, 1 warning in 995.97s (0:16:35)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard7-raw.log",
+        "bytes": 55726,
+        "sha256": "ce3027fa83866f24e39c9de3c81c7377a0217dffcd424b037af7730e36d6a4b1"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 8,
+      "job_id": 108558977404,
+      "conclusion": "success",
+      "selected": 273,
+      "passed": 273,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4694,
+      "elapsed_seconds": 570.38,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:10:36.8306808Z 273 passed, 4694 deselected, 1 warning in 570.38s (0:09:30)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard8-raw.log",
+        "bytes": 40279,
+        "sha256": "d3d37c49a1fe08f9cec87429e9fb5f01d7ceb36430b16c28906436fb2706ed15"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 9,
+      "job_id": 108558977363,
+      "conclusion": "success",
+      "selected": 310,
+      "passed": 310,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4657,
+      "elapsed_seconds": 477.37,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:09:15.8992568Z 310 passed, 4657 deselected, 1 warning in 477.37s (0:07:57)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard9-raw.log",
+        "bytes": 39907,
+        "sha256": "f234f2d058a48a73070100eeedd3bafed28e1cbcd598609a8a2377b427370c33"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 10,
+      "job_id": 108558977400,
+      "conclusion": "success",
+      "selected": 323,
+      "passed": 323,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4644,
+      "elapsed_seconds": 499.07,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:09:59.7730533Z 323 passed, 4644 deselected, 1 warning in 499.07s (0:08:19)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard10-raw.log",
+        "bytes": 40453,
+        "sha256": "c64dfbb8b2006d7b9590d022c3ff6ab8cfdacb0185a6a0a3a90534a255ae5cf6"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 11,
+      "job_id": 108558977389,
+      "conclusion": "success",
+      "selected": 304,
+      "passed": 304,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4663,
+      "elapsed_seconds": 406.37,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:13:50.5241281Z 304 passed, 4663 deselected, 1 warning in 406.37s (0:06:46)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard11-raw.log",
+        "bytes": 40041,
+        "sha256": "b0302a7d5a106fdec12156e9511ea5a573c0caa6b8eea685a53d112a07967d17"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 12,
+      "job_id": 108558977496,
+      "conclusion": "success",
+      "selected": 328,
+      "passed": 328,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4639,
+      "elapsed_seconds": 1845.6,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:40:30.7439055Z 328 passed, 4639 deselected, 1 warning in 1845.60s (0:30:45)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard12-raw.log",
+        "bytes": 41023,
+        "sha256": "9587e80b2008fb872b6251f1f557d7074d75ff5a80f542adc4eac75e24f9bd32"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 13,
+      "job_id": 108558977406,
+      "conclusion": "success",
+      "selected": 272,
+      "passed": 272,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4695,
+      "elapsed_seconds": 944.35,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:26:16.7055666Z 272 passed, 4695 deselected, 1 warning in 944.35s (0:15:44)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard13-raw.log",
+        "bytes": 39932,
+        "sha256": "45967d4f9abc4ebdb04cabf1a5973d51ebc353eaa43a907d5ad3c5cea60763fb"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 14,
+      "job_id": 108558977903,
+      "conclusion": "success",
+      "selected": 340,
+      "passed": 340,
+      "failed": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4627,
+      "elapsed_seconds": 534.3,
+      "failed_nodes": [],
+      "summary_line": "2026-09-27T06:20:02.9677540Z 340 passed, 4627 deselected, 1 warning in 534.30s (0:08:54)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard14-raw.log",
+        "bytes": 39996,
+        "sha256": "3cc69fd101de8c2ad7113853170742529a3bae3781bc994ec80f847ba8319caf"
+      },
+      "checkout_merge_verified": true
+    },
+    {
+      "shard": 15,
+      "job_id": 108558977959,
+      "conclusion": "failure",
+      "selected": 287,
+      "passed": 285,
+      "failed": 2,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "errors": 0,
+      "deselected": 4680,
+      "elapsed_seconds": 1383.38,
+      "failed_nodes": [
+        "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[retired]",
+        "tests/integration/test_continuous_process_lifecycle.py::test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result"
+      ],
+      "summary_line": "2026-09-27T06:37:20.0864049Z 2 failed, 285 passed, 4680 deselected, 1 warning in 1383.38s (0:23:03)",
+      "raw_log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard15-raw.log",
+        "bytes": 65671,
+        "sha256": "28932f28ef2c2233cfa262b1001fa54b6cea86ae4a118b71bd0e3be17610ed7e"
+      },
+      "checkout_merge_verified": true
+    }
+  ],
+  "totals": {
+    "selected": 4967,
+    "passed": 4962,
+    "failed": 5,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "errors": 0
+  },
+  "financial_jobs": {
+    "success": 12,
+    "failure": 4
+  },
+  "other_jobs": [
+    {
+      "id": 108558785272,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558785368,
+      "name": "Browser regressions",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108567934752,
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 108567934761,
+      "name": "Standard Python foundations and retained financial regressions",
+      "status": "completed",
+      "conclusion": "failure"
+    }
+  ],
+  "snapshot_evidence": {
+    "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-financial-read.json",
+    "sha256": "d55e501c7ad5368e694fac41181d53b031f895515eeae5902fea98c465ee6e2f"
+  },
+  "limits": [
+    "Financial matrix complete; automatic diagnostic profile is still running at this read.",
+    "Per-shard totals are parsed from each complete original pytest summary; exact4967selected=4962passed+5failed, no skips.",
+    "No workflow retry, cancel, dispatch or repository edits."
+  ]
+}

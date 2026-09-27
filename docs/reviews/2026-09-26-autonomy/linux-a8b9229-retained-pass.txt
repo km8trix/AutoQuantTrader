@@ -1,0 +1,8 @@
+Selected sanitized required-job log lines; full-log hash is in the adjacent JSON.
+
+2026-09-26T07:18:04.4566972Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +bf7625d47f2d8a29a062d9e2310ab897a705ce82:refs/remotes/pull/56/merge
+2026-09-26T07:18:06.4562218Z  * [new ref]         bf7625d47f2d8a29a062d9e2310ab897a705ce82 -> pull/56/merge
+2026-09-26T07:18:06.6218543Z HEAD is now at bf7625d Merge a8b92297ba0845b9038b7684ab60333d928d9c6d into b1156ba96e6f1246a3a213ff041f17e3b15ff78b
+2026-09-26T07:18:06.6297573Z bf7625d47f2d8a29a062d9e2310ab897a705ce82
+2026-09-26T07:18:16.0362416Z ##[group]Run .venv/bin/python -B scripts/run_personal_tests.py --postgres-url ***localhost:5432/autoquant_test --shard-count 16 --shard-index 7
+2026-09-26T07:31:37.6196104Z 295 passed, 4491 deselected, 1 warning in 799.85s (0:13:19)

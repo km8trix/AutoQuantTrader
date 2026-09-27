@@ -1,0 +1,1214 @@
+{
+  "schema": "aqt-approved-ci-final-evidence/1",
+  "run_id": 36293614203,
+  "run": {
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203",
+    "updated_at": "2026-09-27T05:27:24Z"
+  },
+  "completed_observation_utc": "2026-09-27T05:27:36.904676+00:00",
+  "source_binding": {
+    "candidate_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+    "candidate_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "actions_merge_sha": "5f5cd54bdad7baa95c71eb7169457b6a690569c1",
+    "actions_merge_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "55951fb2870f5776b1b89302bccf0092725387fd"
+    ],
+    "same_tree": true
+  },
+  "job_conclusions": {
+    "success": 16,
+    "failure": 4
+  },
+  "total_jobs": 20,
+  "financial": {
+    "total_selected": 4967,
+    "counts": {
+      "passed": 4965,
+      "failed": 2,
+      "skipped": 0
+    },
+    "shards": [
+      {
+        "id": 108548506652,
+        "name": "Retained financial regressions (shard index 0 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:14:01Z",
+        "completed_at": "2026-09-27T04:30:54Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506652",
+        "shard": 0,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard0.log",
+          "sha256": "596e827bd82f3f7af722a7b4a9c68dd6e957cc77b410ae4404f05857fa62f4b4",
+          "bytes": 39968
+        },
+        "summary": "2026-09-27T04:30:51.4106288Z 289 passed, 4678 deselected, 1 warning in 988.90s (0:16:28)",
+        "counts": {
+          "passed": 289,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4678,
+          "warnings": 1,
+          "seconds": 988.9
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506688,
+        "name": "Retained financial regressions (shard index 1 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:14:00Z",
+        "completed_at": "2026-09-27T04:29:45Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506688",
+        "shard": 1,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard1.log",
+          "sha256": "7b3fccc17c18736c3728aad2a5d47f79f4aea1ed053b9aac478ab3f597c55e60",
+          "bytes": 40187
+        },
+        "summary": "2026-09-27T04:29:42.0000321Z 304 passed, 4663 deselected, 1 warning in 920.58s (0:15:20)",
+        "counts": {
+          "passed": 304,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4663,
+          "warnings": 1,
+          "seconds": 920.58
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506630,
+        "name": "Retained financial regressions (shard index 2 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:14:00Z",
+        "completed_at": "2026-09-27T04:24:40Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506630",
+        "shard": 2,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard2.log",
+          "sha256": "44c0c27878210ced1fbd219ba0b56742142fe9cfeadc4bd71bb19be45cc1174b",
+          "bytes": 40331
+        },
+        "summary": "2026-09-27T04:24:36.6184814Z 327 passed, 4640 deselected, 1 warning in 609.76s (0:10:09)",
+        "counts": {
+          "passed": 327,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4640,
+          "warnings": 1,
+          "seconds": 609.76
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506646,
+        "name": "Retained financial regressions (shard index 3 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:14:00Z",
+        "completed_at": "2026-09-27T04:27:24Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506646",
+        "shard": 3,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard3.log",
+          "sha256": "71b574f9a496aca81a41fdd11febc153c8a5066e9b2575766cad70bc3e55c33a",
+          "bytes": 40092
+        },
+        "summary": "2026-09-27T04:27:21.1028564Z 327 passed, 4640 deselected, 1 warning in 779.83s (0:12:59)",
+        "counts": {
+          "passed": 327,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4640,
+          "warnings": 1,
+          "seconds": 779.83
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506619,
+        "name": "Retained financial regressions (shard index 4 of 16)",
+        "status": "completed",
+        "conclusion": "failure",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:24:42Z",
+        "completed_at": "2026-09-27T04:37:21Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506619",
+        "shard": 4,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4.log",
+          "sha256": "12097180be97fdf508900b632ec6dfb306e22dc0905e58a0c440f2212618132a",
+          "bytes": 55926
+        },
+        "summary": "2026-09-27T04:37:17.1456526Z 1 failed, 340 passed, 4626 deselected, 1 warning in 727.24s (0:12:07)",
+        "counts": {
+          "passed": 340,
+          "failed": 1,
+          "skipped": 0,
+          "deselected": 4626,
+          "warnings": 1,
+          "seconds": 727.24
+        },
+        "failed_nodes": [
+          "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]"
+        ],
+        "private_entry_markers": [
+          {
+            "case": "original",
+            "private_entry_seen": true
+          }
+        ],
+        "failure_diagnostics": [
+          "2026-09-27T04:37:17.1428206Z actual factory restore result: failed; elapsed=61.250s",
+          "2026-09-27T04:37:17.1428993Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+          "2026-09-27T04:37:17.1429706Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+          "2026-09-27T04:37:17.1430364Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+          "2026-09-27T04:37:17.1431004Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+          "2026-09-27T04:37:17.1431609Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+          "2026-09-27T04:37:17.1432156Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+          "2026-09-27T04:37:17.1432748Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+          "2026-09-27T04:37:17.1433349Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+          "2026-09-27T04:37:17.1433889Z actual factory execute frame: packages/persistence/database.py:219:validate",
+          "2026-09-27T04:37:17.1434387Z actual factory execute frame: packages/persistence/database.py:381:validate",
+          "2026-09-27T04:37:17.1434910Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+          "2026-09-27T04:37:17.1435442Z actual factory execute frame: packages/persistence/database.py:379:validate",
+          "2026-09-27T04:37:17.1436250Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+          "2026-09-27T04:37:17.1436851Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+          "2026-09-27T04:37:17.1437450Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+          "2026-09-27T04:37:17.1438036Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+          "2026-09-27T04:37:17.1438713Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+          "2026-09-27T04:37:17.1439328Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+          "2026-09-27T04:37:17.1439932Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+          "2026-09-27T04:37:17.1440520Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+          "2026-09-27T04:37:17.1441119Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+          "2026-09-27T04:37:17.1441735Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+          "2026-09-27T04:37:17.1442366Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+          "2026-09-27T04:37:17.1443022Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+          "2026-09-27T04:37:17.1443624Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+          "2026-09-27T04:37:17.1444178Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+          "2026-09-27T04:37:17.1444789Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+          "2026-09-27T04:37:17.1445447Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+          "2026-09-27T04:37:17.1446141Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+          "2026-09-27T04:37:17.1446708Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+          "2026-09-27T04:37:17.1447405Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+          "2026-09-27T04:37:17.1448048Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+          "2026-09-27T04:37:17.1448768Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+          "2026-09-27T04:37:17.1449333Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+          "2026-09-27T04:37:17.1449861Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+          "2026-09-27T04:37:17.1450392Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+          "2026-09-27T04:37:17.1450914Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt",
+          "2026-09-27T04:37:17.1451431Z AQT_FACTORY_PROOF_DIAGNOSTIC {\"case\": \"original\", \"private_entry_seen\": true}"
+        ],
+        "failure_diagnostic_line_count": 39,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506657,
+        "name": "Retained financial regressions (shard index 5 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:27:26Z",
+        "completed_at": "2026-09-27T04:41:16Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506657",
+        "shard": 5,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard5.log",
+          "sha256": "68443b6879c99ad12a8d15ae1bcfcab84a8daee82672ea5ff8de7d8285fc372b",
+          "bytes": 45252
+        },
+        "summary": "2026-09-27T04:41:13.1744585Z 299 passed, 4668 deselected, 1 warning in 804.04s (0:13:24)",
+        "counts": {
+          "passed": 299,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4668,
+          "warnings": 1,
+          "seconds": 804.04
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506671,
+        "name": "Retained financial regressions (shard index 6 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:29:47Z",
+        "completed_at": "2026-09-27T04:43:17Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506671",
+        "shard": 6,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard6.log",
+          "sha256": "ba695c6da669b2b92fa5378353ae36943ad4ffbf43e413fb9744380b7e6dbc27",
+          "bytes": 39724
+        },
+        "summary": "2026-09-27T04:43:12.5430205Z 339 passed, 4628 deselected, 1 warning in 772.77s (0:12:52)",
+        "counts": {
+          "passed": 339,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4628,
+          "warnings": 1,
+          "seconds": 772.77
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506680,
+        "name": "Retained financial regressions (shard index 7 of 16)",
+        "status": "completed",
+        "conclusion": "failure",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:30:55Z",
+        "completed_at": "2026-09-27T04:48:45Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506680",
+        "shard": 7,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard7.log",
+          "sha256": "8b8f0c5e556e8900d26a70775efc5ab9342afeba4d3dfd743987b57eb8c870d5",
+          "bytes": 55762
+        },
+        "summary": "2026-09-27T04:48:42.3505635Z 1 failed, 303 passed, 4663 deselected, 1 warning in 1045.77s (0:17:25)",
+        "counts": {
+          "passed": 303,
+          "failed": 1,
+          "skipped": 0,
+          "deselected": 4663,
+          "warnings": 1,
+          "seconds": 1045.77
+        },
+        "failed_nodes": [
+          "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+        ],
+        "private_entry_markers": [],
+        "failure_diagnostics": [
+          "2026-09-27T04:48:41.4090655Z actual factory restore result: failed; elapsed=61.384s",
+          "2026-09-27T04:48:41.4091395Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+          "2026-09-27T04:48:41.4092526Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+          "2026-09-27T04:48:41.4093627Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+          "2026-09-27T04:48:41.4094617Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+          "2026-09-27T04:48:41.4095580Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+          "2026-09-27T04:48:41.4096455Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+          "2026-09-27T04:48:41.4097595Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+          "2026-09-27T04:48:41.4098558Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+          "2026-09-27T04:48:41.4099399Z actual factory execute frame: packages/persistence/database.py:219:validate",
+          "2026-09-27T04:48:41.4100155Z actual factory execute frame: packages/persistence/database.py:381:validate",
+          "2026-09-27T04:48:41.4101227Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+          "2026-09-27T04:48:41.4102099Z actual factory execute frame: packages/persistence/database.py:379:validate",
+          "2026-09-27T04:48:41.4102971Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+          "2026-09-27T04:48:41.4103948Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+          "2026-09-27T04:48:41.4104906Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+          "2026-09-27T04:48:41.4105860Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+          "2026-09-27T04:48:41.4106818Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+          "2026-09-27T04:48:41.4108022Z actual factory execute frame: packages/persistence/continuous_integrity.py:2167:_validate_accounts",
+          "2026-09-27T04:48:41.4108976Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+          "2026-09-27T04:48:41.4109954Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+          "2026-09-27T04:48:41.4110915Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+          "2026-09-27T04:48:41.4111948Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+          "2026-09-27T04:48:41.4113004Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+          "2026-09-27T04:48:41.4113996Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+          "2026-09-27T04:48:41.4114920Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+          "2026-09-27T04:48:41.4115912Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+          "2026-09-27T04:48:41.4117178Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+          "2026-09-27T04:48:41.4118380Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+          "2026-09-27T04:48:41.4119332Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+          "2026-09-27T04:48:41.4120473Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+          "2026-09-27T04:48:41.4121553Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+          "2026-09-27T04:48:41.4122468Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+          "2026-09-27T04:48:41.4123365Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+          "2026-09-27T04:48:41.4124207Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+          "2026-09-27T04:48:41.4125056Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+          "2026-09-27T04:48:41.4125919Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+        ],
+        "failure_diagnostic_line_count": 37,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506640,
+        "name": "Retained financial regressions (shard index 8 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:37:22Z",
+        "completed_at": "2026-09-27T04:47:33Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506640",
+        "shard": 8,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard8.log",
+          "sha256": "74f98fd08c90ef04baf928a152f5067a3bff5a7f616bc47122648cbe112a8e83",
+          "bytes": 40253
+        },
+        "summary": "2026-09-27T04:47:29.7990642Z 273 passed, 4694 deselected, 1 warning in 583.48s (0:09:43)",
+        "counts": {
+          "passed": 273,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4694,
+          "warnings": 1,
+          "seconds": 583.48
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506667,
+        "name": "Retained financial regressions (shard index 9 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:41:17Z",
+        "completed_at": "2026-09-27T04:49:37Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506667",
+        "shard": 9,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard9.log",
+          "sha256": "fe6d91b4d77513a04f8a2453ae7a5251cd293192205850ffe6f93b58a7dc96d9",
+          "bytes": 39906
+        },
+        "summary": "2026-09-27T04:49:33.5722174Z 310 passed, 4657 deselected, 1 warning in 464.32s (0:07:44)",
+        "counts": {
+          "passed": 310,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4657,
+          "warnings": 1,
+          "seconds": 464.32
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506745,
+        "name": "Retained financial regressions (shard index 10 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:43:18Z",
+        "completed_at": "2026-09-27T04:52:49Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506745",
+        "shard": 10,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard10.log",
+          "sha256": "6bc36e67ec7495f2b63e264ac95b569b721257a7cf6a29670de7c939b2e8eefe",
+          "bytes": 40518
+        },
+        "summary": "2026-09-27T04:52:44.7776649Z 323 passed, 4644 deselected, 1 warning in 540.44s (0:09:00)",
+        "counts": {
+          "passed": 323,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4644,
+          "warnings": 1,
+          "seconds": 540.44
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506712,
+        "name": "Retained financial regressions (shard index 11 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:47:35Z",
+        "completed_at": "2026-09-27T04:54:47Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506712",
+        "shard": 11,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard11.log",
+          "sha256": "898eb7d67b8e6f91c239f537de87260c11ef104ce9fab7e285c0dd010ab454bd",
+          "bytes": 39993
+        },
+        "summary": "2026-09-27T04:54:42.0935375Z 304 passed, 4663 deselected, 1 warning in 398.80s (0:06:38)",
+        "counts": {
+          "passed": 304,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4663,
+          "warnings": 1,
+          "seconds": 398.8
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506715,
+        "name": "Retained financial regressions (shard index 12 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:48:47Z",
+        "completed_at": "2026-09-27T05:20:31Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506715",
+        "shard": 12,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard12.log",
+          "sha256": "98b63359b376198be64544dda49c6cca10619c709564e97725a4991651a593ff",
+          "bytes": 41304
+        },
+        "summary": "2026-09-27T05:20:26.8918491Z 328 passed, 4639 deselected, 1 warning in 1872.70s (0:31:12)",
+        "counts": {
+          "passed": 328,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4639,
+          "warnings": 1,
+          "seconds": 1872.7
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548506725,
+        "name": "Retained financial regressions (shard index 13 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:49:38Z",
+        "completed_at": "2026-09-27T04:59:57Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506725",
+        "shard": 13,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard13.log",
+          "sha256": "86e727c423b881f3b5d15dded117fb62517916e016cc5e3ea5d06d86fd1abb6f",
+          "bytes": 39989
+        },
+        "summary": "2026-09-27T04:59:54.5381159Z 272 passed, 4695 deselected, 1 warning in 596.10s (0:09:56)",
+        "counts": {
+          "passed": 272,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4695,
+          "warnings": 1,
+          "seconds": 596.1
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548507104,
+        "name": "Retained financial regressions (shard index 14 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:52:51Z",
+        "completed_at": "2026-09-27T05:02:44Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548507104",
+        "shard": 14,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard14.log",
+          "sha256": "80426001862ef2917b514fa32574a2d60b4cc3870553e6bf3efa582fa914c1f9",
+          "bytes": 40103
+        },
+        "summary": "2026-09-27T05:02:38.9255937Z 340 passed, 4627 deselected, 1 warning in 560.54s (0:09:20)",
+        "counts": {
+          "passed": 340,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4627,
+          "warnings": 1,
+          "seconds": 560.54
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      },
+      {
+        "id": 108548507174,
+        "name": "Retained financial regressions (shard index 15 of 16)",
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+        "started_at": "2026-09-27T04:54:48Z",
+        "completed_at": "2026-09-27T05:13:44Z",
+        "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548507174",
+        "shard": 15,
+        "log": {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard15.log",
+          "sha256": "f36f9203b4dc97f8f9addd3fc82245cc8a5e5918a47b2f71fad5bf7644c6c7b2",
+          "bytes": 40802
+        },
+        "summary": "2026-09-27T05:13:39.9404919Z 287 passed, 4680 deselected, 1 warning in 1109.08s (0:18:29)",
+        "counts": {
+          "passed": 287,
+          "failed": 0,
+          "skipped": 0,
+          "deselected": 4680,
+          "warnings": 1,
+          "seconds": 1109.08
+        },
+        "failed_nodes": [],
+        "private_entry_markers": [],
+        "failure_diagnostics": [],
+        "failure_diagnostic_line_count": 0,
+        "failure_diagnostic_truncated": false
+      }
+    ]
+  },
+  "failure_evidence": [
+    {
+      "id": 108548506619,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "shard": 4,
+      "counts": {
+        "passed": 340,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4626,
+        "warnings": 1,
+        "seconds": 727.24
+      },
+      "failed_nodes": [
+        "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]"
+      ],
+      "failure_diagnostics": [
+        "2026-09-27T04:37:17.1428206Z actual factory restore result: failed; elapsed=61.250s",
+        "2026-09-27T04:37:17.1428993Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T04:37:17.1429706Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+        "2026-09-27T04:37:17.1430364Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T04:37:17.1431004Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T04:37:17.1431609Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T04:37:17.1432156Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T04:37:17.1432748Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T04:37:17.1433349Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T04:37:17.1433889Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T04:37:17.1434387Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T04:37:17.1434910Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T04:37:17.1435442Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T04:37:17.1436250Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T04:37:17.1436851Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T04:37:17.1437450Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T04:37:17.1438036Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T04:37:17.1438713Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T04:37:17.1439328Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+        "2026-09-27T04:37:17.1439932Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+        "2026-09-27T04:37:17.1440520Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T04:37:17.1441119Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:37:17.1441735Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T04:37:17.1442366Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T04:37:17.1443022Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T04:37:17.1443624Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T04:37:17.1444178Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T04:37:17.1444789Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T04:37:17.1445447Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T04:37:17.1446141Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:37:17.1446708Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T04:37:17.1447405Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T04:37:17.1448048Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T04:37:17.1448768Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:37:17.1449333Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T04:37:17.1449861Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T04:37:17.1450392Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T04:37:17.1450914Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:37:17.1451431Z AQT_FACTORY_PROOF_DIAGNOSTIC {\"case\": \"original\", \"private_entry_seen\": true}"
+      ],
+      "failure_diagnostic_line_count": 39,
+      "failure_diagnostic_truncated": false,
+      "private_entry_markers": [
+        {
+          "case": "original",
+          "private_entry_seen": true
+        }
+      ],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4.log",
+        "sha256": "12097180be97fdf508900b632ec6dfb306e22dc0905e58a0c440f2212618132a",
+        "bytes": 55926
+      }
+    },
+    {
+      "id": 108548506680,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "shard": 7,
+      "counts": {
+        "passed": 303,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4663,
+        "warnings": 1,
+        "seconds": 1045.77
+      },
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+      ],
+      "failure_diagnostics": [
+        "2026-09-27T04:48:41.4090655Z actual factory restore result: failed; elapsed=61.384s",
+        "2026-09-27T04:48:41.4091395Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T04:48:41.4092526Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+        "2026-09-27T04:48:41.4093627Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T04:48:41.4094617Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T04:48:41.4095580Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T04:48:41.4096455Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T04:48:41.4097595Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T04:48:41.4098558Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T04:48:41.4099399Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T04:48:41.4100155Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T04:48:41.4101227Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T04:48:41.4102099Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T04:48:41.4102971Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T04:48:41.4103948Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T04:48:41.4104906Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T04:48:41.4105860Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T04:48:41.4106818Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T04:48:41.4108022Z actual factory execute frame: packages/persistence/continuous_integrity.py:2167:_validate_accounts",
+        "2026-09-27T04:48:41.4108976Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T04:48:41.4109954Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:48:41.4110915Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T04:48:41.4111948Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T04:48:41.4113004Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T04:48:41.4113996Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T04:48:41.4114920Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T04:48:41.4115912Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T04:48:41.4117178Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T04:48:41.4118380Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:48:41.4119332Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T04:48:41.4120473Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T04:48:41.4121553Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T04:48:41.4122468Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:48:41.4123365Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T04:48:41.4124207Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T04:48:41.4125056Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T04:48:41.4125919Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+      ],
+      "failure_diagnostic_line_count": 37,
+      "failure_diagnostic_truncated": false,
+      "private_entry_markers": [],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard7.log",
+        "sha256": "8b8f0c5e556e8900d26a70775efc5ab9342afeba4d3dfd743987b57eb8c870d5",
+        "bytes": 55762
+      }
+    },
+    {
+      "id": 108557369263,
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "shard": null,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 0,
+        "warnings": 0,
+        "seconds": 390.3
+      },
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+      ],
+      "failure_diagnostics": [
+        "2026-09-27T05:27:17.3369975Z actual factory restore result: failed; elapsed=61.227s",
+        "2026-09-27T05:27:17.3370701Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T05:27:17.3371818Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:381:_execute_retained_factory",
+        "2026-09-27T05:27:17.3373017Z actual factory execute frame: tests/retained_restore_profile.py:150:execute",
+        "2026-09-27T05:27:17.3373812Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T05:27:17.3374799Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T05:27:17.3375772Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T05:27:17.3376643Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T05:27:17.3377596Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T05:27:17.3378580Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T05:27:17.3379413Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T05:27:17.3380167Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T05:27:17.3381009Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T05:27:17.3381873Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T05:27:17.3382926Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T05:27:17.3383895Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T05:27:17.3384861Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T05:27:17.3385792Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T05:27:17.3386724Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T05:27:17.3387996Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+        "2026-09-27T05:27:17.3389005Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+        "2026-09-27T05:27:17.3389934Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T05:27:17.3391066Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T05:27:17.3392302Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T05:27:17.3393338Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T05:27:17.3394383Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T05:27:17.3395346Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T05:27:17.3396244Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T05:27:17.3397237Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T05:27:17.3398326Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T05:27:17.3399329Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T05:27:17.3400268Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T05:27:17.3401429Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T05:27:17.3402694Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T05:27:17.3403633Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T05:27:17.3404557Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T05:27:17.3405412Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T05:27:17.3406298Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T05:27:17.3407167Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+      ],
+      "failure_diagnostic_line_count": 39,
+      "failure_diagnostic_truncated": false,
+      "private_entry_markers": [],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-job-108557369263.log",
+        "sha256": "5fb1102c82f76dd81fb75ba7a440b8d4abab25678d6966dafc726c70fd6b2b39",
+        "bytes": 47832
+      }
+    },
+    {
+      "id": 108557369274,
+      "name": "Standard Python foundations and retained financial regressions",
+      "shard": null,
+      "counts": {},
+      "failed_nodes": [],
+      "failure_diagnostics": [],
+      "failure_diagnostic_line_count": 0,
+      "failure_diagnostic_truncated": false,
+      "private_entry_markers": [],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-job-108557369274.log",
+        "sha256": "8c936a518166318f7bc69843478ea04e3e5056441814708843309e98bbed2298",
+        "bytes": 2440
+      }
+    }
+  ],
+  "raw_log_manifest": [
+    {
+      "job_id": 108548247472,
+      "name": "Browser regressions",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-browser.log",
+      "sha256": "5ac0e41ee95bd1a90afd10a8826f5a6a8ab91fda9ab22d0af7fe4f69fe9fc14b",
+      "bytes": 54129
+    },
+    {
+      "job_id": 108548247527,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-foundations.log",
+      "sha256": "820d152d926e0ee1762611f4143e80a3c63754a2de0e0b9ae76a7a748f675bee",
+      "bytes": 65475
+    },
+    {
+      "job_id": 108548506619,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "conclusion": "failure",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4.log",
+      "sha256": "12097180be97fdf508900b632ec6dfb306e22dc0905e58a0c440f2212618132a",
+      "bytes": 55926
+    },
+    {
+      "job_id": 108548506630,
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard2.log",
+      "sha256": "44c0c27878210ced1fbd219ba0b56742142fe9cfeadc4bd71bb19be45cc1174b",
+      "bytes": 40331
+    },
+    {
+      "job_id": 108548506640,
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard8.log",
+      "sha256": "74f98fd08c90ef04baf928a152f5067a3bff5a7f616bc47122648cbe112a8e83",
+      "bytes": 40253
+    },
+    {
+      "job_id": 108548506646,
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard3.log",
+      "sha256": "71b574f9a496aca81a41fdd11febc153c8a5066e9b2575766cad70bc3e55c33a",
+      "bytes": 40092
+    },
+    {
+      "job_id": 108548506652,
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard0.log",
+      "sha256": "596e827bd82f3f7af722a7b4a9c68dd6e957cc77b410ae4404f05857fa62f4b4",
+      "bytes": 39968
+    },
+    {
+      "job_id": 108548506657,
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard5.log",
+      "sha256": "68443b6879c99ad12a8d15ae1bcfcab84a8daee82672ea5ff8de7d8285fc372b",
+      "bytes": 45252
+    },
+    {
+      "job_id": 108548506667,
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard9.log",
+      "sha256": "fe6d91b4d77513a04f8a2453ae7a5251cd293192205850ffe6f93b58a7dc96d9",
+      "bytes": 39906
+    },
+    {
+      "job_id": 108548506671,
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard6.log",
+      "sha256": "ba695c6da669b2b92fa5378353ae36943ad4ffbf43e413fb9744380b7e6dbc27",
+      "bytes": 39724
+    },
+    {
+      "job_id": 108548506680,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "conclusion": "failure",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard7.log",
+      "sha256": "8b8f0c5e556e8900d26a70775efc5ab9342afeba4d3dfd743987b57eb8c870d5",
+      "bytes": 55762
+    },
+    {
+      "job_id": 108548506688,
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard1.log",
+      "sha256": "7b3fccc17c18736c3728aad2a5d47f79f4aea1ed053b9aac478ab3f597c55e60",
+      "bytes": 40187
+    },
+    {
+      "job_id": 108548506712,
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard11.log",
+      "sha256": "898eb7d67b8e6f91c239f537de87260c11ef104ce9fab7e285c0dd010ab454bd",
+      "bytes": 39993
+    },
+    {
+      "job_id": 108548506715,
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard12.log",
+      "sha256": "98b63359b376198be64544dda49c6cca10619c709564e97725a4991651a593ff",
+      "bytes": 41304
+    },
+    {
+      "job_id": 108548506725,
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard13.log",
+      "sha256": "86e727c423b881f3b5d15dded117fb62517916e016cc5e3ea5d06d86fd1abb6f",
+      "bytes": 39989
+    },
+    {
+      "job_id": 108548506745,
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard10.log",
+      "sha256": "6bc36e67ec7495f2b63e264ac95b569b721257a7cf6a29670de7c939b2e8eefe",
+      "bytes": 40518
+    },
+    {
+      "job_id": 108548507104,
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard14.log",
+      "sha256": "80426001862ef2917b514fa32574a2d60b4cc3870553e6bf3efa582fa914c1f9",
+      "bytes": 40103
+    },
+    {
+      "job_id": 108548507174,
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "conclusion": "success",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard15.log",
+      "sha256": "f36f9203b4dc97f8f9addd3fc82245cc8a5e5918a47b2f71fad5bf7644c6c7b2",
+      "bytes": 40802
+    },
+    {
+      "job_id": 108557369263,
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "conclusion": "failure",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-job-108557369263.log",
+      "sha256": "5fb1102c82f76dd81fb75ba7a440b8d4abab25678d6966dafc726c70fd6b2b39",
+      "bytes": 47832
+    },
+    {
+      "job_id": 108557369274,
+      "name": "Standard Python foundations and retained financial regressions",
+      "conclusion": "failure",
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-job-108557369274.log",
+      "sha256": "8c936a518166318f7bc69843478ea04e3e5056441814708843309e98bbed2298",
+      "bytes": 2440
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 10923314952,
+      "name": "retained-restore-profile-36293614203-1",
+      "size_in_bytes": 12467,
+      "digest": "sha256:75b5a4fe9d1bbc05bc6d4f54629eac854c71f69ab4e174d7c7b7b958ff270a83",
+      "expired": false,
+      "created_at": "2026-09-27T05:27:22Z",
+      "zip": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952.zip",
+        "sha256": "75b5a4fe9d1bbc05bc6d4f54629eac854c71f69ab4e174d7c7b7b958ff270a83",
+        "bytes": 12467
+      },
+      "digest_matches": true,
+      "files": [
+        {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/profile.json",
+          "sha256": "22d6e05571620a7170938a59f0881b848e176317cf128cb5766bf44f5b1fb52f",
+          "bytes": 99440
+        },
+        {
+          "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/test-exit.json",
+          "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25",
+          "bytes": 89
+        }
+      ],
+      "diagnostic_test_exit": {
+        "schema": "retained-diagnostic-test-exit/1",
+        "diagnostic_only": true,
+        "pytest_exit_code": 1
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "file": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/profile.json",
+        "sha256": "22d6e05571620a7170938a59f0881b848e176317cf128cb5766bf44f5b1fb52f",
+        "bytes": 99440
+      },
+      "schema": "retained-factory-execute-static-cprofile/1",
+      "diagnostic_only": true,
+      "scope": "Instrumented factory.execute only; fixture setup, factory construction, result decoding/assertions, cleanup and report generation are excluded. A returned execute call is not a passing restore test or startup acceptance.",
+      "profile_status": "valid",
+      "diagnostic_faults": [],
+      "factory_execute_started": true,
+      "factory_execute_returned": false,
+      "stats_entries_considered": 4852,
+      "selected_rows": 315,
+      "selection": "Union of top128 inclusive and self-time entries, overall and project-only; up to512 rows. Unselected entries are omitted. Inclusive times overlap. Ordinals distinguish captured entries with identical static labels. These limits bound emitted data, not cProfile internal storage.",
+      "selected_relevant_rows": [
+        {
+          "stats_entry_ordinal": 405,
+          "group": "project",
+          "file": "apps/trader/continuous_simulation_factory.py",
+          "line": 579,
+          "function": "execute",
+          "calls": 1,
+          "recursive_calls": 0,
+          "inclusive_seconds": 61.19388133,
+          "self_seconds": 1.6451000000000002e-05
+        },
+        {
+          "stats_entry_ordinal": 1013,
+          "group": "project",
+          "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+          "line": 2684,
+          "function": "_require_resolved_for_factory",
+          "calls": 28,
+          "recursive_calls": 0,
+          "inclusive_seconds": 11.047143519,
+          "self_seconds": 0.0012029310000000002
+        },
+        {
+          "stats_entry_ordinal": 4547,
+          "group": "dependency",
+          "file": "sqlalchemy/engine/base.py",
+          "line": 1377,
+          "function": "execute",
+          "calls": 13548,
+          "recursive_calls": 0,
+          "inclusive_seconds": 5.896353657000001,
+          "self_seconds": 0.028097618
+        },
+        {
+          "stats_entry_ordinal": 3150,
+          "group": "project",
+          "file": "packages/persistence/continuous_attempt_outcome_sources.py",
+          "line": 731,
+          "function": "require_resolved",
+          "calls": 32,
+          "recursive_calls": 0,
+          "inclusive_seconds": 3.8338150950000003,
+          "self_seconds": 0.00030841900000000004
+        },
+        {
+          "stats_entry_ordinal": 798,
+          "group": "project",
+          "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+          "line": 2783,
+          "function": "require_resolved",
+          "calls": 4,
+          "recursive_calls": 0,
+          "inclusive_seconds": 2.1322676240000003,
+          "self_seconds": 0.003057639
+        },
+        {
+          "stats_entry_ordinal": 2911,
+          "group": "project",
+          "file": "packages/persistence/continuous_venue_sources.py",
+          "line": 153,
+          "function": "_fingerprint",
+          "calls": 94,
+          "recursive_calls": 0,
+          "inclusive_seconds": 1.079383553,
+          "self_seconds": 0.0025021460000000002
+        },
+        {
+          "stats_entry_ordinal": 4334,
+          "group": "project",
+          "file": "packages/persistence/continuous_venue_sources.py",
+          "line": 324,
+          "function": "require_resolved",
+          "calls": 81,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.940254683,
+          "self_seconds": 0.000363129
+        },
+        {
+          "stats_entry_ordinal": 825,
+          "group": "project",
+          "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+          "line": 669,
+          "function": "_fingerprint",
+          "calls": 5,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.8866445340000001,
+          "self_seconds": 6.9563e-05
+        },
+        {
+          "stats_entry_ordinal": 856,
+          "group": "project",
+          "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+          "line": 2571,
+          "function": "_issue_factory_fingerprint",
+          "calls": 1,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.826629374,
+          "self_seconds": 0.00026625
+        },
+        {
+          "stats_entry_ordinal": 930,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_fingerprint.py",
+          "line": 201,
+          "function": "require",
+          "calls": 31,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.802850575,
+          "self_seconds": 0.203929668
+        },
+        {
+          "stats_entry_ordinal": 4375,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_behavior.py",
+          "line": 228,
+          "function": "require",
+          "calls": 118,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.14234170100000001,
+          "self_seconds": 0.0061377160000000005
+        },
+        {
+          "stats_entry_ordinal": 799,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_behavior.py",
+          "line": 123,
+          "function": "require",
+          "calls": 6195,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.055433583,
+          "self_seconds": 0.024433803
+        },
+        {
+          "stats_entry_ordinal": 826,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_behavior.py",
+          "line": 171,
+          "function": "require",
+          "calls": 2065,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.039503549000000006,
+          "self_seconds": 0.011888869000000002
+        },
+        {
+          "stats_entry_ordinal": 3127,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_behavior.py",
+          "line": 192,
+          "function": "require",
+          "calls": 1121,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.019871385000000002,
+          "self_seconds": 0.013831318
+        },
+        {
+          "stats_entry_ordinal": 4330,
+          "group": "project",
+          "file": "packages/persistence/_factory_attempt_behavior.py",
+          "line": 104,
+          "function": "require",
+          "calls": 7906,
+          "recursive_calls": 0,
+          "inclusive_seconds": 0.018695494,
+          "self_seconds": 0.017942585
+        }
+      ],
+      "limitations": [
+        "Calls are function entries, not successful proof issuance, use, return or retirement counts.",
+        "Rows are a selected top-N union; an absent function is not evidence of absence, zero cost or fallback.",
+        "Inclusive rows overlap and must not be added together.",
+        "Instrumented execute excludes setup, construction, result assertions and cleanup; failed execution is partial."
+      ]
+    }
+  ],
+  "limitations": [
+    "This run is bound only to candidate55951fb; later local documentation commits were not tested by this run.",
+    "No rerun/cancel/dispatch, retry, workflow, source or test mutation was performed by this collector.",
+    "Raw logs remain private temporary files. Static diagnostic chains and sanitized profile metadata are selected durable evidence.",
+    "A private-entry flag reports entry only and does not prove successful proof completion.",
+    "Required financial result remains authoritative; automatic diagnostic profiling cannot convert a failure into acceptance."
+  ]
+}
