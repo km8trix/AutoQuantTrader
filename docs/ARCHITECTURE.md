@@ -8,7 +8,7 @@ Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/
 
 ## Current implementation map (verified 2026-09-26)
 
-This section describes the `b1156ba` baseline and subsequent reviewed additions recorded in [STATUS.md](STATUS.md); later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, and the revised retained-restore candidate passed one full Linux/PostgreSQL run but failed its same-source repeat; retained restore acceptance remains reopened. The subsequent terminal-probe repair passes the original local worker gates and the `7c73cd6` worker shard; exact-candidate aggregate regression is still pending. Actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
+This section describes the `b1156ba` baseline and subsequent reviewed additions recorded in [STATUS.md](STATUS.md); later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, and the revised retained-restore candidate passed one full Linux/PostgreSQL run but failed its same-source repeat; retained restore acceptance remains reopened. The subsequent terminal-probe repair passes the original local worker gates and the `7c73cd6` worker shard. The later `2a9fc2c` attempt-proof pilot fails exact-source Linux acceptance: three positive restore gates expire and an original worker reports a separate observation failure. The diagnostic follow-up and preserved failures are recorded in STATUS; no repeat pass alone establishes repair. Actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
 
 ### Components and entry points
 
@@ -58,6 +58,9 @@ This is a candidate implementation, not accepted restore performance or new
 execution authority. [STATUS.md](STATUS.md) records tests and remaining gates;
 the [approved design](reviews/2026-09-26-autonomy/factory-verification-seal-proposal.md)
 permits rejecting the pilot if complete cost or proof burden does not justify it.
+Both daily `require_resolved_snapshot` calls in each graph check remain unchanged.
+A2.4 measures those original calls only; it does not authorize replacing daily
+identity validation or extending the attempt proof to that different predicate.
 
 ### Actual data and execution flows
 

@@ -130,3 +130,27 @@ new baseline after issuance. All proof metadata counts against existing limits.
 A useful complete-cost measurement, adverse genuine lifecycle tests, original
 unprofiled retained/worker tests and exact-source Linux CI remain required.
 Reject the pilot rather than enlarging limits or declaring partial tests complete.
+
+**Validation checkpoint:** the `2a9fc2c` Linux matrix completed with 4,944 passed
+and four failed financial tests; the pilot is not accepted. Its valid partial
+profile establishes private-route entries, not completed restore or sufficient
+savings. A2.4 therefore observes the two unchanged daily snapshot checks inside
+original factory borrows, with no substitution or extra validation. The daily
+identity predicate differs from the attempt projection; any proposal to replace
+it needs a separate consequential decision after measured economics and shared
+resource limits are assessed. See the [assessment](reviews/2026-09-26-autonomy/daily-identity-proof-decision-assessment.md)
+and [current status](STATUS.md).
+
+**Separate feasibility approval:** after reviewing the A2.4 result, the owner
+explicitly approved the [daily identity feasibility experiment](reviews/2026-09-26-autonomy/daily-identity-feasibility-proposal.md)
+only. Start with the shared-resource screen and reject a proposed layout before
+building larger guards if it does not fit. This authorizes temporary offline
+investigation, not production substitution or adoption.
+
+**Feasibility disposition:** reject the stated daily per-node layout at its first
+resource gate. Applying the established `retain` accounting to the authentic
+visited-node/edge inventory already exceeds shared caps by 359 containers and
+8,589 bindings, before other required costs. [Independent review](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
+Do not build its behavior/timing machinery or spend another fixture to seek a
+smaller graph. This is a representation-specific rejection, not proof that every
+possible daily proof is infeasible. Production validation remains unchanged.

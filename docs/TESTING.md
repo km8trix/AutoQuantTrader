@@ -321,3 +321,20 @@ Validate the helper and the original process behavior in the clean environment:
 
 [Diagnostic scope and evidence](reviews/2026-09-26-autonomy/worker-observation-diagnostic-plan.md)
 distinguish observed error categories from unproven OS or scheduling causes.
+
+## Original-only daily identity observation
+
+A2.4's temporary observer preserves every original validator and measures only the
+selected retained operation and its two daily snapshot check positions inside
+original factory borrows. The [literal run plan](reviews/2026-09-26-autonomy/daily-identity-observer-plan.md)
+records exact clean-environment commands, `AQT_DAILY_IDENTITY_PROFILE_PATH`, source
+hashes and an exclusive fresh audit output. Preserved observer/selfcheck sources
+are evidence `.py.txt` files, not plugins installed in normal testing.
+
+Run architecture first and finite synthetic mechanics before any approved use.
+The original one-run question is answered; do not repeat without a concrete new
+question. A valid original test pass establishes that measurement's completion,
+not another proof's safety, resource fit or Linux timing acceptance. Global
+filtered unwind events and the bounded one-time histogram add overhead. Returned
+and unwound spans stay separate; overlapping public/borrow/execute timings must
+not be summed as savings. Original test assertions and cleanup remain authoritative.

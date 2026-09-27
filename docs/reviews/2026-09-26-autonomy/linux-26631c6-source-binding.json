@@ -1,0 +1,21 @@
+{
+  "run_id": 36289760186,
+  "candidate_head": "26631c66854c754533f5d6d82749e1fb8b5e3dcf",
+  "candidate_tree": "f73a675ca94a786c93ba5a8190e64434d85f20f0",
+  "actions_checkout_merge": "156904f50be73a6e24b407feb8f93a50b1dddba5",
+  "merge_parents": [
+    "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+    "26631c66854c754533f5d6d82749e1fb8b5e3dcf"
+  ],
+  "merge_tree": "f73a675ca94a786c93ba5a8190e64434d85f20f0",
+  "tree_matches_candidate": true,
+  "proof_sources": {
+    "checkout_log": "ci-26631c6-foundations.log",
+    "remote_git_commit": "ci-26631c6-merge-commit.json",
+    "candidate_tree": "local git rev-parse exact candidate^{tree}"
+  },
+  "evidence_sha256": {
+    "ci-26631c6-merge-commit.json": "585b876b08400401d649da7cfa5794cfa3b1171d3bd13b6bf345953948fff130"
+  },
+  "scope": "Read-only immutable source binding; no fetch, checkout, branch modification or CI mutation."
+}

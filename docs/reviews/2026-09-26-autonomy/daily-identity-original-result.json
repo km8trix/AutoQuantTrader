@@ -1,0 +1,37 @@
+{
+  "schema": "aqt-original-daily-identity-result/1",
+  "revision": "26631c66854c754533f5d6d82749e1fb8b5e3dcf",
+  "production_revision": "2a9fc2c5adda25c49e7d1c1ca78e2845b7bb64eb",
+  "original_target": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "tool_session": 37394,
+  "tool_exit_code": 0,
+  "pytest": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 246.33
+  },
+  "architecture": "passed before project imports",
+  "mechanics": {
+    "author_passed": 29,
+    "independent_review_passed": 29
+  },
+  "capture_status": "valid",
+  "observation_extent": "complete_execute",
+  "source_hashes_equal": true,
+  "plan": "daily-identity-observer-plan.md",
+  "raw_observation": "daily-identity-original-observation.json",
+  "original_test_output": "daily-identity-original-test.txt",
+  "files": {
+    "daily-identity-original-observation.json": "99789c8f6417efaf0650d11c1d4233556f9674300002bc1d67442e3d931d6ee9",
+    "daily-identity-original-test.txt": "a9768b965d9e930e361215c4defbe4c908d6c4cd246c68246365e9f18e84e820",
+    "daily-identity-observer.py.txt": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "daily-identity-observer-tests.py.txt": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8",
+    "daily-identity-observer-plan.md": "ee12efe4a71bcb9bc5f0d6875a852cda8298a0b395cd5a4fb6cd8805a4a91fdc"
+  },
+  "limitations": [
+    "One original instrumented local run, not Linux acceptance or paired speedup.",
+    "No new proof implemented or approved.",
+    "Original test success covers its original cleanup assertions; observer did not time factory.close.",
+    "Do not repeat absent a concrete new question."
+  ]
+}

@@ -167,6 +167,71 @@ credentials, start live services or authorize provider traffic.
   work, but itself expires. The pilot remains unaccepted; investigate only
   behavior-preserving pure costs before proposing any broader proof boundary.
 
+### A2.4 — measure original daily identity traversal (offline; complete)
+
+- **Objective:** measure actual work and shape at the two daily snapshot checks
+  inside authenticated original factory borrows before any further proof decision.
+- **Scope:** one opt-in original retained-outcome operation with bounded test-only
+  observation; preserve every call, argument, guard, limit and assertion. The
+  [decision assessment](reviews/2026-09-26-autonomy/daily-identity-proof-decision-assessment.md)
+  specifies the seam and explicitly unapproved substitution proposal.
+- **Dependencies:** completed failed Linux pilot evidence, reviewed temporary
+  observer and passing finite mechanics tests before the genuine fixture run.
+- **Acceptance criteria:** exact operation/thread/owner/episode/current/call-site
+  attribution; completed versus failed spans; provisional tuple/seen-size metadata
+  qualified only after original public validation returns; fixed bounded output
+  with no object contents or retained graph; original cleanup and test exit visible.
+  Existing proof usage and vector size are not a new proof's total resource charge.
+- **Validation commands:** architecture first; finite observer selfchecks; then
+  TESTING's clean pytest environment, with the reviewed temporary module directory
+  on `PYTHONPATH`, `-p aqt_daily_identity_cost`, and the original
+  `tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease`.
+  Record the exact module hash, output environment, complete command and source hashes
+  before releasing that one run. No repeat without a specific unresolved question.
+- **Completion criteria:** reviewed valid source-bound measurement, or an explicit
+  incomplete/failing result and its bounded next investigation. A viable broader
+  daily proof still requires a separate owner decision before production substitution;
+  a diagnostic pass does not close A2 or any failed Linux gate.
+  The original test passed in 246.33 s with valid complete capture: 24 borrows,
+  144 target checks, 2.1675 s builder work within 44.306 s execute. Independent
+  review verifies hashes/counts/bounds. [Result assessment](reviews/2026-09-26-autonomy/daily-identity-original-result-assessment.md).
+  No repeat or production extension is justified by this measurement alone. The
+  [separate feasibility proposal](reviews/2026-09-26-autonomy/daily-identity-feasibility-proposal.md)
+  has explicit separate owner approval for temporary feasibility work only.
+  Continue it under A2.5 and preserve existing CI diagnosis.
+
+
+### A2.5 — separate daily identity feasibility (first layout rejected)
+
+- **Objective:** determine whether a faithful all-field daily identity proof can
+  fit alongside the attempt proof and save enough complete work to justify a
+  later production proposal; rejection is a valid result.
+- **Scope:** temporary source-owned synthetic data/behavior prototype, literal
+  original identity oracle and finite adverse comparisons. Start with the joint
+  resource screen; no production wiring or larger framework.
+- **Dependencies:** completed A2.4 and explicit owner approval of the
+  [feasibility proposal](reviews/2026-09-26-autonomy/daily-identity-feasibility-proposal.md).
+  Independent mechanics review precedes every released genuine fixture.
+- **Acceptance criteria:** model every daily field and original identity traversal
+  role; distinguish unsupported shapes, aliases/cycles and opaque leaves. Charge
+  all added data/behavior/context/construction state jointly under the original
+  caps. No mutation authority, extra original validations, source effects or
+  changed public methods. Preserve failure and uncertain results honestly.
+- **Validation commands:** architecture first; the reviewed temporary mechanics
+  suite; one explicitly selected existing source-owned fixture only after its
+  command, plugin hash and output bounds are recorded. No parallel heavy runs.
+  If the resource screen rejects, no complete-cost fixture is warranted.
+- **Completion criteria:** source-bound independently reviewed feasibility or
+  documented bounded rejection. Only a fitting faithful prototype proceeds to
+  full construction/use/retirement cost comparisons and adverse tests. This
+  cannot close A2 or authorize production daily-proof substitution.
+  **Outcome:** the established per-node layout has a source-bound joint lower
+  bound of 16,743 containers/139,661 bindings, exceeding the original caps by
+  359/8,589 before overhead. [Independent verdict](reviews/2026-09-26-autonomy/daily-identity-node-screen-independent-review.md).
+  All 37 scalar mechanics checks pass; no further fixture, graph/behavior proof
+  or timing work is warranted for this layout. Other representations remain
+  untested, not proved impossible. Preserve the failed A2 gates and finish CI.
+
 ## A3 — genuine capture bridge contract and offline guards
 
 The [concrete contract investigation](reviews/2026-09-26-autonomy/capture-bridge-contract.md)

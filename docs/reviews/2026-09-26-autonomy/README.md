@@ -615,3 +615,81 @@ but that does not repair either counterexample. Synthetic timing was mixed or
 worse. The [literal probe](daily-native-membership-probe.py.txt) preserves the
 original tuple/generator traversal and performs no project imports or operational
 effects. No implementation or heavy follow-up was justified.
+
+### Diagnostic follow-up and completed original-only measurement
+
+Diagnostic/evidence revision `26631c6` was pushed to the existing draft PR #56.
+Production remains identical to `2a9fc2c`. Its
+[verified candidate/merge tree](linux-26631c6-source-binding.json) and current
+Linux [positive proof failure](linux-26631c6-proof-positive-failure.json) preserve
+a 60.278 s expiry at borrow commit-fence validation. The
+[static trace](linux-26631c6-proof-positive-trace.json) records
+`private_entry_seen=true`: the route was entered, not necessarily completed.
+The [unchanged original retained gate](linux-26631c6-original-restore-failure.json)
+also expires at 60.113 s, at initial borrow coordinator validation in its
+[trace](linux-26631c6-original-restore-trace.json). The original worker passes;
+its failure-only marker is silent, so the older unknown observation error is
+not explained. The remaining matrix and automatic diagnostic are still running;
+STATUS is the current progress source. No source repair is inferred from these
+instrumentation changes or a passing repeat.
+
+The separate A2.4 original-only local measurement is complete:
+[result manifest](daily-identity-original-result.json),
+[scalar observation](daily-identity-original-observation.json),
+[original test output](daily-identity-original-test.txt), and
+[independent interpretation](daily-identity-original-result-assessment.md).
+All 24 borrows and 144 targeted public/identity calls returned, with valid capture,
+unchanged hashes and no observer faults. Original pytest passed in 246.33 s;
+observed execute was 44.306 s, with 2.1675 s of disjoint builder work and 2.4653 s
+of inclusive public validation. These nested costs are not additive or net savings.
+
+The [reviewed plan](daily-identity-observer-plan.md),
+[readiness record](daily-identity-observer-ready-reviewed.json),
+[observer source](daily-identity-observer.py.txt),
+[synthetic tests](daily-identity-observer-tests.py.txt),
+[29-case result](daily-identity-mechanics-final.txt) and
+[independent mechanics review](daily-identity-observer-independent-review.md)
+retain reproducibility. No project method, argument, SQL/object/fence read,
+lease or test assertion changed. The existing original test enforces cleanup;
+the observer does not separately time or infer `factory.close`.
+
+The vector has 54,690 edges; existing simultaneous attempt-proof use leaves
+64,813 binding and 8,997 container units. Neither the vector/visited sizes nor
+9,923 unclassified edge types establishes a daily proof's charge or eligibility.
+The [boundary assessment](daily-identity-proof-decision-assessment.md) and
+[separate feasibility proposal](daily-identity-feasibility-proposal.md) explain
+why no automatic production extension follows. The owner subsequently approved
+the separate feasibility experiment only; A2.5 starts with shared-resource fit
+and independent review before any genuine fixture. Production remains unchanged.
+A further [journal projection audit](journal-columns-cost-assessment.md) found
+no safe material small fix: guarded reuse already regressed and unguarded reuse
+has a concrete mutable-bound counterexample. No new fixture or implementation
+was justified for that hotspot. The approved pilot remains unaccepted.
+
+### Approved feasibility: first layout rejected
+
+The owner approved only the separate temporary experiment. Its
+[concrete per-node layout](daily-identity-node-layout.md) retains one logical
+record per visited non-scalar identity under the existing proof accounting. The
+[resource screen](daily-identity-node-layout-resource-screen.json) needs at least
+9,356 containers and 73,402 bindings in addition to the current attempt proof.
+Joint totals exceed the unchanged caps by **359 containers and 8,589 bindings**
+before any further schema/behavior/context/construction costs.
+
+[Validation](daily-identity-node-screen-validation.json),
+[37-case result](daily-identity-node-screen-selfchecks.txt),
+[literal scalar code](daily-identity-node-screen.py.txt),
+[selfchecks](daily-identity-node-screen-tests.py.txt),
+[executed commands](daily-identity-node-screen-commands.md), and
+[independent review](daily-identity-node-screen-independent-review.md) preserve
+this bounded rejection. No new graph, authority, source import or fixture was
+created. Raw eligibility, transitive behavior and timing were not implemented;
+they cannot rescue this layout's lower bound. An alternative representation is
+untested, not automatically impossible or an accounting exemption.
+
+A separate [pre-lease source review](prelease-restoration-seam-assessment.md)
+finds preparation/fresh-recheck precedents, but no existing qualified handoff
+across writer-lease acquisition. The coherent snapshot includes lease/head rows
+that acquisition changes; daily captures also carry an original fenced receipt.
+Moving those owned results across acquisition would change lifecycle/error-order
+and exact-snapshot contracts. No such implementation or approval is inferred.
