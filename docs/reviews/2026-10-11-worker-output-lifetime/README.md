@@ -70,3 +70,7 @@ financial replay, provider or capital effect is selected by this unit recipe.
 Published341929e remains the separately bound automatic CI candidate. This
 offline repair is no timing remedy, financial pass, deployment or execution
 authority. Live-disabled/HALTED control and all existing safety limits remain.
+
+The separate [constructor/snapshot follow-up](../2026-10-11-constructor-snapshot-lifetime/README.md)
+qualifies four metadata hooks with a distinct142-case result; the110-case pins
+and emitter-only scope above remain historical facts.

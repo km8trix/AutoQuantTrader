@@ -596,7 +596,7 @@ def test_retained_new_wrapper_constructor_error_does_not_keep_fallback_delegate(
     with monkeypatch.context() as patch:
         patch.setattr(module, "ObservedLifecycle", failed)
         manager, ref = construct_and_drop()
-    assert metadata_error.__traceback__ is not None and ref() is None
+    assert metadata_error.__traceback__ is None and ref() is None
     assert manager._slots == [False, None]
 
 
@@ -851,3 +851,268 @@ def test_primary_admission_failure_does_not_authorize_output_traceback_cleanup(m
         assert BaseException.__traceback__.__get__(metadata) is not None
         assert metadata.__context__ is primary
         assert lines == []
+
+
+def _prepare_constructor_snapshot_fault(patch, hook, metadata):
+    """Install only a metadata fault; the original delegate is already constructed."""
+    manager = create_parent_diagnostics()
+    assert type(manager) is ParentLifecycleDiagnostics
+    delegate = object()
+    recorder = LifecycleForwardingDiagnostic()
+    calls = []
+
+    def fail(*args, **kwargs):
+        # The injected fault owns no private arguments. Caller locals are untouched.
+        del args, kwargs
+        calls.append(hook)
+        raise metadata
+
+    if hook == "manager_constructor":
+        patch.setattr(module, "ParentLifecycleDiagnostics", fail)
+    elif hook == "recorder_constructor":
+        patch.setattr(module, "LifecycleForwardingDiagnostic", fail)
+    elif hook == "wrapper_constructor":
+        patch.setattr(module, "ObservedLifecycle", fail)
+    else:
+        assert hook == "snapshot"
+        patch.setattr(LifecycleForwardingDiagnostic, "snapshot", fail)
+
+    def invoke_fault():
+        if hook == "manager_constructor":
+            assert create_parent_diagnostics() is None
+            assert manager._slots == [None, None]
+        elif hook == "snapshot":
+            snapshot = module._snapshot_for_slot(recorder)
+            assert type(snapshot) is dict
+            assert_unknown(snapshot)
+            assert manager._slots == [None, None]
+        else:
+            assert wrap_already_constructed(delegate, diagnostics=manager, iteration=1) is delegate
+            assert manager._slots == [False, None]
+
+    return invoke_fault, calls
+
+
+@pytest.mark.parametrize(
+    "hook",
+    ["manager_constructor", "recorder_constructor", "wrapper_constructor", "snapshot"],
+)
+@pytest.mark.parametrize("kind", [RuntimeError, KeyboardInterrupt])
+def test_suppressed_constructor_snapshot_error_matches_literal_caller_local_baseline(
+    monkeypatch, hook, kind
+):
+    def exercise(use_diagnostic):
+        metadata = kind("controlled retained constructor or snapshot fault")
+
+        def caller(invoke_fault):
+            private = WeakPrivateValue()
+            reference = weakref.ref(private)
+            try:
+                raise AssertionError("original pending constructor or snapshot assertion")
+            except AssertionError as primary:
+                if use_diagnostic:
+                    invoke_fault()
+                return primary, reference
+
+        with monkeypatch.context() as patch:
+            invoke_fault, calls = _prepare_constructor_snapshot_fault(patch, hook, metadata)
+            primary, reference = caller(invoke_fault)
+
+        gc.collect()
+        while_primary_retained = reference() is not None
+        primary.__traceback__ = None
+        # Legitimate chaining is excluded only at the oracle release point, as in
+        # the literal emitter witness. Neither path clears the caller's private local.
+        metadata.__context__ = None
+        gc.collect()
+        after_original_release = reference() is not None
+        return (while_primary_retained, after_original_release), primary, metadata, calls
+
+    baseline, baseline_primary, baseline_metadata, baseline_calls = exercise(False)
+    candidate, primary, metadata, calls = exercise(True)
+    assert baseline == (True, False)
+    assert type(baseline_primary) is type(primary) is AssertionError
+    assert type(baseline_metadata) is type(metadata) is kind
+    assert baseline_calls == []
+    assert calls == [hook]
+    assert candidate == baseline == (True, False)
+
+
+@pytest.mark.parametrize(
+    "hook",
+    ["manager_constructor", "recorder_constructor", "wrapper_constructor", "snapshot"],
+)
+def test_suppressed_constructor_snapshot_rethrow_preserves_exact_pending_primary(monkeypatch, hook):
+    primary, cause, context = selected_error(AssertionError)
+    original_args = primary.args
+
+    with monkeypatch.context() as patch:
+        invoke_fault, calls = _prepare_constructor_snapshot_fault(patch, hook, primary)
+        with pytest.raises(AssertionError) as raised:
+            try:
+                raise primary
+            except AssertionError:
+                entry = BaseException.__traceback__.__get__(primary)
+                before = primary.__cause__, primary.__context__, primary.__suppress_context__
+                invoke_fault()
+                assert calls == [hook]
+                assert BaseException.__traceback__.__get__(primary) is entry
+                assert primary.__cause__ is before[0] is cause
+                assert primary.__context__ is before[1] is context
+                assert primary.__suppress_context__ is before[2] is False
+                assert primary.args is original_args
+                raise
+
+    assert raised.value is primary
+
+
+@pytest.mark.parametrize(
+    "hook",
+    ["manager_constructor", "recorder_constructor", "wrapper_constructor", "snapshot"],
+)
+def test_constructor_snapshot_preexisting_auxiliary_history_is_discarded_without_other_changes(
+    monkeypatch, hook
+):
+    metadata = RuntimeError("controlled preexisting constructor or snapshot history")
+    cause, context = ValueError("auxiliary cause"), KeyError("auxiliary context")
+    metadata.__cause__, metadata.__context__ = cause, context
+
+    def prime():
+        private = WeakPrivateValue()
+        reference = weakref.ref(private)
+        try:
+            raise metadata
+        except RuntimeError:
+            return reference
+
+    reference = prime()
+    original_args = metadata.args
+    before = metadata.__cause__, metadata.__context__, metadata.__suppress_context__
+    gc.collect()
+    assert reference() is not None
+
+    with monkeypatch.context() as patch:
+        invoke_fault, calls = _prepare_constructor_snapshot_fault(patch, hook, metadata)
+        invoke_fault()
+
+    gc.collect()
+    assert reference() is None
+    assert BaseException.__traceback__.__get__(metadata) is None
+    assert metadata.__cause__ is before[0] is cause
+    assert metadata.__context__ is before[1] is context
+    assert metadata.__suppress_context__ is before[2]
+    assert metadata.args is original_args
+    assert calls == [hook]
+
+
+@pytest.mark.parametrize(
+    "hook",
+    ["manager_constructor", "recorder_constructor", "wrapper_constructor", "snapshot"],
+)
+def test_constructor_snapshot_native_cleanup_bypasses_hostile_exception_attribute_hooks(
+    monkeypatch, hook
+):
+    hooks = []
+
+    class HostileMetadata(RuntimeError):
+        def __getattribute__(self, name):
+            hooks.append(("get", name))
+            raise AssertionError("exception attribute hook must not run")
+
+        def __setattr__(self, name, value):
+            hooks.append(("set", name))
+            raise AssertionError("exception attribute hook must not run")
+
+    metadata = HostileMetadata("controlled private constructor or snapshot fault")
+
+    with monkeypatch.context() as patch:
+        invoke_fault, calls = _prepare_constructor_snapshot_fault(patch, hook, metadata)
+        invoke_fault()
+
+    assert BaseException.__traceback__.__get__(metadata) is None
+    assert hooks == []
+    assert calls == [hook]
+
+
+@pytest.mark.parametrize(
+    "hook",
+    ["manager_constructor", "recorder_constructor", "wrapper_constructor", "snapshot"],
+)
+@pytest.mark.parametrize("admission_kind", [RuntimeError, KeyboardInterrupt, "private"])
+def test_constructor_snapshot_unadmitted_primary_never_authorizes_traceback_cleanup(
+    monkeypatch, hook, admission_kind
+):
+    primary, cause, context = selected_error(AssertionError)
+    original_args = primary.args
+    manager = create_parent_diagnostics()
+    assert type(manager) is ParentLifecycleDiagnostics
+    delegate, recorder = object(), LifecycleForwardingDiagnostic()
+    target_calls, cleanup_calls, private_hooks = [], [], []
+
+    class UnadmittedPrivate:
+        def __getattribute__(self, name):
+            private_hooks.append(("get", name))
+            raise AssertionError("unadmitted primary attribute must not be inspected")
+
+        def __setattr__(self, name, value):
+            private_hooks.append(("set", name))
+            raise AssertionError("unadmitted primary attribute must not be inspected")
+
+    private = UnadmittedPrivate()
+    metadata = (
+        None
+        if admission_kind == "private"
+        else admission_kind("controlled primary-admission failure")
+    )
+
+    def admission():
+        if admission_kind == "private":
+            return private
+        raise metadata
+
+    def unreached(*args, **kwargs):
+        del args, kwargs
+        target_calls.append(hook)
+        raise AssertionError("metadata hook must not run before primary admission")
+
+    def forbidden_cleanup(*args, **kwargs):
+        del args, kwargs
+        cleanup_calls.append(hook)
+        raise AssertionError("unadmitted primary must not authorize traceback cleanup")
+
+    try:
+        raise primary
+    except AssertionError:
+        entry = BaseException.__traceback__.__get__(primary)
+        before = primary.__cause__, primary.__context__, primary.__suppress_context__
+        with monkeypatch.context() as patch:
+            if hook == "manager_constructor":
+                patch.setattr(module, "ParentLifecycleDiagnostics", unreached)
+            elif hook == "recorder_constructor":
+                patch.setattr(module, "LifecycleForwardingDiagnostic", unreached)
+            elif hook == "wrapper_constructor":
+                patch.setattr(module, "ObservedLifecycle", unreached)
+            else:
+                assert hook == "snapshot"
+                patch.setattr(LifecycleForwardingDiagnostic, "snapshot", unreached)
+            patch.setitem(module.sys.__dict__, "exception", admission)
+            patch.setattr(module, "_release_metadata_traceback", forbidden_cleanup)
+            if hook == "manager_constructor":
+                assert create_parent_diagnostics() is None
+            elif hook == "snapshot":
+                assert_unknown(module._snapshot_for_slot(recorder))
+            else:
+                assert (
+                    wrap_already_constructed(delegate, diagnostics=manager, iteration=1) is delegate
+                )
+        assert BaseException.__traceback__.__get__(primary) is entry
+        assert primary.__cause__ is before[0] is cause
+        assert primary.__context__ is before[1] is context
+        assert primary.__suppress_context__ is before[2] is False
+        assert primary.args is original_args
+        if metadata is not None:
+            assert BaseException.__traceback__.__get__(metadata) is not None
+            assert metadata.__context__ is primary
+
+    assert manager._slots == [None, None]
+    assert target_calls == cleanup_calls == private_hooks == []

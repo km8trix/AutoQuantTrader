@@ -1,5 +1,19 @@
 # Testing and validation
 
+## Constructor/snapshot recovery — 2026-10-11
+
+The122-case witness failed110pass/12fail; the fresh repaired142-case selection
+passes104 output+38 unchanged inert wiring, zero failures/errors/skips/unavailable,
+ten equal pins/both EOF/no flags. Architecture/configured statics and independent
+Source/prelaunch/actual-result/all20 archive inverse reviews pass. Preserve both
+closed native results; do not rerun their consumed launchers. Exact same ordinary
+unit paths and unchanged bounded limits appear below; use fresh owned outputs.
+The repair covers four metadata hooks, preserves all84 witness identities and
+literal lifetime oracles, and adds20 adverse controls. Original delegate
+construction remains outside recovery; no real worker/SQL/account initializer
+is selected. No universal private-primitive/resource recovery, financial pass
+or timing remedy follows. See the dated constructor/snapshot repair record.
+
 ## Worker-output lifetime repair
 
 The64-case witness fails55pass/9fail, zero errors/skips/unavailable; all eight
@@ -18,8 +32,8 @@ unit files, then sanitized stock pytest selecting exactly
 `tests/unit/test_personal_worker_parent_diagnostic_wiring.py`, with new owned
 basetemp/JUnit outputs and the reviewed bounded wrapper. Preserve60s child/
 65536B raw/5s reap/524288B native/131072B JUnit/16384B report limits.
-Constructor/snapshot issuance faults outside the emitter remain unchanged and
-unqualified. These controls do not establish a timing remedy or financial pass.
+At the110-case checkpoint constructor/snapshot faults outside the emitter
+were unqualified; the separate142-case follow-up above now covers four hooks. These controls do not establish a timing remedy or financial pass.
 The [dated repair record](reviews/2026-10-11-worker-output-lifetime/README.md)
 contains exact commands, pins and limits.
 

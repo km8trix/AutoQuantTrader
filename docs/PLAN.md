@@ -6,7 +6,8 @@ Read [STATUS](STATUS.md) before the historical milestone details below. This
 checkpoint preserves the published architecture and ownership fixes. Publicf64194a
 completed its exact Linux gate failed; Stop assembly341929e is committed/published,
 with automatic CI evidence outstanding. The110-case worker-output repair below
-passes its local checks; final documents/local checkpoint remain.
+passes its local checks and final reviews, committed locally at92e8325 without
+another push. Constructor/snapshot coverage is the selected next offline task.
 Wave 4 remains open; older pending/completed descriptions are historical scopes.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
@@ -35,7 +36,7 @@ remains separate and incomplete.
 - **Validation commands:** Git/staged diff/current remote/PR checks, normal push, inspect automatic exact-revision jobs/logs/artifacts. No force push or workflow dispatch.
 - **Completion criteria:** qualified publication and complete CI evidence recorded; investigate new failures before dependent work. No diagnostic or unit result closes Wave4 or confers trading authority.
 
-### Selected independent task — worker-output caller lifetime repair
+### Completed independent task — worker-output caller lifetime repair
 
 - **Objective:** repair the nine actual caller lifetime/entry-primary traceback failures exposed by the64-case worker-output witness.
 - **Scope:** minimal `tests/fixtures/lifecycle_failure_output.py` emitter repair using the qualified native traceback policy, retaining all64 case identities plus eight adverse controls. All other helper functions remain unchanged. No real worker, SQL, initializer, financial or CI-limit changes.
@@ -46,10 +47,11 @@ remains separate and incomplete.
 
 Fresh110-case validation passes72+38, zero failures/errors/skips/unavailable,
 10 equal pins/both EOF/no flags; independent Source/prelaunch/result/all20
-archive inverse reviews pass. Final docs/local checkpoint remain.
+archive inverse and final diff/privacy/document reviews pass; focused local
+checkpoint92e8325 is committed and not pushed.
 See the [repair record](reviews/2026-10-11-worker-output-lifetime/README.md).
 
-### Queued independent task — constructor/snapshot caller lifetime coverage
+### Selected independent task — constructor/snapshot caller lifetime coverage
 
 - **Objective:** qualify remaining suppressed metadata-constructor/snapshot exception caller lifetimes and pending-primary behavior; a Source gap is not a proven defect.
 - **Scope:** inert controls at manager, recorder and wrapper metadata construction plus recorder snapshot only. Preserve all72 current output identities and original delegate construction propagation/order. No real worker, SQL, initializer, financial runtime, publication or production change.
@@ -57,6 +59,16 @@ See the [repair record](reviews/2026-10-11-worker-output-lifetime/README.md).
 - **Acceptance criteria:** literal baseline caller-local lifetime and exact pending-primary identity/entry traceback/cause/context/args comparisons with retained auxiliary errors. Existing fallback, slots, private hooks, one write and original constructor behavior remain. Preserve actual failures; any minimal repair needs separate Source review before retesting, never a weakened lifetime oracle.
 - **Validation commands:** configured Source compile/Ruff, architecture before imports, independent witness/launcher review; fresh bounded stock pytest selecting revised ordinary output units and unchanged38 inert wiring cases with Source-derived counts and existing60s/65536B/5s/native524288B/JUnit131072B/report16384B caps. No original integration module import or consumed-study replay.
 - **Completion criteria:** independently qualified actual results, any necessary repair passes adverse controls, exact failures/results preserved and docs/status/decisions/checkpoint updated. No universal lifetime guarantee, timing remedy, financial pass or authority follows.
+
+Fresh122-case witness fails110pass/12fail with healthy capture; its originals
+were preserved before repair. The minimal three-function/four-hook native
+traceback-policy extension passes independent Source, architecture and statics.
+Fresh142-case run passes104 output+38 unchanged inert wiring, zero failures/
+errors/skips/unavailable, ten equal pins/both EOF/no flags. All84 identities and
+literal baseline oracles remain;20 adverse controls were added. Independent
+actual-result and all20 archive inverse/current-file reviews pass. Original
+delegate construction remains outside recovery. Final docs/diff review and
+focused local checkpoint are next; financial gates stay failed.
 
 ### Completed — bounded parent-forwarding diagnostic assembly
 

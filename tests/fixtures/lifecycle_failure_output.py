@@ -46,14 +46,21 @@ _WRAPPER_TYPE = ObservedLifecycle
 
 
 def create_parent_diagnostics() -> ParentLifecycleDiagnostics | None:
-    manager = None
+    manager = primary = primary_traceback = None
+    primary_admitted = False
     try:
+        primary = sys.exception()
+        if primary is not None:
+            primary_traceback = BaseException.__traceback__.__get__(primary)
+        primary_admitted = True
         manager = ParentLifecycleDiagnostics()
         return manager if type(manager) is _MANAGER_TYPE else None
-    except BaseException:
+    except BaseException as error:
+        if primary_admitted:
+            _release_metadata_traceback(error, primary, primary_traceback)
         return None
     finally:
-        manager = None
+        manager = primary = primary_traceback = None
 
 
 def _iteration(value: object) -> bool:
@@ -82,7 +89,13 @@ def wrap_already_constructed(
 ) -> Any:
     """Return the original delegate on new faults; never catch its construction."""
     slots = recorder = wrapped = None
+    primary = primary_traceback = None
+    primary_admitted = False
     try:
+        primary = sys.exception()
+        if primary is not None:
+            primary_traceback = BaseException.__traceback__.__get__(primary)
+        primary_admitted = True
         if type(diagnostics) is not _MANAGER_TYPE:
             return delegate
         if not _iteration(iteration):
@@ -118,10 +131,13 @@ def wrap_already_constructed(
             return delegate
         slots[index] = recorder
         return wrapped
-    except BaseException:
+    except BaseException as error:
+        if primary_admitted:
+            _release_metadata_traceback(error, primary, primary_traceback)
         return delegate
     finally:
         delegate = diagnostics = iteration = slots = recorder = wrapped = None
+        primary = primary_traceback = None
 
 
 def _unknown_snapshot() -> dict[str, object]:
@@ -136,17 +152,24 @@ def _unknown_snapshot() -> dict[str, object]:
 
 
 def _snapshot_for_slot(slot: object) -> dict[str, object]:
-    value = None
+    value = primary = primary_traceback = None
+    primary_admitted = False
     try:
+        primary = sys.exception()
+        if primary is not None:
+            primary_traceback = BaseException.__traceback__.__get__(primary)
+        primary_admitted = True
         if type(slot) is _RECORDER_TYPE:
             value = slot.snapshot()
             if _scalar_snapshot(value):
                 return value
         return _unknown_snapshot()
-    except BaseException:
+    except BaseException as error:
+        if primary_admitted:
+            _release_metadata_traceback(error, primary, primary_traceback)
         return _unknown_snapshot()
     finally:
-        slot = value = None
+        slot = value = primary = primary_traceback = None
 
 
 def _snapshot_payload(

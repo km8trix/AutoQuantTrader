@@ -371,3 +371,25 @@ result/all20 archive inverse reviews pass.
 Constructor/snapshot issuance faults outside this emitter remain unchanged and
 unqualified. Production error handling, worker assertions, financial behavior,
 timing limits and execution authority remain outside this repair.
+
+## 2026-10-11 — extend metadata traceback recovery to four setup/snapshot hooks
+
+**Decision:** admit the pending primary and native entry traceback before manager,
+recorder, wrapper construction and recorder snapshot work. Reuse the existing
+native cleanup only after successful admission; discard complete auxiliary
+history, restore the exact pending primary's entry traceback, and release
+temporary references in finally. Original delegate construction stays outside
+recovery. No cause/context/args traversal or custom exception hook invocation.
+
+**Rationale:** the separate122-case witness exposed eight caller-local lifetime
+and four same-primary entry-traceback failures while all110 prior controls passed.
+Later primary cause/context/args checks were unreached at the failed assertion.
+The established emitter cleanup addresses the same retained traceback edge.
+
+**Consequences/constraints:** intentional auxiliary history discard extends to
+these four test-only metadata hooks. All84 case identities and literal lifetime
+oracles remain; one prior auxiliary-constructor traceback expectation now matches
+the explicit policy. Twenty adverse controls and fresh142-case validation pass
+with independent Source/result/archive review. Production handling, original
+delegate exceptions, financial behavior, timer/resource limits and execution
+authority remain outside scope; no universal recovery guarantee follows.
