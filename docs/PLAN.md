@@ -4,7 +4,9 @@
 
 Read [STATUS](STATUS.md) before the historical milestone details below. This
 checkpoint preserves the published architecture and ownership fixes. Publicf64194a
-completed its exact Linux gate failed; the Stop outcome assembly below is selected.
+completed its exact Linux gate failed; Stop assembly341929e is committed/published,
+with automatic CI evidence outstanding. The110-case worker-output repair below
+passes its local checks; final documents/local checkpoint remain.
 Wave 4 remains open; older pending/completed descriptions are historical scopes.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
@@ -21,7 +23,8 @@ Local validation and independent Source/result/archive/public-diff checks pass:
 eight equal pins/both EOF/no flags. The first127pass/twofail lifetime run is
 preserved; a documented auxiliary traceback repair and20 new controls pass.
 All five original assertions and full golden-module normalization remain intact.
-A focused public commit follows final document/staged checks.
+Focused public commit341929e was normally published; current automatic CI
+remains separate and incomplete.
 
 ### Current — publish the reviewed outcome question
 
@@ -32,14 +35,28 @@ A focused public commit follows final document/staged checks.
 - **Validation commands:** Git/staged diff/current remote/PR checks, normal push, inspect automatic exact-revision jobs/logs/artifacts. No force push or workflow dispatch.
 - **Completion criteria:** qualified publication and complete CI evidence recorded; investigate new failures before dependent work. No diagnostic or unit result closes Wave4 or confers trading authority.
 
-### Queued independent task — worker-output caller lifetime coverage
+### Selected independent task — worker-output caller lifetime repair
 
-- **Objective:** test whether a retained auxiliary output error extends a caller-local private marker beyond the literal no-diagnostic baseline, and whether rethrowing the pending primary changes its entry traceback.
-- **Scope:** helper-only inert tests for `tests/fixtures/lifecycle_failure_output.py`, retaining its original55 unit identities. Source currently shows suppression without traceback cleanup and tests that clear caller locals; this is a coverage gap, not a proven defect. No real worker, SQL, initializer, financial or CI-limit changes.
+- **Objective:** repair the nine actual caller lifetime/entry-primary traceback failures exposed by the64-case worker-output witness.
+- **Scope:** minimal `tests/fixtures/lifecycle_failure_output.py` emitter repair using the qualified native traceback policy, retaining all64 case identities plus eight adverse controls. All other helper functions remain unchanged. No real worker, SQL, initializer, financial or CI-limit changes.
 - **Dependencies:** close the selected outcome repair; inspect the existing helper and baseline tests. Use a fresh owned offline output and architecture before imports. Publication can proceed independently after its own acceptance.
 - **Acceptance criteria:** meaningful literal-baseline/private-marker and same-primary traceback controls; all55 original cases retained. Investigate any actual failure before selecting a minimal repair; never change lifetime expectations merely to pass. Preserve original assertions, one-write bounds and pending error identity/cause/context.
-- **Validation commands:** configured changed-file Ruff/compile and independently reviewed Source; fresh bounded stock pytest selecting the output helper's unit file only, with exact Source-derived counts,60s/65536B/5s and existing native/JUnit/report caps.
+- **Validation commands:** configured changed-file Ruff/compile and independently reviewed Source/launcher; fresh bounded stock pytest selecting72 output and38 unchanged inert wiring cases, with exact Source-derived counts,60s/65536B/5s and existing native/JUnit/report caps.
 - **Completion criteria:** accurate results/gaps in STATUS/TESTING; preserve failures and root-cause repair evidence, validate any selected repair, update decisions, and make a focused checkpoint. No inference about financial correctness or original timing acceptance.
+
+Fresh110-case validation passes72+38, zero failures/errors/skips/unavailable,
+10 equal pins/both EOF/no flags; independent Source/prelaunch/result/all20
+archive inverse reviews pass. Final docs/local checkpoint remain.
+See the [repair record](reviews/2026-10-11-worker-output-lifetime/README.md).
+
+### Queued independent task — constructor/snapshot caller lifetime coverage
+
+- **Objective:** qualify remaining suppressed metadata-constructor/snapshot exception caller lifetimes and pending-primary behavior; a Source gap is not a proven defect.
+- **Scope:** inert controls at manager, recorder and wrapper metadata construction plus recorder snapshot only. Preserve all72 current output identities and original delegate construction propagation/order. No real worker, SQL, initializer, financial runtime, publication or production change.
+- **Dependencies:** accepted110-case repair and focused local checkpoint; exact current helper6df62727/unit46bcd0f7 and Source-supported coverage screen. Prepare/review controls in an owned temp root; original public Source remains unchanged until explicit reviewed witness copy.
+- **Acceptance criteria:** literal baseline caller-local lifetime and exact pending-primary identity/entry traceback/cause/context/args comparisons with retained auxiliary errors. Existing fallback, slots, private hooks, one write and original constructor behavior remain. Preserve actual failures; any minimal repair needs separate Source review before retesting, never a weakened lifetime oracle.
+- **Validation commands:** configured Source compile/Ruff, architecture before imports, independent witness/launcher review; fresh bounded stock pytest selecting revised ordinary output units and unchanged38 inert wiring cases with Source-derived counts and existing60s/65536B/5s/native524288B/JUnit131072B/report16384B caps. No original integration module import or consumed-study replay.
+- **Completion criteria:** independently qualified actual results, any necessary repair passes adverse controls, exact failures/results preserved and docs/status/decisions/checkpoint updated. No universal lifetime guarantee, timing remedy, financial pass or authority follows.
 
 ### Completed — bounded parent-forwarding diagnostic assembly
 

@@ -1,5 +1,28 @@
 # Testing and validation
 
+## Worker-output lifetime repair
+
+The64-case witness fails55pass/9fail, zero errors/skips/unavailable; all eight
+pins match and capture is healthy. Six literal-baseline caller lifetime cases
+and three same-primary entry traceback controls expose actual emitter defects.
+Failed Source/native/results are preserved before repair. The minimal repair
+and eight further adverse controls pass independent Source, architecture and
+configured statics. Fresh110-case runtime passes72 output+38 unchanged inert
+wiring, zero failures/errors/skips/unavailable,10 equal pins/both EOF/no flags;
+independent result and all20 archive inverse reviews pass. Original worker, SQL and account
+initializer are not selected.
+
+After the architecture check, use configured Ruff on the helper and affected
+unit files, then sanitized stock pytest selecting exactly
+`tests/unit/test_personal_lifecycle_failure_output.py` and
+`tests/unit/test_personal_worker_parent_diagnostic_wiring.py`, with new owned
+basetemp/JUnit outputs and the reviewed bounded wrapper. Preserve60s child/
+65536B raw/5s reap/524288B native/131072B JUnit/16384B report limits.
+Constructor/snapshot issuance faults outside the emitter remain unchanged and
+unqualified. These controls do not establish a timing remedy or financial pass.
+The [dated repair record](reviews/2026-10-11-worker-output-lifetime/README.md)
+contains exact commands, pins and limits.
+
 ## Current Stop outcome diagnostic assembly
 
 Read the [dated record](reviews/2026-10-11-stop-outcome/README.md). Architecture

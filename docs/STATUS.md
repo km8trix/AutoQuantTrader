@@ -7,23 +7,42 @@ the [ownership record](reviews/2026-10-11-ownership-checkpoint/README.md),
 
 - **Current milestone:** Wave 4 integration acceptance remains open. Ownership/
   reference cleanup and ordinary offline scope pass; exact Linux acceptance fails.
-- **Current task:** publish the reviewed Stop outcome question after the focused
-  local commit. The assembly and inert wiring
-  controls. Four named Source files are assembled; architecture before imports,
+- **Current task:** repair the separate worker-output emitter lifetime witness
+  while automatic [CI38152579477](https://github.com/km8trix/AutoQuantTrader/actions/runs/38152579477)
+  runs for published341929e. The earlier completed Stop assembly contains four
+  named Source files and inert wiring controls; architecture before imports,
   configured final-location statics and independent Source/AST review pass.
   The first bounded129-case validation (88 scalar+41 wiring) failed:127 pass/two
   private-field lifetime failures, zero errors/skips. All eight Source pins match;
   native captures have both EOF and no timeout/output/reap faults. No
   original integration module, worker, SQL probe or account initializer is run.
-- **Work in progress:** final document/staged checks and the focused public commit.
-  The repaired suppressed metadata traceback
+- **Work in progress:** the new worker-output64-case witness (all55 original
+  controls plus nine new cases) failed55pass/9fail, zero errors/skips/unavailable,
+  eight equal pins/both EOF/no capture faults. Six caller-lifetime cases retain
+  markers after baseline release; three same-primary cases extend entry traceback.
+  Failed Source/native/results are preserved. The minimal emitter repair and
+  eight further adverse controls pass independent Source review, architecture
+  and configured statics; fresh110-case run passes72 output+38 unchanged inert
+  wiring, zero failures/errors/skips/unavailable,10 equal pins/both EOF/no flags.
+  Independent launcher/result/archive reviews pass; final documents/local
+  checkpoint are in progress.
+  Constructor/snapshot faults outside the emitter
+  remain unchanged and unqualified. Automatic CI's closed shard3 has365pass/one
+  worker failure: probe_stalled, zero child observations; parent prepare/one
+  observe returned, no require_result. Stop/takeover pass is inferred from exact
+  Source/selector plus the sole worker failure, without named PASS lines; no
+  outcome diagnostic line was emitted. Snapshot7235a1 has foundations/browser
+  and eight financial shards success, two financial failures, others active/queued.
+  Actual Linux merge6f48b9f belongs to341929e; full CI is not complete.
+  The completed Stop fixture repair addresses a separate suppressed traceback
   retention edge exposed by the two lifetime failures. Failed Source/results are preserved;
   native-descriptor cleanup, entry-primary protection and20 new adverse cases
   pass independent Source review and configured statics. Fresh bounded validation
   passes149 unique cases (108 scalar+41 wiring), zero errors/failures/skips or
   unavailable cases; all eight pins match, both EOF and no capture faults.
-  Independent Source/result/archive/public-diff checks pass; final document
-  snapshot is in progress. No remote update has occurred for this assembly.
+  Independent Source/result/archive/public-diff/document checks pass; commit341929e
+  was normally published to the approved branch/draft PR56. New CI is active;
+  foundations/browser success and the financial matrix remain separate scopes.
   Two import-grouping errors missed in scratch were repaired with one LF per file;
   That placement repair left caller ASTs unchanged. All five assertions and the
   original41 wiring case identities remain. First
@@ -62,12 +81,14 @@ the [ownership record](reviews/2026-10-11-ownership-checkpoint/README.md),
   parent/proof/capacity/genuine acceptance and actual source/account/session/host
   prerequisites, plus separate initializer/adoption gates remain.
   CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED stays. No location is missing.
-- **Next actions:** finish document/staged checks and a focused local commit.
-  Then perform the selected normal publication
-  for the missing-outcome question. No consumed-study replay or dependent merge.
-- **Checkout:** codex/ownership-checkpoint-publication, baselinef64194a (parent903438b).
-  Current scope is four Source files plus focused operating docs/dated record;
-  no current assembly commit or push yet. Use Git for actual HEAD/dirty state.
+- **Next actions:** finish110-case document review/local checkpoint, then select
+  constructor/snapshot lifetime coverage using the queued plan. Preserve
+  all completed38152579477 CI evidence; no new push while its evidence is pending,
+  consumed-study replay, blind CI retry or dependent merge.
+- **Checkout:** codex/ownership-checkpoint-publication, published341929e (parentf64194a).
+  Current dirty scope is the reviewed emitter/72-case unit repair and resume docs;
+  published341929e remains the separate CI candidate.
+  Use Git for actual HEAD/dirty state.
   Remote codex/autonomous-development and existing
   [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56) are the approved
   destination; verify current head/base/tree before publishing. Private evidence

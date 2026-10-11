@@ -622,5 +622,232 @@ def test_retained_write_error_does_not_keep_manager_or_private_unused_iteration(
     with monkeypatch.context() as patch:
         patch.setattr(module.sys, "stdout", SimpleNamespace(write=write))
         refs = emit_and_drop()
-    assert metadata_error.__traceback__ is not None
+    # Output-emitter auxiliary history is deliberately discarded, including preexisting frames.
+    assert metadata_error.__traceback__ is None
     assert all(ref() is None for ref in refs)
+
+
+@pytest.mark.parametrize("stage", ["writer", "dumps", "loads"])
+@pytest.mark.parametrize("kind", [RuntimeError, KeyboardInterrupt])
+def test_retained_auxiliary_error_matches_literal_caller_local_release_baseline(
+    monkeypatch, stage, kind
+):
+    def exercise(use_diagnostic):
+        metadata = kind("new retained caller-local output fault")
+        manager = create_parent_diagnostics()
+        assert type(manager) is ParentLifecycleDiagnostics
+        lines, faults = [], []
+
+        def fail(*args, **kwargs):
+            try:
+                faults.append(stage)
+                raise metadata
+            finally:
+                del args, kwargs
+
+        def write(line):
+            lines.append(line)
+            if stage == "writer":
+                fail(line)
+            return len(line)
+
+        def caller():
+            private = WeakPrivateValue()
+            reference = weakref.ref(private)
+            try:
+                raise AssertionError("original pending caller assertion")
+            except AssertionError as primary:
+                if use_diagnostic:
+                    emit_parent_failure_line(manager, iteration=1)
+                return primary, reference
+
+        with monkeypatch.context() as patch:
+            patch.setitem(module.sys.__dict__, "stdout", SimpleNamespace(write=write))
+            if stage != "writer":
+                patch.setattr(module.json, stage, fail)
+            primary, reference = caller()
+
+        gc.collect()
+        while_primary_retained = reference() is not None
+        primary.__traceback__ = None
+        metadata.__context__ = None
+        gc.collect()
+        after_original_release = reference() is not None
+        return (while_primary_retained, after_original_release), primary, metadata, lines, faults
+
+    baseline, baseline_primary, baseline_metadata, baseline_lines, baseline_faults = exercise(False)
+    candidate, primary, metadata, lines, faults = exercise(True)
+    assert baseline == (True, False)
+    assert type(baseline_primary) is type(primary) is AssertionError
+    assert type(baseline_metadata) is type(metadata) is kind
+    assert baseline_lines == baseline_faults == []
+    assert faults and all(fault == stage for fault in faults)
+    assert len(lines) == 1
+    assert decode_line(lines[0])["current_iteration"] == 1
+    assert "new retained caller-local output fault" not in lines[0]
+    assert candidate == baseline == (True, False)
+
+
+@pytest.mark.parametrize("stage", ["writer", "dumps", "loads"])
+def test_metadata_rethrow_of_pending_primary_preserves_exact_entry_traceback(monkeypatch, stage):
+    primary, cause, context = selected_error(AssertionError)
+    manager = create_parent_diagnostics()
+    assert type(manager) is ParentLifecycleDiagnostics
+    lines, faults = [], []
+
+    def fail(*args, **kwargs):
+        try:
+            faults.append(stage)
+            raise primary
+        finally:
+            del args, kwargs
+
+    def write(line):
+        lines.append(line)
+        if stage == "writer":
+            fail(line)
+        return len(line)
+
+    with monkeypatch.context() as patch:
+        patch.setitem(module.sys.__dict__, "stdout", SimpleNamespace(write=write))
+        if stage != "writer":
+            patch.setattr(module.json, stage, fail)
+        with pytest.raises(AssertionError) as raised:
+            try:
+                raise primary
+            except AssertionError:
+                entry = BaseException.__traceback__.__get__(primary)
+                before = primary.__cause__, primary.__context__, primary.__suppress_context__
+                emit_parent_failure_line(manager, iteration=1)
+                assert faults and all(fault == stage for fault in faults)
+                assert len(lines) == 1
+                assert BaseException.__traceback__.__get__(primary) is entry
+                assert primary.__cause__ is before[0] is cause
+                assert primary.__context__ is before[1] is context
+                assert primary.__suppress_context__ is before[2] is False
+                raise
+
+    assert raised.value is primary
+    assert decode_line(lines[0])["current_iteration"] == 1
+
+
+@pytest.mark.parametrize("stage", ["writer", "dumps", "loads"])
+def test_preexisting_auxiliary_private_frame_is_released_without_metadata_changes(
+    monkeypatch, stage
+):
+    metadata = RuntimeError("controlled preexisting output history")
+    cause, context = ValueError("auxiliary cause"), KeyError("auxiliary context")
+    metadata.__cause__, metadata.__context__ = cause, context
+    original_args, suppressed = metadata.args, metadata.__suppress_context__
+
+    def prime():
+        private = WeakPrivateValue()
+        reference = weakref.ref(private)
+        try:
+            raise metadata
+        except RuntimeError:
+            return reference
+
+    reference = prime()
+    gc.collect()
+    assert reference() is not None
+    manager = create_parent_diagnostics()
+    assert type(manager) is ParentLifecycleDiagnostics
+    lines = []
+
+    def fail(*args, **kwargs):
+        try:
+            raise metadata
+        finally:
+            del args, kwargs
+
+    def write(line):
+        lines.append(line)
+        if stage == "writer":
+            fail(line)
+        return len(line)
+
+    with monkeypatch.context() as patch:
+        patch.setitem(module.sys.__dict__, "stdout", SimpleNamespace(write=write))
+        if stage != "writer":
+            patch.setattr(module.json, stage, fail)
+        emit_parent_failure_line(manager, iteration=1)
+
+    gc.collect()
+    assert reference() is None
+    assert BaseException.__traceback__.__get__(metadata) is None
+    assert metadata.__cause__ is cause and metadata.__context__ is context
+    assert metadata.args is original_args and metadata.__suppress_context__ is suppressed
+    assert len(lines) == 1
+    assert decode_line(lines[0])["current_iteration"] == 1
+
+
+@pytest.mark.parametrize("stage", ["writer", "dumps", "loads"])
+def test_auxiliary_output_traceback_cleanup_bypasses_hostile_exception_hooks(monkeypatch, stage):
+    calls = []
+
+    class HostileMetadata(RuntimeError):
+        def __getattribute__(self, name):
+            calls.append(("get", name))
+            raise AssertionError("exception attribute hook must not run")
+
+        def __setattr__(self, name, value):
+            calls.append(("set", name))
+            raise AssertionError("exception attribute hook must not run")
+
+    metadata = HostileMetadata("private auxiliary exception value")
+    manager = create_parent_diagnostics()
+    assert type(manager) is ParentLifecycleDiagnostics
+    lines = []
+
+    def fail(*args, **kwargs):
+        try:
+            raise metadata
+        finally:
+            del args, kwargs
+
+    def write(line):
+        lines.append(line)
+        if stage == "writer":
+            fail(line)
+        return len(line)
+
+    with monkeypatch.context() as patch:
+        patch.setitem(module.sys.__dict__, "stdout", SimpleNamespace(write=write))
+        if stage != "writer":
+            patch.setattr(module.json, stage, fail)
+        emit_parent_failure_line(manager, iteration=1)
+
+    assert BaseException.__traceback__.__get__(metadata) is None
+    assert calls == []
+    assert len(lines) == 1
+    assert decode_line(lines[0])["current_iteration"] == 1
+    assert "private auxiliary exception value" not in lines[0]
+
+
+@pytest.mark.parametrize("kind", [RuntimeError, KeyboardInterrupt])
+def test_primary_admission_failure_does_not_authorize_output_traceback_cleanup(monkeypatch, kind):
+    primary, cause, context = selected_error(AssertionError)
+    metadata = kind("controlled pending-primary admission failure")
+    manager = create_parent_diagnostics()
+    lines = []
+
+    def fail():
+        raise metadata
+
+    try:
+        raise primary
+    except AssertionError:
+        entry = BaseException.__traceback__.__get__(primary)
+        before = primary.__cause__, primary.__context__, primary.__suppress_context__
+        with monkeypatch.context() as patch:
+            patch.setitem(module.sys.__dict__, "exception", fail)
+            patch.setitem(module.sys.__dict__, "stdout", SimpleNamespace(write=lines.append))
+            emit_parent_failure_line(manager, iteration=1)
+        assert BaseException.__traceback__.__get__(primary) is entry
+        assert primary.__cause__ is before[0] is cause
+        assert primary.__context__ is before[1] is context
+        assert primary.__suppress_context__ is before[2] is False
+        assert BaseException.__traceback__.__get__(metadata) is not None
+        assert metadata.__context__ is primary
+        assert lines == []

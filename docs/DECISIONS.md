@@ -347,3 +347,27 @@ Implementation and fresh149-case validation plus independent Source/result/
 archive/public-diff review pass; final document/staged checks remain in STATUS. This applies only
 to the test-only scalar emitter, not production exception handling or every
 other diagnostic fixture; no universal resource/replaced-primitive recovery.
+
+## 2026-10-11 — extend qualified traceback cleanup to worker output
+
+**Decision:** use the qualified native traceback cleanup policy only in the
+worker failure-line emitter. Discard admitted auxiliary traceback history,
+including preexisting history; restore the exact pending primary's entry
+traceback without custom attribute hooks or cause/context mutation. Failed
+primary admission leaves output and cleanup unknown. Preserve single-write
+behavior, fallback policy and all other helper functions.
+
+**Rationale:** the separate64-case witness passes all55 old controls and fails
+six caller-local lifetime and three pending-primary traceback cases. These are
+actual inert emitter failures. The same small cleanup helper is already
+qualified for the Stop scalar diagnostic; reuse its established policy without
+introducing a new fixture dependency.
+
+**Consequences/constraints:** retain all64 case identities and literal lifetime
+oracles; the old retained auxiliary-write traceback expectation now reflects
+explicit discard. Add eight preexisting/hostile-hook/unadmitted-primary controls.
+Source, architecture, statics and fresh110-case validation pass; independent
+result/all20 archive inverse reviews pass.
+Constructor/snapshot issuance faults outside this emitter remain unchanged and
+unqualified. Production error handling, worker assertions, financial behavior,
+timing limits and execution authority remain outside this repair.

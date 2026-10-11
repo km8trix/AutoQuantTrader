@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import sys
-from contextlib import suppress
 from typing import Any
 
 from tests.fixtures.lifecycle_forwarding_diagnostic import (
@@ -217,12 +216,32 @@ def _fallback_line(iteration: object) -> str:
         iteration = None
 
 
+def _release_metadata_traceback(
+    error: BaseException, primary: BaseException | None, primary_traceback: object
+) -> None:
+    """Discard auxiliary history; restore the exact pending primary's entry traceback."""
+    try:
+        # The native descriptor bypasses custom exception attribute hooks. Auxiliary
+        # history, including any preexisting traceback, is deliberately discarded.
+        BaseException.__traceback__.__set__(error, primary_traceback if error is primary else None)
+    except BaseException:
+        pass
+    finally:
+        error = primary = primary_traceback = None
+
+
 def emit_parent_failure_line(
     diagnostics: ParentLifecycleDiagnostics | None, *, iteration: object
 ) -> None:
     """One guarded dynamic stdout write, with a fallback only before I/O starts."""
     payload = text = decoded = line = None
+    primary = primary_traceback = None
+    primary_admitted = False
     try:
+        primary = sys.exception()
+        if primary is not None:
+            primary_traceback = BaseException.__traceback__.__get__(primary)
+        primary_admitted = True
         line = _fallback_line(iteration)
         try:
             payload = _snapshot_payload(diagnostics, iteration)
@@ -239,14 +258,20 @@ def emit_parent_failure_line(
                     decoded = json.loads(text)
                     if _scalar_payload(decoded) and decoded == payload:
                         line = PREFIX + text + "\n"
-        except BaseException:
+        except BaseException as error:
             # Keep the prebuilt fixed unknown line. No arbitrary values/errors print.
-            pass
+            if primary_admitted:
+                _release_metadata_traceback(error, primary, primary_traceback)
         # A partial write is ambiguous; never retry or print a fallback after I/O.
-        with suppress(BaseException):
+        try:
             sys.stdout.write(line)
-    except BaseException:
+        except BaseException as error:
+            if primary_admitted:
+                _release_metadata_traceback(error, primary, primary_traceback)
+    except BaseException as error:
         # A failure creating even the fixed fallback leaves output absent/unknown.
-        pass
+        if primary_admitted:
+            _release_metadata_traceback(error, primary, primary_traceback)
     finally:
         diagnostics = iteration = payload = text = decoded = line = None
+        primary = primary_traceback = None
