@@ -5,9 +5,11 @@
 Read [STATUS](STATUS.md) before the historical milestone details below. This
 checkpoint preserves the published architecture and ownership fixes. Publicf64194a
 completed its exact Linux gate failed; Stop assembly341929e is committed/published,
-with automatic CI evidence outstanding. The110-case worker-output repair below
-passes its local checks and final reviews, committed locally at92e8325 without
-another push. Constructor/snapshot coverage is the selected next offline task.
+with completed failed CI:5649 financial passes/three failures. Final20 log/tree/
+archive review and final profile19 inverse review pass. The110-case
+emitter92e8325 and142-case constructor/snapshotbeb7a31 repairs pass local checks
+and final reviews without another push. Next work is normal publication after
+completed-CI evidence closure and focused document/privacy review.
 Wave 4 remains open; older pending/completed descriptions are historical scopes.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
@@ -24,10 +26,10 @@ Local validation and independent Source/result/archive/public-diff checks pass:
 eight equal pins/both EOF/no flags. The first127pass/twofail lifetime run is
 preserved; a documented auxiliary traceback repair and20 new controls pass.
 All five original assertions and full golden-module normalization remain intact.
-Focused public commit341929e was normally published; current automatic CI
-remains separate and incomplete.
+Focused public commit341929e was normally published; its automatic CI completed
+failed and remains separate from the locally accepted recovery fixes.
 
-### Current — publish the reviewed outcome question
+### Completed evidence closeout — published outcome question (CI failed)
 
 - **Objective:** distinguish the failed Stop case's returned classification and flags without guessing Stop priority or timeout cause.
 - **Scope:** normal fast-forward to the approved remote codex/autonomous-development branch and existing draft PR56; automatic exact-source CI only. No manual retry, private history, workflow change, merge or deployment.
@@ -51,7 +53,7 @@ archive inverse and final diff/privacy/document reviews pass; focused local
 checkpoint92e8325 is committed and not pushed.
 See the [repair record](reviews/2026-10-11-worker-output-lifetime/README.md).
 
-### Selected independent task — constructor/snapshot caller lifetime coverage
+### Completed independent task — constructor/snapshot caller lifetime coverage
 
 - **Objective:** qualify remaining suppressed metadata-constructor/snapshot exception caller lifetimes and pending-primary behavior; a Source gap is not a proven defect.
 - **Scope:** inert controls at manager, recorder and wrapper metadata construction plus recorder snapshot only. Preserve all72 current output identities and original delegate construction propagation/order. No real worker, SQL, initializer, financial runtime, publication or production change.
@@ -67,8 +69,18 @@ Fresh142-case run passes104 output+38 unchanged inert wiring, zero failures/
 errors/skips/unavailable, ten equal pins/both EOF/no flags. All84 identities and
 literal baseline oracles remain;20 adverse controls were added. Independent
 actual-result and all20 archive inverse/current-file reviews pass. Original
-delegate construction remains outside recovery. Final docs/diff review and
-focused local checkpoint are next; financial gates stay failed.
+delegate construction remains outside recovery. Final docs/diff/privacy review
+passes; clean local publicbeb7a31 is committed, not yet published. Financial gates
+stay failed.
+
+### Selected task — publish accepted diagnostic recovery fixes
+
+- **Objective:** validate the accepted test-only recovery fixes on the actual Linux CI revision; no financial timing remedy is claimed.
+- **Scope:** normal fast-forward of the public publication checkout's emitter92e8325 and constructor/snapshotbeb7a31 descendants, plus concise reviewed CI/resume docs, to the already approved codex/autonomous-development remote and draft PR56. No private evidence/history, force push, manual CI retry, workflow changes, merge or deployment.
+- **Dependencies:** close all completed341929e CI log/profile/artifact/archive qualification; accepted110/142 unit results, exact current Source and focused clean commits; final public diff/privacy/docs review; fresh remote/PR/head/base/ancestry checks.
+- **Acceptance criteria:** exact public head/base/merge/tree identity; automatic Linux CI selects the unchanged financial gates and all new adverse tests. Preserve each completed result, including failure and unavailable output. Offline repair acceptance does not close retained/worker/Wave4 gates.
+- **Validation commands:** git diff --check and git diff --cached --check; Git ancestry/public path/privacy checks; normal git push from the public checkout only; gh pr view 56 --repo km8trix/AutoQuantTrader and gh run view of the new exact automatic run; completed logs/artifacts through the established bounded read-only procedure. No old launcher replay.
+- **Completion criteria:** approved normal publication, exact automatic CI evidence qualification, accurate STATUS and a focused durable checkpoint. Investigate actual failures before dependent work; absent a supported compatible remedy, retain the specific blocker rather than changing limits or inventing further generic DATA tasks.
 
 ### Completed — bounded parent-forwarding diagnostic assembly
 

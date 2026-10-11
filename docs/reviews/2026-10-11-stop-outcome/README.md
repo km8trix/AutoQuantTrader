@@ -101,3 +101,38 @@ Publication/automatic exact-source CI is a separately selected next task after
 local acceptance. No manual rerun, private history, dependent merge or deployment.
 Wave4, genuine source, capacity, retained/worker, initializer and adoption gates
 remain open; development stays HALTED with trading authority false.
+
+## Completed341929e Linux evidence — 2026-10-11
+
+Normal publication of341929e to the approved branch/draft PR56 is complete.
+[Automatic run38152579477](https://github.com/km8trix/AutoQuantTrader/actions/runs/38152579477)
+completed failed:20 jobs15success/fivefailure; all16 financial shards have5649
+passes/three failures/zero skips-errors,5652 selected. Foundations/installed-wheel/
+browser and13 financial shards pass; browser139 tests/24 files. Exact native
+merge6f48b9f binds ordered parentsb1156ba+341929e and tree4a39af9f equal to341929e.
+All20 native job/log joins and the final23-file exact archive inverses pass
+independent review. Earlierf64194a counts/profile above remain a different revision.
+
+Shard3 has365pass/one worker failure: probe_stalled, zero child observations.
+Parent prepare and one observe return; require_result is absent and second recorder
+unavailable. Stop/takeover passing is inferred from exact selection/sole worker
+failure, without named PASS lines. No scalar outcome line was emitted; there is
+no observed returned-classification or Stop-priority proof. Shard7 signed retained
+outcome fails integrity/restore cleanup, printed60.209s; shard15 `[retired]` fails
+expired-lease operation/cleanup, printed60.584s. Retirement assertions were unreached.
+The aggregate and automatic single-test profile remain failed.
+
+Artifact11709555775 is the logged12392-byte ZIP, SHA256
+`3042ef034c3055652b7803d31bd024140911df0f2575e0d70d67a370175c097d`.
+The exact two members retain a valid10-field profile with314 ordered unique
+nine-field rows/4855 considered entries and original pytest exit1. Collector
+flags execute_started=true/execute_returned=false; no diagnostic faults. The printed60.833s precedes cleanup.
+Source/native/member/schema/serializer and independent final19-file
+archive inverse/current-file reviews pass. Inclusive costs overlap and omit unselected work;
+they establish no cause, removable time, timing remedy or financial acceptance.
+
+The accepted110-case emitter92e8325 and142-case constructor/snapshotbeb7a31
+fixes are later local test-only descendants. They are not tested by this341929e
+CI; normal publication and automatic exact-source validation is the next task.
+No manual retry, private history, lease/resource change, initializer, merge,
+deployment or live trading authority follows.
