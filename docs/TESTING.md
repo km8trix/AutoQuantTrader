@@ -7,6 +7,78 @@ skips and limitations in `STATUS.md`; preserve a failure until its actual repair
 passes the relevant gate. A green synthetic test cannot authorize trading or
 qualify a provider, account, clock, calendar or genuine captured session.
 
+## Current ordinary ownership checkpoint — 2026-10-11
+
+The [focused record](reviews/2026-10-11-ownership-checkpoint/README.md) binds one
+production file and six new test files. The earlier ten-file selection collected
+161 cases: 158 pass/3 explicit PostgreSQL skips, including all 78 new cases.
+Architecture, configured Ruff/compilation and strict Darwin/Linux types, 421 files
+each pass. A separate fresh empty PostgreSQL16.15 linux/arm64 instance then passes
+exactly the 3 skipped restart/retry and deferred-commit rollback cases, zero skips.
+Selected Source pins stay equal and exact owned cleanup is verified. This is not
+a combined161-pass run, concurrent-race, timing, genuine or Wave 4 acceptance.
+
+For a fresh ordinary checkpoint, verify `AQT_PYTHON`, pass architecture before
+project imports, then run configured formatting/lint on the production file and
+six new tests and both platform type checks. Use a new external output root and
+the following exact selection from this checkout:
+
+```sh
+AQT_VALIDATION_TMP=$(mktemp -d /private/tmp/aqt-ownership-checkpoint.XXXXXX)
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 TZ=UTC \
+  "$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
+# Inspect success before the dependent pytest command.
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$PWD" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_VALIDATION_TMP" \
+  "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider --tb=short \
+  tests/unit/test_continuous_index_plan_contract.py \
+  tests/unit/test_continuous_ownership_issuance.py \
+  tests/unit/test_continuous_ownership_rollback_errors.py \
+  tests/unit/test_continuous_previous_resolution_guards.py \
+  tests/integration/test_continuous_reference_capture_issuance.py \
+  tests/integration/test_continuous_reference_resolution_issuance.py \
+  tests/integration/test_continuous_account_store.py \
+  tests/integration/test_continuous_account_owned_content.py \
+  tests/integration/test_continuous_publication_reference.py \
+  tests/integration/test_continuous_reference_fingerprint_oracle.py \
+  --basetemp="$AQT_VALIDATION_TMP/pytest-temp" \
+  --junitxml="$AQT_VALIDATION_TMP/junit.xml"
+```
+
+Without an explicit disposable PostgreSQL URL, require158 passes / 3 named skips.
+For PostgreSQL, establish a newly owned empty database first: its fixture migrates
+the whole database. With a password-free disposable URL and a private 0600
+PGPASSFILE, the separate ordinary selection is:
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH="$PWD" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  AQT_TEST_POSTGRES_URL="$AQT_DISPOSABLE_TEST_DB" PGPASSFILE="$AQT_PGPASSFILE" \
+  "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider --tb=short \
+  tests/integration/test_continuous_account_store.py::test_postgres_explicit_rr_atomic_restart_retry_and_rollback \
+  'tests/integration/test_continuous_account_store.py::test_postgres_deferred_commit_failure_rolls_back_coupled_rows[continuous]' \
+  'tests/integration/test_continuous_account_store.py::test_postgres_deferred_commit_failure_rolls_back_coupled_rows[coordinator]' \
+  --basetemp="$AQT_PG_OUTPUT/pytest-temp" --junitxml="$AQT_PG_OUTPUT/junit.xml"
+```
+
+Actual PG validation used a qualified bounded launcher: startup 30s, test 60s,
+combined stdout/stderr 65536B, separate JUnit 65536B, report 16384B and owned reap 5s.
+It bound the acquired official 16-alpine image ID, generated test-only credentials,
+verified authenticated emptiness before migrations, and verified exact container/
+network removal and authentication retirement. A raw shell recipe alone does not
+provide those controls; review a fresh lifecycle protocol before resource creation.
+Never reuse an existing endpoint or production credential. The standard runner
+automatically includes these six new files; it forwards only its explicit URL,
+so the direct PGPASSFILE recipe above is separate from that runner.
+
+Same-key reentrancy, replaced registries, unreturned finalizer handles, universal
+native/OOM recovery and genuine production composer behavior remain unqualified.
+Successful cleanup preserves the original error and earlier references; rollback
+faults remain actual grouped errors with unresolved state explicit. Preserve
+original codec/planner/transaction, lease/worker/resource/risk limits and all old
+failed gates. Do not replay consumed offline diagnostics or blindly rerun old CI.
+
 ## Environment and safety
 
 - Run from the repository root after reviewing `AGENTS.md` and current status.

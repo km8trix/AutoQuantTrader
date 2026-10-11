@@ -25,6 +25,12 @@ rewrite working systems, relax tests, extend safety limits, or turn a skip into
 acceptance. A task is complete only when its acceptance criteria and applicable
 validation pass. Record commands, outcomes, skips and remaining limitations.
 
+For continuous-account ownership repairs, preserve injected codec/planner
+compatibility, public call/read order, SQL transaction boundaries and source,
+fence and lease checks. Review every affected per-key cleanup attempt and retain
+primary and cleanup errors; local registry rollback does not undo arbitrary
+callback effects or establish stronger lifetime guarantees.
+
 Continue without asking permission for routine reversible engineering. Ask only
 for unresolved consequential product/architecture choices, conflicting
 requirements, missing necessary credentials/access, irreversible actions, live

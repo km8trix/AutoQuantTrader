@@ -236,3 +236,27 @@ successful parsing/close. No failed Linux fallback, retry, cached observation,
 new waiter, timer extension or changed group/receipt rule. Ordinary kernel-call
 blocking limitations remain. Real Linux cases and exact-source CI are required;
 local mocked/Darwin passes cannot close worker acceptance.
+
+## 2026-10-11 — preserve compatibility while repairing ownership failures
+
+**Decision:** retain current codec/planner behavior, both index-resolution calls,
+and the existing decode, journal, fence, lease and transaction boundaries.
+Repair only process-local ownership/reference registration cleanup. Attempt
+every affected per-key restoration and preserve primary errors together with
+cleanup faults; detach returned finalizer handles where available.
+
+**Rationale:** matching final hashes does not establish equivalent reads,
+exceptions, ownership or lifetimes for injected codecs and planners. No supported
+behavior-preserving cost-removal design has been established. New adverse tests
+demonstrate incomplete registry cleanup and lost cleanup errors in the original
+issuance paths; the focused changes address those failures without changing
+successful financial or persistence behavior.
+
+**Validation and limits:** ordinary SQLite regressions pass with the three
+PostgreSQL-only cases reported as skips. Those three cases also pass separately
+on a newly owned disposable PostgreSQL 16 fixture, covering restart/retry and
+deferred-commit rollback. This is not full concurrency-race, retained-history,
+exact-revision Linux, genuine-source or Wave 4 acceptance. Arbitrary callback
+effects and registered-but-unreturned finalizers remain outside the cleanup
+guarantee. No financial/risk limit, lease, timer, native/seal mechanism or live
+authorization is changed.

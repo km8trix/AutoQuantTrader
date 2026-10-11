@@ -1,0 +1,123 @@
+{
+  "schema": "aqt-public-ownership-checkpoint-validation/1",
+  "scope": "Selected public summary of fresh candidate checks; private workspace arguments and temporary paths are omitted. Not lossless original command envelopes.",
+  "base_commit": "821f068c99af7709964acc0a1e49264dc701d4ed",
+  "source_manifest": "source-manifest.json",
+  "architecture": {
+    "passed": true,
+    "message": "Personal architecture check passed (layers, pure code, simulation import closure)."
+  },
+  "checks": [
+    {
+      "check": "format",
+      "passed": true,
+      "elapsed_seconds": 0.07701479108072817,
+      "captured_bytes": 26,
+      "returncode": 0,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "equal_selected_source_pins": 16,
+      "checked_python_files": 7
+    },
+    {
+      "check": "lint",
+      "passed": true,
+      "elapsed_seconds": 0.08155841706320643,
+      "captured_bytes": 19,
+      "returncode": 0,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "equal_selected_source_pins": 16,
+      "checked_python_files": 7
+    },
+    {
+      "check": "darwin",
+      "passed": true,
+      "elapsed_seconds": 16.38263687491417,
+      "captured_bytes": 45,
+      "returncode": 0,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "equal_selected_source_pins": 16,
+      "checked_source_files": 421
+    },
+    {
+      "check": "linux",
+      "passed": true,
+      "elapsed_seconds": 16.401390708051622,
+      "captured_bytes": 45,
+      "returncode": 0,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "equal_selected_source_pins": 16,
+      "checked_source_files": 421
+    },
+    {
+      "check": "tests",
+      "passed": true,
+      "elapsed_seconds": 13.910491000162438,
+      "captured_bytes": 696,
+      "returncode": 0,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "equal_selected_source_pins": 16,
+      "junit": {
+        "cases": 161,
+        "passes": 158,
+        "skips": [
+          "test_postgres_explicit_rr_atomic_restart_retry_and_rollback",
+          "test_postgres_deferred_commit_failure_rolls_back_coupled_rows[continuous]",
+          "test_postgres_deferred_commit_failure_rolls_back_coupled_rows[coordinator]"
+        ],
+        "failures": 0,
+        "errors": 0,
+        "unique_identities": 161,
+        "sha256": "81eaa738f513cf362ba62a78cf37da5c01807f935dc15dc89490c7c6f680968b",
+        "bytes": 30318
+      }
+    }
+  ],
+  "separate_postgresql": {
+    "source_scope": "Previously validated same production/tests/configuration, separate fresh owned instance; not this candidate ten-file run",
+    "server_version": "16.15",
+    "platform": "linux/arm64",
+    "cases": 3,
+    "passes": 3,
+    "skips": 0,
+    "failures": 0,
+    "errors": 0,
+    "child_elapsed_seconds": 3.9816681661177427,
+    "equal_selected_source_pins": 52,
+    "owned_cleanup_verified": true
+  }
+}

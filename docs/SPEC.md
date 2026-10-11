@@ -1,6 +1,6 @@
 # AutoQuantTrader specification
 
-Verified against source revision `b1156ba` on 2026-09-26. This is a current product summary, not new trading authority. Read [STATUS](STATUS.md) for the latest validation result, [PLAN](PLAN.md) for the next work, and the frozen [personal-v1 contracts](contracts/personal-v1/README.md) with the [account eligibility amendment](contracts/personal-v1/account-eligibility-amendment.md) for detailed requirements. Historical evidence remains valid only for its bound revision and stated scope.
+Product scope was verified against source revision `b1156ba` on 2026-09-26; the ordinary ownership updates below are bound to the [2026-10-11 source manifest](reviews/2026-10-11-ownership-checkpoint/source-manifest.json). This is a current product summary, not new trading authority. Read [STATUS](STATUS.md) for the latest validation result, [PLAN](PLAN.md) for the next work, and the frozen [personal-v1 contracts](contracts/personal-v1/README.md) with the [account eligibility amendment](contracts/personal-v1/account-eligibility-amendment.md) for detailed requirements. Historical evidence remains valid only for its bound revision and stated scope.
 
 ## Product and confirmed scope
 
@@ -31,6 +31,13 @@ These requirements come from [scope/defaults](contracts/personal-v1/scope-defaul
 Wave 1 foundations, Wave 2 canonical offline economics and Wave 3 research workflow have recorded merged-revision acceptance. Wave 4 is current; the historical Phase/Wave 7 native narrative preserved in README is not the current product status. See [implementation history](IMPLEMENTATION_PLAN.md) and the [Wave 4 checkpoint](reviews/2026-09-24-wave4-integration/README.md).
 
 Fresh production-class publication remains explicitly blocked in `capture_forward` by `CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED`; its calendar consistency helper establishes matching content only. The continuous factory accepts restore/integrity operations and requires persisted HALTED control. These guards must not be removed simply to make an end-to-end demonstration pass.
+
+Continuous-account ownership cleanup provides local exception safety: failed
+issuance attempts restoration of affected per-object registry entries and keeps
+cleanup faults visible. It does not rewind committed SQL or prove rollback of
+arbitrary callback effects. Ordinary SQLite regressions and isolated PostgreSQL
+restart/retry and deferred-commit rollback checks do not complete Wave 4,
+qualify genuine capture, or grant trading authority.
 
 ## Required causal and financial behavior
 

@@ -1,5 +1,50 @@
 # Executable plan
 
+## Current queue — 2026-10-11
+
+Read [STATUS](STATUS.md) before the historical milestone details below. This
+focused checkpoint preserves the published `821f068` architecture and adds only
+ordinary ownership/reference failure cleanup and tests. Wave 4 remains open;
+the older pending/completed descriptions retain their recorded scope.
+
+### Completed — preserve index planning and reject changed predecessor values
+
+- **Objective:** preserve working codec/planner behavior while denying invalid predecessor objects.
+- **Scope:** original public resolution paths, plan compatibility oracles and previous-value guards. No resolver reuse, transaction fusion or skipped authentication.
+- **Dependencies:** current source/callers and existing ownership/fingerprint boundaries; the selected compatibility direction closes the unsupported reuse proposal.
+- **Acceptance criteria:** original planner calls/errors remain; copied, unregistered or mutated predecessors reject before decoding/planning, with successful controls preserved.
+- **Validation commands:** TESTING's focused ownership checkpoint, architecture, configured Ruff and strict types.
+- **Completion criteria:** eleven plan cases and ten predecessor cases pass alongside affected integration checks. No supported timing remedy or removable-cost claim follows.
+
+### Completed — roll back failed ownership/reference issuance
+
+- **Objective:** prevent failed registration from leaving an admissible value after successful cleanup.
+- **Scope:** per-candidate-key rollback in general ownership, raw-reference capture and resolved-reference final issuance; six new test files,78 cases. Earlier journal effects and unrelated keys remain intact.
+- **Dependencies:** reproduced unchanged-source failures, existing weak ownership registries and established primary-error translation.
+- **Acceptance criteria:** exact prior candidate entries restore independently; later cleanup proceeds after faults; actual cleanup errors remain grouped; successful behavior, earlier references, copy/mutation denial and weak cleanup remain correct. Unresolved rollback entries remain explicit.
+- **Validation commands:** the ten-file checkpoint in TESTING; architecture, configured Ruff, Darwin/Linux mypy and separately owned PostgreSQL cases.
+- **Completion criteria:** 158 ordinary offline passes/3 explicit PG skips plus a separate 3-case PG pass and independent source review. Same-key reentrancy, registered-but-unreturned handles and universal native/OOM recovery are not qualified.
+
+### Current — qualify and publish the focused checkpoint
+
+- **Objective:** validate a reviewable code/docs checkpoint while preserving private local workflow evidence.
+- **Scope:** one production file, six test files, current operating guides and a concise public [validation record](reviews/2026-10-11-ownership-checkpoint/README.md), based on published `821f068`. Preserve all earlier published evidence; do not import unrelated local evidence history.
+- **Dependencies:** reviewed source manifest, applicable local gates, public diff/privacy/link review and existing push/draft-PR authorization.
+- **Acceptance criteria:** exact reviewed source hashes; no secret/private workflow metadata or broken unpublished links; fresh affected validation passes with skips explicit. Preserve old Linux failures and original limits. No source code/configuration outside the named scope changes.
+- **Validation commands:** architecture before imports; Ruff format/lint on seven Python paths; strict mypy for Darwin/Linux; one fresh ten-file ordinary checkpoint; doc diff/link/source/privacy checks. Standard exact-revision CI after publication validates this new ownership code, not a timing remedy. Do not manually replay consumed diagnostics or blindly rerun a failed CI run.
+- **Completion criteria:** reviewed focused commit, admitted normal fast-forward push to the already approved remote codex/autonomous-development branch and updated existing draft PR56 against W4 integration, then inspect actual CI tree/results and repair any new failure. Preserve the separate full local evidence branch; do not push its unpublished history. A pass cannot close unresolved source/capacity/retained/W4 gates or authorize merge.
+
+### Next dependency — original retained and genuine-source acceptance (held)
+
+- **Objective:** close the established A2/A4 gates with their original invariants.
+- **Scope:** full-history restore, worker/parent cleanup, proof/capacity qualification and actual authorized source/account/session evidence; no limit increase or removed check.
+- **Dependencies:** published `821f068` Linux run 36301402409 has 5,245 passes/two lease failures at 61.668/60.331s. Finite restore/hash/default-codec review found no compatible removable step. A concrete new remedy or separately qualified protocol is required; actual source/account/host/access and initializer requirements remain separate.
+- **Acceptance criteria:** original financial/history/ownership/transaction behavior and resource/lease limits; genuine positives and adverse oracles; complete exact-revision acceptance, not synthetic timing or document closure.
+- **Validation commands:** historical A2/A4 commands below are future acceptance references, not released repeats. Select a concrete fresh eligible task and its source-bound protocol before execution.
+- **Completion criteria:** independent source and applicable gate acceptance. If only a consequential unestablished architecture or ownership change can proceed, obtain the specific decision; continue unrelated unblocked engineering meanwhile.
+
+## Preserved milestone definitions
+
 Updated 2026-09-26 from source `b1156ba` and its actual CI. This is the small-task
 breakdown of [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), not a replacement
 product direction. [SPEC.md](SPEC.md) defines scope, [STATUS.md](STATUS.md) tells

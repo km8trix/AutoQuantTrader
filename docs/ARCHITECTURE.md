@@ -111,6 +111,21 @@ The local API exposes `/health/live`, `/health/ready`, and `/api/v1` read models
 
 PostgreSQL is the intended operational database and has dedicated transaction/concurrency tests. File SQLite is also an implemented local research/continuous-fixture store, with foreign keys and opt-in WAL configuration; in-memory SQLite is classified ephemeral. The application's label `durable` for a file store does not establish production durability. Alembic migrations are additive history; schema verification checks retained rows and their semantic bindings, not only table existence. Broker calls belong outside account SQL transactions. The new journal contract is explicitly scoped to `stateful_simulation` and its capture/venue/coordinator namespaces.
 
+Continuous-account issuance has a separate process-local ownership boundary.
+`_own`, `capture_reference` and `resolve_reference` preserve the existing decode,
+source, fence, lease and journal checks. Later reference-registration cleanup
+does not move `_own` into a new transaction or rewind earlier committed SQL.
+On failure, every affected per-key registry restoration is attempted even when
+another restoration fails; primary and cleanup errors remain visible. Returned
+finalizer handles are detached where available. A finalizer registered but not
+returned, or arbitrary callback effects on the same key, is outside this
+bounded guarantee.
+
+`resolve_snapshot` retains its second `resolve_index` call and existing injected
+codec/planner behavior. Equal output hashes alone do not establish equivalent
+reads, exceptions, transaction ownership or object lifetimes. No index-reuse or
+serialization optimization is adopted by these ownership repairs.
+
 `LocalResearchArtifactStore` requires owner-controlled `0700` directories and bounded hash-addressed objects, uses no-follow access and durable no-overwrite publication, and verifies retained hashes/lengths. Personal JSON artifacts and historical Parquet catalog artifacts coexist. The actual dependency set is Python 3.12–3.13, SQLAlchemy/Alembic/psycopg, FastAPI/Pydantic/Uvicorn, PyArrow, cryptography and existing HTTP/telemetry libraries, pinned in `uv.lock`; Node/pnpm and `pnpm-lock.yaml` govern the browser. DuckDB is a target option, not a current required runtime dependency.
 
 ### External services and authority
