@@ -5,20 +5,24 @@
 Read [STATUS](STATUS.md) before the historical milestone details below. This
 checkpoint preserves the published architecture, ownership and diagnostic fixes.
 Published1821d78 failed its exact Linux gate with two lease-expiry failures.
-The initial combined-fragment candidate a78d6b9 passes467 local cases but fails
+The initial combined-fragment candidate a78d6b9 passed467 local cases but fails
 three newly added literal-baseline formatting-result lifetime regressions and is
-rejected. The corrected five-append shortcut passes470 local cases, preserving
-the60s lease, financial checks and original tests. Exact-source Linux acceptance
-is next; Wave4 remains open. Historical results retain their original scope.
+rejected. Its completed Linux run has5730 financial passes/one retired-proof
+lease failure at60.180s; the diagnostic also expires at60.242s. The compatible
+five-append source separately passed470 local cases. The current pair-framing/
+string-comma descendant passes477 fresh cases (351+118+8), including the
+original retained/proof tests with unchanged financial assertions. Preserve the60s lease, financial checks and
+original tests. Exact-source Linux acceptance remains required; Wave4 stays open.
+Historical results retain their original scope.
 
 ### Selected task — corrected restore encoding and exact Linux acceptance
 
 - **Objective:** reduce avoidable canonical encoding work while preserving retained financial/ownership behavior and per-item formatting-result lifetimes.
-- **Scope:** corrected nested exact two-string tuple shortcut,27 pair-specific cases with unchanged literal baseline and existing six-case lifetime dependency; focused docs. No cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
-- **Dependencies:** owner offline repair authorization; preserved preceding failures; reviewed Source and470 passing local cases (344 encoder,8 original retained/proof,118 related). Verify current public/remote/PR identity before normal publication.
+- **Scope:** nested exact two-string tuple shortcut with two separate per-item fstrings and exact-string comma coalescing;34 pair-specific cases retaining all27 prior cases, literal baseline and existing six-case lifetime dependency; focused seven-file public assembly. No cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
+- **Dependencies:** owner offline repair authorization; preserved preceding failures; independently reviewed Source and477 fresh local passes (351 encoder,118 related,8 original retained/proof). Public-location architecture/Ruff/351/Linux mypy421/API checks pass; final independent Source/native/privacy review passes. Normal publication and exact-source Linux acceptance are next. Verify current public/remote/PR identity.
 - **Acceptance criteria:** exact bytes/hashes, conversion/error/dynamic-lookup order and lifetimes; original tests, real clock,60s lease/120s alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
 - **Validation commands:** TESTING's architecture/configured Ruff/types/API and sanitized targeted tests; normal push from explicit public checkout; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
-- **Completion criteria:** independently reviewed local/public assembly and exact completed Linux result recorded; repair failures before dependent work. Wave4 source/account/session/initializer and adoption gates remain separate.
+- **Completion criteria:** original-eight and public-location validations pass, independent assembly review passes, and exact completed Linux result is recorded; repair failures before dependent work. A synthetic gain or historical pass cannot close this gate. Wave4 source/account/session/initializer and adoption gates remain separate.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
 

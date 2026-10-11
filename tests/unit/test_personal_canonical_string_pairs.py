@@ -517,3 +517,156 @@ def test_pair_first_format_result_releases_before_second_lookup(monkeypatch, mod
         _format_result_lifetime_outcome(canonical.canonical_json_bytes, monkeypatch, mode)
         == expected
     )
+
+
+def _destructor_replacement_outcome(encode, monkeypatch, shape):
+    events, state = [], {"reference": None, "released": 0}
+    original_encoder = json.encoder.encode_basestring_ascii
+    pair = ("first", "second")
+    value = {
+        "root": pair,
+        "nested": (pair,),
+        "repeated-alias": (pair, pair),
+        "leading-null": (None, "first", "second"),
+    }[shape]
+
+    def alive():
+        reference = state["reference"]
+        return reference is not None and reference() is not None
+
+    class FirstFormattingResult(str):
+        def __del__(self):
+            state["released"] += 1
+            label = f"replacement-{state['released']}"
+            events.append(("release", state["released"]))
+            json.encoder = Encoder(label)
+            events.append(("replace", label))
+
+    class Encoded:
+        def __init__(self, text, label, value):
+            self.text, self.label, self.value = text, label, value
+
+        def __format__(self, specification):
+            assert specification == ""
+            events.append(("format", self.label, self.value))
+            if self.value == "first":
+                result = FirstFormattingResult(self.text)
+                state["reference"] = weakref.ref(result)
+                return result
+            return self.text
+
+    class Encoder:
+        def __init__(self, label):
+            self.label = label
+
+        @property
+        def encode_basestring_ascii(self):
+            label = self.label
+            events.append(("lookup", label, alive()))
+
+            def encode(value):
+                events.append(("encode", label, value, alive()))
+                text = value if value == "first" else f"second-via-{label}"
+                return Encoded(original_encoder(text), label, value)
+
+            return encode
+
+    with monkeypatch.context() as patch:
+        patch.setattr(json, "encoder", Encoder("initial"))
+        payload = encode(value)
+        assert not alive(), "completed call retained the first formatting result"
+    return payload, sha256(payload).hexdigest(), tuple(events)
+
+
+@pytest.mark.parametrize("shape", ["root", "nested", "repeated-alias", "leading-null"])
+def test_pair_format_result_destructor_replaces_encoder_before_next_lookup(monkeypatch, shape):
+    pair1 = (
+        b'{"type":"tuple","value":[{"type":"string","value":"first"},'
+        b'{"type":"string","value":"second-via-replacement-1"}]}'
+    )
+    pair2 = (
+        b'{"type":"tuple","value":[{"type":"string","value":"first"},'
+        b'{"type":"string","value":"second-via-replacement-2"}]}'
+    )
+    wire = {
+        "root": pair1,
+        "nested": b'{"type":"tuple","value":[' + pair1 + b"]}",
+        "repeated-alias": b'{"type":"tuple","value":[' + pair1 + b"," + pair2 + b"]}",
+        "leading-null": (
+            b'{"type":"tuple","value":[{"type":"null","value":null},'
+            b'{"type":"string","value":"first"},'
+            b'{"type":"string","value":"second-via-replacement-1"}]}'
+        ),
+    }[shape]
+    events = []
+    for number in range(1, 3 if shape == "repeated-alias" else 2):
+        first = "initial" if number == 1 else f"replacement-{number - 1}"
+        second = f"replacement-{number}"
+        events.extend(
+            (
+                ("lookup", first, False),
+                ("encode", first, "first", False),
+                ("format", first, "first"),
+                ("release", number),
+                ("replace", second),
+                ("lookup", second, False),
+                ("encode", second, "second", False),
+                ("format", second, "second"),
+            )
+        )
+    expected = _destructor_replacement_outcome(_previous_bytes, monkeypatch, shape)
+    assert expected == (wire, sha256(wire).hexdigest(), tuple(events))
+    assert (
+        _destructor_replacement_outcome(canonical.canonical_json_bytes, monkeypatch, shape)
+        == expected
+    )
+
+
+def _first_pair_failure_outcome(encode, monkeypatch, stage):
+    events = []
+    error = RuntimeError("selected first encoder failure")
+    cause, context = LookupError("original cause"), IndexError("original context")
+    error.__cause__, error.__context__ = cause, context
+    suppressed = error.__suppress_context__
+
+    class Encoded:
+        def __format__(self, specification):
+            assert specification == ""
+            events.append("format:first")
+            raise error
+
+    class Encoder:
+        @property
+        def encode_basestring_ascii(self):
+            events.append("lookup:first")
+            if stage == "lookup":
+                raise error
+
+            def encode(value):
+                assert value == "first", "selected first error reached a later leaf"
+                events.append("encode:first")
+                if stage == "encode":
+                    raise error
+                return Encoded()
+
+            return encode
+
+    untouched = output = object()
+    with monkeypatch.context() as patch:
+        patch.setattr(json, "encoder", Encoder())
+        with pytest.raises(RuntimeError) as raised:
+            output = encode((("first", "second"),))
+    assert raised.value is error and raised.value.__cause__ is cause
+    assert raised.value.__context__ is context and raised.value.__suppress_context__ is suppressed
+    assert output is untouched
+    return tuple(events)
+
+
+@pytest.mark.parametrize("stage", ["lookup", "encode", "format"])
+def test_pair_first_failure_preserves_identity_context_and_stops_before_second(monkeypatch, stage):
+    expected = _first_pair_failure_outcome(_previous_bytes, monkeypatch, stage)
+    length = {"lookup": 1, "encode": 2, "format": 3}[stage]
+    assert expected == ("lookup:first", "encode:first", "format:first")[:length]
+    assert (
+        _first_pair_failure_outcome(canonical.canonical_json_bytes, monkeypatch, stage) == expected
+    )

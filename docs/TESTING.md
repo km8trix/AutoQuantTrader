@@ -3,21 +3,29 @@
 ## Compatible restore string-pair candidate — 2026-10-11
 
 The [current record](reviews/2026-10-11-restore-string-pairs/README.md) preserves
-original60s leases/120s alarms and every financial check. Corrected-source local
-validation passes470 distinct cases:344 canonical/semantic/codec,8 original
-retained/proof and118 account/factory/admission, zero failures/errors/skips.
-Successful local restores print45.360s/45.242s/46.303s; five injected negatives
-still reject. Architecture/configured Ruff/Linux mypy421 files/API checks pass.
+original60s leases/120s alarms and every financial check. Current local validation
+passes477 distinct fresh cases:351 canonical/semantic/codec,118 account/factory/
+admission and8 original retained/proof, zero failures/errors/skips. Architecture/
+configured Ruff/Linux mypy421/API checks pass. Original8 pass567.84s pytest/
+569.688s healthy capture; restores print44.599s/45.122s/46.187s, five injected
+negative cases reject, original limits/assertions and Source pins unchanged.
+Public-location architecture/configured Ruff/351/Linux mypy421/API checks also
+pass with stable pins. Exact-source Linux/PostgreSQL acceptance remains pending. The preceding
+five-append implementation separately passed470 cases (344+118+8), Linux-platform
+mypy421 files and API checks. Its local restore times45.360s/45.242s/46.303s and
+five injected rejections are historical observations for that source.
 No Linux, cross-host or universal speedup follows from local observations.
 
 The initial combined-fragment candidate a78d6b9 passes467 local cases but fails
-three subsequent legitimate lifetime cases and is rejected. The corrected shortcut
-uses the original five per-item appends, releasing the first custom formatting
-result before the second dynamic lookup. All previous24 cases and literal oracle
-remain; the new three independently check events, dependent bytes/hash and selected
-exception behavior. Total pair cases:27. Exact corrected-source Linux/PostgreSQL
-acceptance remains required. Earlier failed gates and candidate observations are
-separate; do not transfer initial synthetic45% gains or restore timings to this source.
+three subsequent legitimate lifetime cases and is rejected. The current shortcut
+coalesces only literal pair framing within two separate per-item fstrings and
+exact strings' commas within that item's expression. It must release each custom
+formatting result before the next dynamic lookup. All previous27 cases and literal
+oracle remain. Seven further cases independently check destructor-driven encoder
+replacement across root/nested/repeated/leading-null shapes and first lookup/
+encode/format exception identity, cause and context. Total pair cases:34.
+Earlier failed gates and candidate observations stay separate; do not transfer
+initial synthetic gains or historical restore timings to this source.
 
 After architecture, use the sanitized environment below with the verified
 prepared CPython3.12.13 runtime and new owned temporary outputs:
@@ -53,6 +61,11 @@ The separate1200s outer subprocess bound covers fixture creation and eight tests
 it changes neither a lease nor the restore alarm. Preserve the original formatter/
 lint/coverage findings and nonpair synthetic regression; investigate failures
 before a dependent gate. Previous1821d78 CI stays failed (5699 pass/two fail).
+Initial a78d6b9 CI38176341845 is also closed failed:5730 pass/one retired-proof
+lease failure at60.180s, zero errors/skips. Its signed diagnostic expires at60.242s;
+310 valid profile rows/4855 considered describe execute-started/not-returned with
+test exit1 on that initial source only. Inclusive costs overlap and are not
+removable-time or current-source lease-fit evidence.
 
 ## Constructor/snapshot recovery — 2026-10-11
 

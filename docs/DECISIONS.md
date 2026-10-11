@@ -432,3 +432,31 @@ Local470 cases and statics pass; exact-source Linux remains required. Fresh
 synthetic pair gains28.23%/26.54%, nonpair regression2.44% and scalar regression
 0.42% establish no universal or whole-restore speedup. No lease, financial/risk
 check, original test, workflow or authority change is permitted.
+
+## 2026-10-11 — coalesce literal framing within separate item expressions
+
+**Decision:** retain two separate append/fstring statements for an admitted exact
+string pair, placing only literal tuple framing in each item's expression. For
+exact strings in the tuple loop, include the preceding comma in that same item's
+expression. Nonstrings retain their original separator, traversal and fallback.
+There is no encoder/type cache, append binding, new holder or broader pair admission.
+
+**Rationale:** the first custom formatting result must be released before a
+destructor can replace the encoder used by the next lookup. Separate statements
+preserve that boundary; combining both dynamic results in one fstring does not.
+The initial a78d6b9 Linux retired-proof and automatic diagnostic both expire within
+the unchanged lease, so compatibility alone has not closed the timing gate.
+The finite combined comparison improves pair medians13.905%/10.396% versus the
+five-append source, nested tuples4.162% and flat strings8.991%, while remaining
+15.748%/11.654% slower on pairs than the rejected initial source. Mixed/nonpair
+differences below0.4% are noise-sensitive; no whole-restore claim follows.
+
+**Consequences/constraints:** preserve all27 pair identities and the literal
+preceding oracle; seven new controls cover destructor replacement and first-error
+identity/cause/context. Current477 local cases pass (351 encoder,118 related,8
+original retained/proof), plus architecture/configured Ruff/Linux mypy421/API.
+Public-location architecture/Ruff/351/Linux mypy421/API also pass. Independent final Source/native/privacy review passes; exact Linux gates remain
+pending. Private
+partial fragment layout, allocation/resource thresholds and arbitrary frame
+reflection are outside the established compatibility claim. Financial/risk checks,
+original tests, lease/alarm, workflows and trading authority remain unchanged.

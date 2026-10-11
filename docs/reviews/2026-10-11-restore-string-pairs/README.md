@@ -12,13 +12,57 @@ release events, dependent bytes or exception behavior. That source is rejected.
 Historical failures and successes remain preserved; CI positives cannot accept
 this independent compatibility defect.
 
-The corrected production change is one exact-type branch in canonical.py. Nested
-exact two-string tuples avoid recursion while using the original five append
-statements and separate per-item fstrings. Dynamic lookups, formatting-result
-release order, literal wire bytes and fallback behavior remain intact. There is
-no cache or reduction of account-prefix/journal/SQL/fence/financial validation.
+Its [completed CI38176341845](https://github.com/km8trix/AutoQuantTrader/actions/runs/38176341845)
+has5730 financial passes/one retired-proof lease failure at60.180s, zero errors/
+skips; aggregate fails. The signed diagnostic expires at60.242s. Its independently
+admitted artifact has310 valid rows/4855 considered, execute started but never
+returned, test exit1. Canonical traversal leads project self costs at7.300s
+(12.133s inclusive). These overlapping instrumented measurements concern rejected
+initial a78 only and establish neither removable time nor current-source lease fit.
 
-Corrected-source local validation passes470 distinct cases, zero failures/errors/skips:
+## Current focused descendant
+
+Nested exact two-string tuples avoid recursion using two separate append/fstring
+statements, with only literal pair framing coalesced within each item expression.
+Exact strings in the tuple loop include the preceding comma in that item's
+expression; nonstrings keep their original separator, traversal and fallback.
+Dynamic encoder lookups, formatting-result release before the next lookup and
+literal wire bytes remain required. There is no encoder/type cache, append binding,
+new holder or reduction of account-prefix/journal/SQL/fence/financial validation.
+
+Fresh local validation passes477 distinct cases, zero failures/errors/skips:
+
+- 351 canonical/semantic/StopIteration/lifetime/codec/golden cases, including34
+  pair-specific cases. All27 preceding identities and the literal oracle remain.
+  Seven further cases cover destructor replacement across root/nested/repeated/
+  leading-null shapes and first lookup/encode/format exception identity/cause/context.
+- 118 related account/factory/type-admission cases.
+- 8 original unprofiled retained/proof-lifecycle cases.
+
+Architecture/configured Ruff/Linux mypy421/API checks pass. The original eight retained/proof-lifecycle
+tests pass567.84s pytest/569.688s healthy capture on fresh offline fixtures;
+restores print44.599s retained,45.122s original proof,46.187s retired, five injected
+negative cases reject. Public-location architecture/Ruff/351/Linux mypy421/API
+checks also pass with stable Source pins; final independent Source/native/privacy
+review passes. Exact-source Linux acceptance remains pending.
+The60s lease,120s restore alarm
+and financial/venue/cleanup/retirement assertions are unchanged.
+
+The single bounded three-variant synthetic comparison preserves six workloads'
+literal legacy bytes across108 timing windows. Pair medians improve13.905%/10.396%
+versus the compatible five-append source, nested tuples4.162% and flat strings8.991%.
+Pair medians remain15.748%/11.654% slower than rejected initial a78; flat strings
+improve8.969% against that control. Mixed/nonpair differences below0.4% are
+noise-sensitive. The control's speed does not make it compatible, and these
+observations establish no whole-restore, Linux or universal speedup.
+
+## Preceding compatible five-append validation
+
+The prior compatible branch emitted five separate prefix/first-leaf/comma/
+second-leaf/closing appends while avoiding pair recursion. Its source and timings
+remain separate from the current descendant.
+
+That source's local validation passed470 distinct cases, zero failures/errors/skips:
 
 - 344 canonical/semantic/StopIteration/lifetime/codec/golden cases, including27
   pair-specific cases. The previous24 identities and literal preceding oracle
