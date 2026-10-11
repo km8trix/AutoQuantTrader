@@ -3,15 +3,21 @@
 ## Compatible restore string-pair candidate — 2026-10-11
 
 The [current record](reviews/2026-10-11-restore-string-pairs/README.md) preserves
-the60s lease,120s restore alarm and every financial check. Local validation passes
-467 distinct cases:341 canonical/semantic/codec oracles,8 original unprofiled
-retained/proof cases and118 account/factory/admission regressions, zero failures/
-errors/skips. Successful local restores print45.278s/46.328s/45.492s; five original
-adverse cases still reject. These are local observations, not cross-host speedup
-or Linux acceptance. Architecture, configured Ruff, Linux mypy421 files and API
-contracts pass. The public addition includes24 pair tests and their six existing
-lifetime-helper tests. Public-location architecture/configured Ruff and the
-same341-case encoder selection pass; the exact Linux gate remains required.
+original60s leases/120s alarms and every financial check. Corrected-source local
+validation passes470 distinct cases:344 canonical/semantic/codec,8 original
+retained/proof and118 account/factory/admission, zero failures/errors/skips.
+Successful local restores print45.360s/45.242s/46.303s; five injected negatives
+still reject. Architecture/configured Ruff/Linux mypy421 files/API checks pass.
+No Linux, cross-host or universal speedup follows from local observations.
+
+The initial combined-fragment candidate a78d6b9 passes467 local cases but fails
+three subsequent legitimate lifetime cases and is rejected. The corrected shortcut
+uses the original five per-item appends, releasing the first custom formatting
+result before the second dynamic lookup. All previous24 cases and literal oracle
+remain; the new three independently check events, dependent bytes/hash and selected
+exception behavior. Total pair cases:27. Exact corrected-source Linux/PostgreSQL
+acceptance remains required. Earlier failed gates and candidate observations are
+separate; do not transfer initial synthetic45% gains or restore timings to this source.
 
 After architecture, use the sanitized environment below with the verified
 prepared CPython3.12.13 runtime and new owned temporary outputs:

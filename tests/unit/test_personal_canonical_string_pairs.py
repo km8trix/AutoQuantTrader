@@ -6,6 +6,7 @@ oracle because dynamic encoder lookup hooks are specific to that text chain.
 """
 
 import json
+import weakref
 from datetime import date
 from enum import StrEnum
 from hashlib import sha256
@@ -426,3 +427,93 @@ def test_pair_second_failure_keeps_identity_cause_context_and_original_first_for
     )
     end = {"lookup": 4, "encode": 5, "format": 6}[failure]
     assert expected == ("error", all_events[:end])
+
+
+def _format_result_lifetime_outcome(encode, monkeypatch, mode):
+    """Observe only public encoder hooks and weak ownership of format output."""
+    events, state = [], {"reference": None}
+    error = RuntimeError("second lookup rejects a retained first formatting result")
+    cause, context = LookupError("original cause"), IndexError("original context")
+    error.__cause__, error.__context__ = cause, context
+    suppressed = error.__suppress_context__
+    original_encoder = json.encoder.encode_basestring_ascii
+
+    def alive():
+        reference = state["reference"]
+        return reference is not None and reference() is not None
+
+    class FormattingResult(str):
+        def __del__(self):
+            events.append("first.format-result.released")
+
+    class Encoded:
+        def __init__(self, text, name):
+            self.text, self.name = text, name
+
+        def __format__(self, specification):
+            assert specification == ""
+            events.append(("format", self.name))
+            if self.name == "first":
+                result = FormattingResult(self.text)
+                state["reference"] = weakref.ref(result)
+                return result
+            return self.text
+
+    class Encoder:
+        @property
+        def encode_basestring_ascii(self):
+            first_alive = alive()
+            events.append(("lookup", first_alive))
+            if mode == "second_lookup_rejects_alive" and first_alive:
+                raise error
+
+            def encode(value):
+                events.append(("encode", value, alive()))
+                text = value
+                if value == "second" and mode == "second_bytes_depend_on_lifetime":
+                    text = "second-first-alive" if first_alive else "second-first-released"
+                return Encoded(original_encoder(text), value)
+
+            return encode
+
+    with monkeypatch.context() as patch:
+        patch.setattr(json, "encoder", Encoder())
+        try:
+            payload = encode((("first", "second"),))
+        except RuntimeError as caught:
+            assert caught is error and caught.__cause__ is cause and caught.__context__ is context
+            assert caught.__suppress_context__ is suppressed
+            outcome = ("error", type(caught), str(caught))
+        else:
+            outcome = ("return", payload, sha256(payload).hexdigest())
+    assert not alive(), "completed call retained custom formatting output"
+    return outcome, tuple(events)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["observe_lifetime", "second_bytes_depend_on_lifetime", "second_lookup_rejects_alive"],
+)
+def test_pair_first_format_result_releases_before_second_lookup(monkeypatch, mode):
+    expected = _format_result_lifetime_outcome(_previous_bytes, monkeypatch, mode)
+    assert expected[0][0] == "return"
+    assert expected[1] == (
+        ("lookup", False),
+        ("encode", "first", False),
+        ("format", "first"),
+        "first.format-result.released",
+        ("lookup", False),
+        ("encode", "second", False),
+        ("format", "second"),
+    )
+    if mode == "second_bytes_depend_on_lifetime":
+        assert expected[0][1] == (
+            b'{"type":"tuple","value":[{"type":"tuple","value":['
+            b'{"type":"string","value":"first"},'
+            b'{"type":"string","value":"second-first-released"}]}]}'
+        )
+        assert expected[0][2] == "36f325d2cb3b14e50db2a62255372f34f0f90fa31ea7fd9a893e6a16e3157ce4"
+    assert (
+        _format_result_lifetime_outcome(canonical.canonical_json_bytes, monkeypatch, mode)
+        == expected
+    )

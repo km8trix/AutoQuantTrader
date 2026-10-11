@@ -4,21 +4,21 @@
 
 Read [STATUS](STATUS.md) before the historical milestone details below. This
 checkpoint preserves the published architecture, ownership and diagnostic fixes.
-Published1821d78 completed exact Linux CI38161407124 failed:5699 financial passes/
-two lease-expiry failures, zero skips/errors. The completed evidence is qualified;
-the failed gate remains failed. The owner's newly authorized offline restore
-repair now passes467 local cases while preserving the60s lease and financial checks.
-Next work is the reviewed public string-pair candidate's exact automatic Linux gate.
-Wave 4 remains open; older pending/completed descriptions are historical scopes.
+Published1821d78 failed its exact Linux gate with two lease-expiry failures.
+The initial combined-fragment candidate a78d6b9 passes467 local cases but fails
+three newly added literal-baseline formatting-result lifetime regressions and is
+rejected. The corrected five-append shortcut passes470 local cases, preserving
+the60s lease, financial checks and original tests. Exact-source Linux acceptance
+is next; Wave4 remains open. Historical results retain their original scope.
 
-### Selected task — compatible restore encoding and exact Linux acceptance
+### Selected task — corrected restore encoding and exact Linux acceptance
 
-- **Objective:** reduce avoidable canonical encoding work without changing retained financial or ownership behavior.
-- **Scope:** nested exact two-string tuple shortcut,24 pair-specific regressions and their existing six-case lifetime dependency; focused docs. No cache, lease renewal/increase, weakened validation, initializer, provider, live effects, workflow changes or private history.
-- **Dependencies:** new owner offline repair authorization; independently qualified1821d78 failures; reviewed Source and467 passing local cases (341 encoder,8 original retained/proof,118 related). Verify current public/remote/PR identity before normal publication.
-- **Acceptance criteria:** byte/hash identity, conversion/error/lookup order and class lifetime; original tests, real clock,60s lease/120s restore alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
-- **Validation commands:** TESTING's architecture/configured Ruff/types/API and sanitized targeted tests; normal push from the explicit public checkout only; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
-- **Completion criteria:** independently reviewed local/public assembly and exact completed Linux result recorded; fix failures before dependent work. Wave4 source/account/session/initializer and adoption gates remain separate.
+- **Objective:** reduce avoidable canonical encoding work while preserving retained financial/ownership behavior and per-item formatting-result lifetimes.
+- **Scope:** corrected nested exact two-string tuple shortcut,27 pair-specific cases with unchanged literal baseline and existing six-case lifetime dependency; focused docs. No cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
+- **Dependencies:** owner offline repair authorization; preserved preceding failures; reviewed Source and470 passing local cases (344 encoder,8 original retained/proof,118 related). Verify current public/remote/PR identity before normal publication.
+- **Acceptance criteria:** exact bytes/hashes, conversion/error/dynamic-lookup order and lifetimes; original tests, real clock,60s lease/120s alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
+- **Validation commands:** TESTING's architecture/configured Ruff/types/API and sanitized targeted tests; normal push from explicit public checkout; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
+- **Completion criteria:** independently reviewed local/public assembly and exact completed Linux result recorded; repair failures before dependent work. Wave4 source/account/session/initializer and adoption gates remain separate.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
 

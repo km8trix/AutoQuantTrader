@@ -412,3 +412,23 @@ first-error, class-lifetime and exception-identity oracles. Local467-case valida
 passes including the eight original retained/proof cases with real60s leases.
 Exact-revision Linux financial acceptance and all source/account/session/initializer
 gates remain separate. See the [repair record](reviews/2026-10-11-restore-string-pairs/README.md).
+
+## 2026-10-11 — preserve per-item formatting-result lifetimes
+
+**Decision:** use the five original prefix/first-leaf/comma/second-leaf/closing
+append statements inside the exact string-pair guard. Keep each dynamic encoder
+lookup in its original separate fstring; guard, recursive fallback and other
+module ASTs remain unchanged.
+
+**Rationale:** an independent witness and three legitimate regressions show that
+the combined fstring retains a custom first formatting result through the second
+lookup, changing events, bytes/hash or exception behavior. The preceding literal
+encoder releases it first. The initial published candidate is rejected despite
+its financial positives; lifetime compatibility is independently required.
+
+**Consequences/constraints:** preserve all24 prior cases and literal baseline,
+add three adverse cases, and repeat affected validation for corrected source.
+Local470 cases and statics pass; exact-source Linux remains required. Fresh
+synthetic pair gains28.23%/26.54%, nonpair regression2.44% and scalar regression
+0.42% establish no universal or whole-restore speedup. No lease, financial/risk
+check, original test, workflow or authority change is permitted.
