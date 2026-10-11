@@ -5,7 +5,12 @@ fails shard3's original worker restart assertion with `child_observation_failed`
 The existing diagnostic reports iteration2/call18,43 calls/42 returns/one
 TimeoutExpired,213556818ns aggregate observation wall time for a0.1s request.
 That does not establish which native check rejected or why the delay occurred.
-The remaining matrix must finish before a further publication can replace it.
+All16 financial shards now finish5323pass/2fail/0skip-error,5325selected.
+Shard15 also fails the original retired-proof operation and close with nested
+lease expiry; printed61.223s ends before close. Foundations/wheel/browser pass and aggregate fails;
+the automatic profile also fails one retained test (printed60.121s before close).
+The original20-job workflow completes failed at08:39:37UTC. Its raw logs, profile,
+exact exit and metadata are preserved; independent final review passes before publication. A traceback does not establish removable cost.
 
 This change adds optional test-only binding to the unchanged Linux observer's
 code. After the original ending clock sample, an exact TimeoutExpired may supply

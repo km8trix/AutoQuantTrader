@@ -52,6 +52,15 @@ the older pending/completed descriptions retain their recorded scope.
 - **Validation commands:** architecture before imports; configured Ruff/compile on three changed test paths; the two focused commands in TESTING, with permitted Darwin process inspection and Linux skips explicit; independent Source/result/privacy/link review.
 - **Completion criteria:**52 diagnostic passes;270 process passes/3 exact Linux skips; original failed preparation retained; independent review and a local focused commit. Select publication only after complete original CI preservation for the new rejecting-check question. No test retry, late acceptance, cap change or production fix is inferred.
 
+### Next task — publish the reviewed deadline-location question (ready after original evidence review)
+
+- **Objective:** qualify the test-only diagnostic on Linux and identify the rejecting native deadline check if the original worker failure recurs.
+- **Scope:** normal fast-forward of the focused test/docs descendant to the already approved remote `codex/autonomous-development` branch and existing draft PR56. No manual rerun, workflow/configuration change, private history, merge or deployment.
+- **Dependencies:** original run38121952457 complete with all16 raw financial logs and automatic profile/aggregate preserved and independently reviewed; current PR head/base and clean exact candidate verified; local diagnostic acceptance already passes.
+- **Acceptance criteria:** original failed matrix remains failed; new CI tree/head is bound to the reviewed test-only Source; all actual results/skips/failures retained. New metadata must remain bounded/private-free and preserve original assertions. A pass without recurrence does not prove a timing remedy or identify the previous check.
+- **Validation commands:** `git diff --check`, local link/selected Source review, `git log -1 --format='%H %P'`; `gh pr view 56 --repo km8trix/AutoQuantTrader --json headRefOid,baseRefOid,state,isDraft`; `git ls-remote origin refs/heads/codex/autonomous-development`; normal `git push origin HEAD:refs/heads/codex/autonomous-development` only after original preservation, then exact new run/log inspection. No force push or workflow dispatch.
+- **Completion criteria:** actual authorized publication and exact-source result inspected, independent review and STATUS updated. Continue demonstrated compatible unblocked work; no unsupported lease/deadline change or broader acceptance is inferred.
+
 ### Next dependency — original retained and genuine-source acceptance (held)
 
 - **Objective:** close the established A2/A4 gates with their original invariants.
