@@ -166,7 +166,17 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
                 f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item)}}}'
             )
         elif type(item) is tuple:
-            _append_typed_text(item, parts, deferred)
+            # Semantic record fields often form exact string pairs. Emit their
+            # unchanged wire form without another recursive frame or a cache.
+            if len(item) == 2 and type(item[0]) is str and type(item[1]) is str:
+                parts.append(
+                    '{"type":"tuple","value":['
+                    f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}},'
+                    f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[1])}}}'
+                    "]}"
+                )
+            else:
+                _append_typed_text(item, parts, deferred)
         elif item is None:
             parts.append('{"type":"null","value":null}')
         elif type(item) is bool:

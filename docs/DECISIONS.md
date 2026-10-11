@@ -393,3 +393,22 @@ the explicit policy. Twenty adverse controls and fresh142-case validation pass
 with independent Source/result/archive review. Production handling, original
 delegate exceptions, financial behavior, timer/resource limits and execution
 authority remain outside scope; no universal recovery guarantee follows.
+
+## 2026-10-11 — preserve wire identities while shortening string-pair encoding
+
+**Decision:** emit the existing typed JSON directly for nested exact two-element
+tuples whose members are both exact strings. Keep separate dynamic ASCII-encoder
+lookups and left-to-right formatting; other shapes keep the original path. There
+is no cache, financial-check reduction, altered clock, lease renewal or limit change.
+
+**Rationale:** the existing failed restore profile identifies repeated canonical
+encoding as a hotspot. New independent-oracle synthetic comparisons preserve
+bytes and avoid recursive pair visits. Pair-heavy and mixed-record medians
+improve; nonpair tuples regress2.62% in a noisy finite comparison, so no universal
+performance or overall lease-fit claim follows.
+
+**Consequences/constraints:** retain byte/hash, escape, enum/subclass, deferred-hook,
+first-error, class-lifetime and exception-identity oracles. Local467-case validation
+passes including the eight original retained/proof cases with real60s leases.
+Exact-revision Linux financial acceptance and all source/account/session/initializer
+gates remain separate. See the [repair record](reviews/2026-10-11-restore-string-pairs/README.md).

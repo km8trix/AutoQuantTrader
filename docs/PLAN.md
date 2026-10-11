@@ -3,14 +3,22 @@
 ## Current queue — 2026-10-11
 
 Read [STATUS](STATUS.md) before the historical milestone details below. This
-checkpoint preserves the published architecture and ownership fixes. Publicf64194a
-completed its exact Linux gate failed; Stop assembly341929e is committed/published,
-with completed failed CI:5649 financial passes/three failures. Final20 log/tree/
-archive review and final profile19 inverse review pass. The110-case
-emitter92e8325 and142-case constructor/snapshotbeb7a31 repairs pass local checks
-and final reviews without another push. Next work is normal publication after
-completed-CI evidence closure and focused document/privacy review.
+checkpoint preserves the published architecture, ownership and diagnostic fixes.
+Published1821d78 completed exact Linux CI38161407124 failed:5699 financial passes/
+two lease-expiry failures, zero skips/errors. The completed evidence is qualified;
+the failed gate remains failed. The owner's newly authorized offline restore
+repair now passes467 local cases while preserving the60s lease and financial checks.
+Next work is the reviewed public string-pair candidate's exact automatic Linux gate.
 Wave 4 remains open; older pending/completed descriptions are historical scopes.
+
+### Selected task — compatible restore encoding and exact Linux acceptance
+
+- **Objective:** reduce avoidable canonical encoding work without changing retained financial or ownership behavior.
+- **Scope:** nested exact two-string tuple shortcut,24 pair-specific regressions and their existing six-case lifetime dependency; focused docs. No cache, lease renewal/increase, weakened validation, initializer, provider, live effects, workflow changes or private history.
+- **Dependencies:** new owner offline repair authorization; independently qualified1821d78 failures; reviewed Source and467 passing local cases (341 encoder,8 original retained/proof,118 related). Verify current public/remote/PR identity before normal publication.
+- **Acceptance criteria:** byte/hash identity, conversion/error/lookup order and class lifetime; original tests, real clock,60s lease/120s restore alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
+- **Validation commands:** TESTING's architecture/configured Ruff/types/API and sanitized targeted tests; normal push from the explicit public checkout only; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
+- **Completion criteria:** independently reviewed local/public assembly and exact completed Linux result recorded; fix failures before dependent work. Wave4 source/account/session/initializer and adoption gates remain separate.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
 
@@ -73,7 +81,7 @@ delegate construction remains outside recovery. Final docs/diff/privacy review
 passes; clean local publicbeb7a31 is committed, not yet published. Financial gates
 stay failed.
 
-### Selected task — publish accepted diagnostic recovery fixes
+### Completed publication — accepted diagnostic recovery fixes
 
 - **Objective:** validate the accepted test-only recovery fixes on the actual Linux CI revision; no financial timing remedy is claimed.
 - **Scope:** normal fast-forward of the public publication checkout's emitter92e8325 and constructor/snapshotbeb7a31 descendants, plus concise reviewed CI/resume docs, to the already approved codex/autonomous-development remote and draft PR56. No private evidence/history, force push, manual CI retry, workflow changes, merge or deployment.

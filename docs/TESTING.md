@@ -1,5 +1,53 @@
 # Testing and validation
 
+## Compatible restore string-pair candidate — 2026-10-11
+
+The [current record](reviews/2026-10-11-restore-string-pairs/README.md) preserves
+the60s lease,120s restore alarm and every financial check. Local validation passes
+467 distinct cases:341 canonical/semantic/codec oracles,8 original unprofiled
+retained/proof cases and118 account/factory/admission regressions, zero failures/
+errors/skips. Successful local restores print45.278s/46.328s/45.492s; five original
+adverse cases still reject. These are local observations, not cross-host speedup
+or Linux acceptance. Architecture, configured Ruff, Linux mypy421 files and API
+contracts pass. The public addition includes24 pair tests and their six existing
+lifetime-helper tests. Public-location architecture/configured Ruff and the
+same341-case encoder selection pass; the exact Linux gate remains required.
+
+After architecture, use the sanitized environment below with the verified
+prepared CPython3.12.13 runtime and new owned temporary outputs:
+
+```sh
+"$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
+"$AQT_PYTHON" -I -B -m ruff format --check --no-cache --config pyproject.toml \
+  packages/domain/canonical.py tests/unit/test_personal_canonical_string_pairs.py \
+  tests/unit/test_personal_canonical_fallback_lifetime.py
+"$AQT_PYTHON" -I -B -m ruff check --no-cache --config pyproject.toml \
+  packages/domain/canonical.py tests/unit/test_personal_canonical_string_pairs.py \
+  tests/unit/test_personal_canonical_fallback_lifetime.py
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_personal_canonical_string_pairs.py \
+  tests/unit/test_personal_canonical_fallback_lifetime.py \
+  tests/unit/test_personal_canonical_tuple_dispatch.py \
+  tests/unit/test_personal_canonical_deferred_dispatch.py \
+  tests/unit/test_personal_canonical_fragment_join.py \
+  tests/unit/test_personal_semantic_dispatch.py \
+  tests/unit/test_personal_semantic_stopiteration.py \
+  tests/unit/test_personal_contract_semantics.py \
+  tests/unit/test_personal_codec.py tests/unit/test_personal_codec_primitive_dispatch.py
+"$AQT_PYTHON" -B -m pytest -q -s -p no:cacheprovider --tb=short \
+  tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease \
+  tests/integration/test_continuous_attempt_factory_proof_lifecycle.py
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider --tb=short \
+  tests/integration/test_continuous_account_owned_content.py \
+  tests/integration/test_continuous_factory_integrity_result.py \
+  tests/unit/test_personal_contract_type_dispatch.py
+```
+
+The separate1200s outer subprocess bound covers fixture creation and eight tests;
+it changes neither a lease nor the restore alarm. Preserve the original formatter/
+lint/coverage findings and nonpair synthetic regression; investigate failures
+before a dependent gate. Previous1821d78 CI stays failed (5699 pass/two fail).
+
 ## Constructor/snapshot recovery — 2026-10-11
 
 The122-case witness failed110pass/12fail; the fresh repaired142-case selection
