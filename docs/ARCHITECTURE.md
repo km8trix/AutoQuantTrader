@@ -103,6 +103,23 @@ original lifecycle result remain required. This does not make kernel I/O
 preemptible or change lease, memory, work or cleanup limits. Actual Linux
 qualification for this implementation is tracked in STATUS.
 
+Test-only failure diagnostics live under `tests/fixtures/`. The existing worker
+keeps two scalar parent-forwarding recorders and its unchanged child print;
+snapshots identify attempts without retaining private delegates or proving SQL
+entry. The parent-fault test's new handler preserves all five original assertions,
+with the first outside the catch. Only after a later assertion fails does it admit
+the exact frozen/slotted outcome class and read status/reason without new holders.
+The scalar helper admits native allowlists/bools and complete ordered raw JSON
+pairs, including duplicate-field rejection, before one guarded ASCII write within
+4096B including prefix/LF. Fault flags are sampled independently after return;
+missing metadata is unknown. The scalar emitter discards suppressed auxiliary traceback history
+through the native exception descriptor, protecting the exact pending primary's
+entry traceback and leaving cause/context/args unchanged. Failed primary admission
+leaves output absent and cleanup unknown. No universal recovery is promised.
+Inert wiring units compile only an admitted extracted
+test function with fake ports; they do not import/run the original integration
+module or qualify real worker, financial, timing or trading behavior.
+
 ### API, persistence and configuration
 
 The local API exposes `/health/live`, `/health/ready`, and `/api/v1` read models. Personal research routes under `/api/v1/research/personal` cover catalog, runs, launch/cancel, reports, bounded row pages/export, comparison and experiment registration. Mutating launch/cancel/registration requires the local signed session cookie, CSRF token and idempotency key. Readiness checks schema/persistence, not permission to trade. Local authentication requires explicit loopback origins and binding (or the explicit trusted loopback container proxy); CORS wildcard and accidental public local-auth binding are rejected. The default placeholder secret is a local-development setting, not a remote deployment credential.

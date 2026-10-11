@@ -2,61 +2,79 @@
 
 Updated 2026-10-11. Read [SPEC](SPEC.md), [PLAN](PLAN.md), [TESTING](TESTING.md),
 the [ownership record](reviews/2026-10-11-ownership-checkpoint/README.md),
-[deadline diagnostic](reviews/2026-10-11-timeout-site/README.md), and
-[parent diagnostic](reviews/2026-10-11-parent-forwarding/README.md).
+[parent diagnostic](reviews/2026-10-11-parent-forwarding/README.md) and
+[current outcome record](reviews/2026-10-11-stop-outcome/README.md).
 
 - **Current milestone:** Wave 4 integration acceptance remains open. Ownership/
   reference cleanup and ordinary offline scope pass; exact Linux acceptance fails.
-- **Current task:** assemble the bounded two-iteration parent-forwarding diagnostic
-  and inert wiring controls. Architecture/configured statics and independent
-  Source/launcher reviews pass. Fresh public validation passes all 197 unique
-  cases, zero failures/errors/skips; all 15 pins match, both EOF and no flags.
-  Independent result/diff/privacy reviews pass. Focused local commit and the
-  separately planned publication remain; exact new Linux CI is pending. No push yet.
-- **Completed work:** ownership rollback/codec-planner/predecessor checks;
-  158 ordinary passes/3 PostgreSQL skips plus a separate3-case disposable PostgreSQL
-  pass. Strict Darwin/Linux types and architecture/Ruff passed. Deadline diagnostic
-  has52 unit passes and270 process passes/3 exact Linux skips. Separate parent
-  forwarding/output units passed126 cases (55 new/52 forwarding/19 older observer)
-  in an offline checkout; this is not the public candidate's combined result.
-- **Latest completed Linux gate:** public903438b
-  [run38126343338](https://github.com/km8trix/AutoQuantTrader/actions/runs/38126343338)
-  failed:20 jobs,15 success/5 failure. Foundations/wheel/browser and13 of16
-  financial shards pass. Exact console totals:5355 passes/3 failures/0 skips-errors,
-  5358 selected. All originals and the automatic failed profile were preserved
-  and independently reviewed; no retry or financial acceptance follows.
-- **Known failures:** shard3 reports probe_stalled at iteration2 before child
-  observation, with0 observer calls and no first failure. Multiple supervisor
-  sites share that reason; exact branch/cause is unproved. Shard4 original-proof
-  and shard15 retired-proof fail lease revalidation and release, printed60.511s/
-  60.529s before close. Automatic profile fails the original retained case,
-  printed60.370s before close; inclusive costs overlap and prove no removable work.
-  Prior1382752 remains5323 passes/2 financial failures plus failed profile/
-  aggregate; prior821f068 remains5245 passes/2 lease failures plus failed diagnostic.
-  Preserve each revision's results and every original failure separately.
-- **Work in progress:** two recorder-only slots and one bounded scalar parent line
-  after the unchanged child diagnostic. Original constructor evaluation,8 worker
-  assertions, deadline binding, supervisor arguments and cleanup are preserved by
-  exact-source/AST checks. Inert fake-port controls pass; real worker and financial
-  behavior still require the separate exact-source Linux gate. Source review
-  repaired the omitted 33-case selection before execution; failed checks remain
-  recorded. The explicit metadata guard has a documented SIM105 exception.
-- **Blockers:** original retained/worker/parent/proof/capacity/genuine acceptance;
-  no supported compatible timing remedy. Actual source/account/session/host and
-  separately scoped initializer requirements remain.
+- **Current task:** publish the reviewed Stop outcome question after the focused
+  local commit. The assembly and inert wiring
+  controls. Four named Source files are assembled; architecture before imports,
+  configured final-location statics and independent Source/AST review pass.
+  The first bounded129-case validation (88 scalar+41 wiring) failed:127 pass/two
+  private-field lifetime failures, zero errors/skips. All eight Source pins match;
+  native captures have both EOF and no timeout/output/reap faults. No
+  original integration module, worker, SQL probe or account initializer is run.
+- **Work in progress:** final document/staged checks and the focused public commit.
+  The repaired suppressed metadata traceback
+  retention edge exposed by the two lifetime failures. Failed Source/results are preserved;
+  native-descriptor cleanup, entry-primary protection and20 new adverse cases
+  pass independent Source review and configured statics. Fresh bounded validation
+  passes149 unique cases (108 scalar+41 wiring), zero errors/failures/skips or
+  unavailable cases; all eight pins match, both EOF and no capture faults.
+  Independent Source/result/archive/public-diff checks pass; final document
+  snapshot is in progress. No remote update has occurred for this assembly.
+  Two import-grouping errors missed in scratch were repaired with one LF per file;
+  That placement repair left caller ASTs unchanged. All five assertions and the
+  original41 wiring case identities remain. First
+  receipt/status assertion remains outside the new catch; four later assertions
+  remain inside. Exact outcome-class admission precedes inline scalar reads.
+  No new holders, phase-list samples, normal-pass output or Stop logic changes.
+- **Completed work:** parent-forwarding assembly at publicf64194a was committed
+  and normally published to the approved branch/draft PR56. Its architecture,
+  statics and independent Source/result/diff/privacy review pass;197 unique
+  units/zero failures-errors-skips,15 equal pins/both EOF/no flags. Separate
+  offline scalar acceptance88 and earlier forwarding/output126 are separate
+  scopes, separate from this candidate's first failed129 run and passing149 retest.
+  Ownership has158
+  ordinary passes/three PostgreSQL skips plus a separate three-case disposable
+  PostgreSQL pass. Deadline diagnostics have52 unit and270 process passes with
+  three explicit Linux skips; those do not qualify real Linux behavior.
+- **Latest completed Linux gate:** publicf64194a
+  [run38139141914](https://github.com/km8trix/AutoQuantTrader/actions/runs/38139141914)
+  completed failed13:37:09UTC:20 jobs15success/fivefailure. Foundations/installed
+  wheel/browser and13 of16 financial shards pass. Exact full-log totals5499
+  passes/four failures/zero skips-errors,5503 selected; browser139tests/24files.
+  Actual checkout/selection/full logs/profile/aggregate/artifact joins were
+  preserved and independently qualified. No blind retry or financial acceptance.
+- **Known failures:** worker iteration1 returns child_observation_failed:92 calls/
+  91 returns/one TimeoutExpired, firstfailurecall91,128.835407ms against100ms at
+  post-open offset21. Parent prepare/65 observes return, no require_result attempt,
+  second recorder unavailable. Stop fails before observing its leased trigger;
+  returned status/reason are unprinted, so Stop priority is unproved. Shard7's
+  retained original and shard15's retired proof expire operation/cleanup lease
+  checks, printed60.086/60.233s before close. Retirement assertions were not
+  reached. Automatic profile fails original retained restore,61.252s before close,
+  execute_returnedFalse;317 rows/4855 considered with overlapping inclusive costs
+  establish no removable work or cause. Prior903438b remains5355 passes/three
+  failures;1382752 has5323/two,821f068 has5245/two. Preserve revisions separately.
+- **Blockers:** no supported compatible timing remedy; original retained/worker/
+  parent/proof/capacity/genuine acceptance and actual source/account/session/host
+  prerequisites, plus separate initializer/adoption gates remain.
   CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED stays. No location is missing.
-- **Next actions:** commit the validated eleven-file assembly.
-  Commit the focused assembly before separately selecting normal publication and
-  exact new CI observation. No blind rerun, consumed study replay or dependent merge.
-- **Checkout:** publication branch codex/ownership-checkpoint-publication at903438b
-  before this assembly, parent215ce3d then1382752. Remote codex/autonomous-development
-  and existing [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56)
-  are the approved destination. Verify current Git/remote/PR state before publishing.
-  Private evidence history is a different local branch; never merge/push it.
-  Preserve the integration checkout's preexisting edit and all other checkouts.
+- **Next actions:** finish document/staged checks and a focused local commit.
+  Then perform the selected normal publication
+  for the missing-outcome question. No consumed-study replay or dependent merge.
+- **Checkout:** codex/ownership-checkpoint-publication, baselinef64194a (parent903438b).
+  Current scope is four Source files plus focused operating docs/dated record;
+  no current assembly commit or push yet. Use Git for actual HEAD/dirty state.
+  Remote codex/autonomous-development and existing
+  [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56) are the approved
+  destination; verify current head/base/tree before publishing. Private evidence
+  is a different local branch; never merge/push it. Preserve other checkouts.
 
-Development stays offline/HALTED with trading authority false. No provider,
-production credentials, initializer, live orders/positions/funds, risk increase,
-merge, deployment or recurring automation is authorized here. Preserve lease60s/
-alarm120s, worker30s wall/CPU/512MiB, parent29.25s+.75s, native observer100ms
-and separate probe freshness500ms. Diagnostics confer no execution authority.
+Development stays offline/HALTED, trading authority false. No provider, production
+credentials, initializer, live orders/positions/funds, risk increase, merge,
+deployment or recurring automation is authorized here. Preserve lease60s/alarm120s,
+worker30s wall/CPU/512MiB, parent29.25s+.75s, native observer100ms and separate
+probe freshness500ms. Diagnostic results confer no execution authority.

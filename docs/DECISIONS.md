@@ -303,3 +303,47 @@ one guarded dynamic stdout write with no retry. Original assertion and financial
 checks/cleanup remain authoritative. Inert wiring uses a pinned original Source
 oracle and fake ports; no real account/worker or financial acceptance follows.
 No production, lease, observer, risk or trading-authority change is made.
+
+## 2026-10-11 — preserve Stop assertions while exposing returned scalars
+
+**Decision:** wrap only the four later parent-fault assertions, retaining the
+initial receipt/status assertion outside. On failure, admit the exact existing
+frozen/slotted outcome class before inline status/reason reads, then call a
+test-only scalar fixture. Guard new metadata faults and bare-rethrow the original
+assertion. No caller aliases/holders, phase history or normal-pass output.
+
+**Rationale:** exactf64194a CI fails before observing the Stop case's leased
+trigger, while returned status/reason and flags are unprinted. This does not
+prove a Stop priority defect. The helper's exact native gates are still required
+because frozen dataclass annotations do not enforce field value types. Strict
+raw JSON pair admission prevents duplicate keys concealing private text.
+
+**Consequences/constraints:** one compact ASCII4096B line including prefix/LF,
+prepared before one guarded dynamic write, no retry/flush. Post-return samples
+are independent, missing fields unknown, and original cleanup/error identity
+remain authoritative. Full golden-module normalization and inert adverse/private/
+lifetime controls qualify wiring only. Check configured imports in final file
+locations: scratch formatting/lint alone missed first-party grouping. No product,
+production, lease/deadline, risk/authority or financial acceptance change follows.
+
+## 2026-10-11 — release suppressed outcome-diagnostic tracebacks
+
+**Decision:** discard the complete traceback of an auxiliary exception suppressed
+by the scalar diagnostic, including any preexisting traceback. Use the native
+BaseException descriptor without calling custom exception hooks. If a metadata
+callback raises the exact pending primary exception, protect its entry traceback
+instead. Do not inspect or mutate causes, contexts or arguments.
+
+**Rationale:** the first combined129-case offline run failed two baseline lifetime
+checks. A separate stdlib-only probe confirmed that a retained metadata traceback
+links its helper frame to caller locals through frame.f_back; clearing helper
+inputs alone does not release that edge.
+
+**Consequences/constraints:** auxiliary traceback history is intentionally lost;
+only bounded scalar output is diagnostic evidence. The original assertion's
+identity, entry traceback, cause and context remain authoritative. Retain the
+baseline lifetime oracle and add adverse callback/preexisting-error controls.
+Implementation and fresh149-case validation plus independent Source/result/
+archive/public-diff review pass; final document/staged checks remain in STATUS. This applies only
+to the test-only scalar emitter, not production exception handling or every
+other diagnostic fixture; no universal resource/replaced-primitive recovery.

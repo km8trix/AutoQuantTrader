@@ -1,6 +1,24 @@
 # Testing and validation
 
-## Current parent-forwarding diagnostic assembly
+## Current Stop outcome diagnostic assembly
+
+Read the [dated record](reviews/2026-10-11-stop-outcome/README.md). Architecture
+passes before imports; final-location configured statics pass after repairing
+two import-grouping errors missed by scratch checks. Source review preserves
+all five assertions and the full original module. The first bounded run selected
+41 inert wiring and88 scalar cases:127 pass/two private-field lifetime failures,
+zero errors/skips; all eight pins match and captures are healthy. The repair and
+fresh retest below address that failure; no original worker/account
+initializer or integration module import is selected. Revised Source/statics
+pass; a fresh bounded149-case selection (108 scalar+41 wiring) passes, zero
+failures/errors/skips/unavailable, eight equal pins/both EOF/no capture faults. Its20 new
+cases cover auxiliary/preexisting caller retention, exact-primary entry traceback,
+native cleanup without hostile hooks and unadmitted-primary fault isolation.
+Missing cases are unknown.
+Use the exact clean commands and unchanged bounds in the record. Private88-case
+acceptance is separate from this public candidate's combined selection.
+
+## Completed parent-forwarding diagnostic assembly
 
 Read the [dated record](reviews/2026-10-11-parent-forwarding/README.md). Architecture
 passes before imports; configured statics and independent Source review pass.
@@ -13,6 +31,12 @@ Use the exact scoped commands in that record with a fresh owned output directory
 keep stock strict pytest/conftest and plugin/cache isolation. No real worker/account,
 provider or initializer is selected by the inert unit recipe. Prior financial
 CI failures remain separate and failed.
+
+Its exact publicf64194a run38139141914 completed failed:5499 financial passes/
+four failures,5503 selected, zero skips/errors. All16 financial logs and automatic
+profile/aggregate were preserved and independently reviewed. Thirteen financial
+shards, foundations/installed wheel and browser pass;20 jobs15success/fivefailure.
+These197 prior units and the revised149 selection are not additional financial passes.
 
 This is the current personal-profile validation guide. Historical/native and
 credential-aware deployment runbooks remain scoped evidence, not prerequisites

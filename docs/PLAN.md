@@ -3,11 +3,45 @@
 ## Current queue — 2026-10-11
 
 Read [STATUS](STATUS.md) before the historical milestone details below. This
-checkpoint preserves the published architecture and ownership fixes. Public903438b
-completed its exact Linux gate failed; the parent diagnostic below is now selected.
+checkpoint preserves the published architecture and ownership fixes. Publicf64194a
+completed its exact Linux gate failed; the Stop outcome assembly below is selected.
 Wave 4 remains open; older pending/completed descriptions are historical scopes.
 
-### Current — bounded parent-forwarding diagnostic assembly
+### Completed validation — bounded Stop outcome diagnostic assembly
+
+- **Objective:** print the failed parent-fault case's existing returned status/reason and independently sampled fault flags; no timing remedy is claimed.
+- **Scope:** one scalar fixture, its original88 unit cases plus adverse traceback controls, one inert wiring unit retaining its original41 cases, minimal original Stop-test import/handler, concise review and operating docs. The first129-case run failed127pass/two lifetime cases; repair suppressed auxiliary traceback retention before acceptance. No production, financial assertion, workflow/limit or private evidence/history changes.
+- **Dependencies:** independently qualified completedf64194a CI and scalar-helper acceptance; original caller278f884b/17822B, exact current Source, architecture before imports, final-location configured statics and independent Source/control/privacy review.
+- **Acceptance criteria:** first original receipt/status assertion remains outside; four later assertion ASTs, constructors, callbacks, supervisor arguments and cleanup remain unchanged. Exact frozen outcome type before failure-only slot reads, no new holders/phase-list sampling; helper admits native allowlists/bools. One ASCII4096B line including prefix/LF, guarded metadata fault isolation and bare original rethrow. Discard suppressed auxiliary metadata tracebacks without custom hooks; protect the exact pending primary assertion and its entry traceback/cause/context. Preserve the baseline lifetime oracle and add retained/preexisting-error controls. Inert quiet/failure/private/subclass/error/lifetime/mutation controls pass, with exact selection/pins and no unavailable cases.
+- **Validation commands:** TESTING's scoped configured statics and fresh clean stock pytest selecting the two revised ordinary unit files only, with exact Source-derived case counts and reviewed60s/65536B/5s/native524288B/JUnit131072B/report16384B bounds and native result saved first. Preserve the first failed129 run; use fresh owned outputs. No original integration module import, worker/account initializer or financial runtime.
+- **Completion criteria:** independent Source/result/public diff/privacy/document review, accurate STATUS/record and focused local commit. Publication is a separate selected task after acceptance; failed financial gates remain failed.
+
+Local validation and independent Source/result/archive/public-diff checks pass:
+149 unique cases,108 scalar+41 wiring, zero failures/errors/skips/unavailable,
+eight equal pins/both EOF/no flags. The first127pass/twofail lifetime run is
+preserved; a documented auxiliary traceback repair and20 new controls pass.
+All five original assertions and full golden-module normalization remain intact.
+A focused public commit follows final document/staged checks.
+
+### Current — publish the reviewed outcome question
+
+- **Objective:** distinguish the failed Stop case's returned classification and flags without guessing Stop priority or timeout cause.
+- **Scope:** normal fast-forward to the approved remote codex/autonomous-development branch and existing draft PR56; automatic exact-source CI only. No manual retry, private history, workflow change, merge or deployment.
+- **Dependencies:** accepted focused public assembly/commit, clean current public checkout, reviewed diff/tree and current remote/PR head/base.
+- **Acceptance criteria:** intended remote/PR head and actual CI checkout/tree join; preserve all financial summaries, original failures and available new scalar diagnostics. Missing fields/output stay unknown; independent samples are not an atomic decision snapshot.
+- **Validation commands:** Git/staged diff/current remote/PR checks, normal push, inspect automatic exact-revision jobs/logs/artifacts. No force push or workflow dispatch.
+- **Completion criteria:** qualified publication and complete CI evidence recorded; investigate new failures before dependent work. No diagnostic or unit result closes Wave4 or confers trading authority.
+
+### Queued independent task — worker-output caller lifetime coverage
+
+- **Objective:** test whether a retained auxiliary output error extends a caller-local private marker beyond the literal no-diagnostic baseline, and whether rethrowing the pending primary changes its entry traceback.
+- **Scope:** helper-only inert tests for `tests/fixtures/lifecycle_failure_output.py`, retaining its original55 unit identities. Source currently shows suppression without traceback cleanup and tests that clear caller locals; this is a coverage gap, not a proven defect. No real worker, SQL, initializer, financial or CI-limit changes.
+- **Dependencies:** close the selected outcome repair; inspect the existing helper and baseline tests. Use a fresh owned offline output and architecture before imports. Publication can proceed independently after its own acceptance.
+- **Acceptance criteria:** meaningful literal-baseline/private-marker and same-primary traceback controls; all55 original cases retained. Investigate any actual failure before selecting a minimal repair; never change lifetime expectations merely to pass. Preserve original assertions, one-write bounds and pending error identity/cause/context.
+- **Validation commands:** configured changed-file Ruff/compile and independently reviewed Source; fresh bounded stock pytest selecting the output helper's unit file only, with exact Source-derived counts,60s/65536B/5s and existing native/JUnit/report caps.
+- **Completion criteria:** accurate results/gaps in STATUS/TESTING; preserve failures and root-cause repair evidence, validate any selected repair, update decisions, and make a focused checkpoint. No inference about financial correctness or original timing acceptance.
+
+### Completed — bounded parent-forwarding diagnostic assembly
 
 - **Objective:** identify attempted lifecycle forwarding still active across two iterations when probe_stalled occurs before child observation; do not infer delay cause or a timing remedy.
 - **Scope:** two test-only helpers, their two unit files, one inert wiring unit, minimal original-worker wiring, dated review and focused operating-doc updates. No production/CI-limit changes or private evidence/history publication.
@@ -17,9 +51,9 @@ Wave 4 remains open; older pending/completed descriptions are historical scopes.
 - **Completion criteria:** applicable checks and independent review pass, accurate STATUS/record and focused local commit. Later publication is selected separately for the concrete forwarding-state question; never push the private evidence branch or claim financial acceptance from these units.
 
 Validation and independent Source/result/public diff/privacy review pass: 197
-unique cases, zero failures/errors/skips. A focused local commit remains.
+unique cases, zero failures/errors/skips; focused public commitf64194a was published.
 
-### Next — publish the reviewed forwarding-state question
+### Completed — publish the reviewed forwarding-state question (CI failed)
 
 - **Objective:** identify which attempted lifecycle forwarding boundaries remain active if the original Linux worker again reports probe_stalled before child observation.
 - **Scope:** normal fast-forward of the reviewed public descendant to the already approved remote codex/autonomous-development branch and existing draft PR56. Automatic exact-source CI only; no manual rerun, workflow change, private history, merge or deployment.
@@ -27,6 +61,12 @@ unique cases, zero failures/errors/skips. A focused local commit remains.
 - **Acceptance criteria:** the remote and draft PR bind the intended head/base; Linux checks bind their actual merge/head/tree. Preserve and inspect all completed financial shards, original failures and any new parent diagnostic. Unknown/missing metadata and unobserved branches stay unknown.
 - **Validation commands:** git diff --cached --check before commit; Git/PR/head/base/tree checks and normal git push; inspect the automatic exact-source CI and available completed logs/artifacts. Never push the private evidence branch or retry a failed gate blindly.
 - **Completion criteria:** publication and exact CI evidence are recorded in STATUS; investigate new failures before dependent work. A diagnostic identifies attempted boundaries only, and cannot authorize a timing change or close financial acceptance.
+
+Automatic run38139141914 completed failed:20 jobs15success/fivefailure,5499
+financial passes/four failures/zero skips-errors,5503 selected. Actual metadata,
+full logs and automatic profile were preserved and independently qualified.
+The [current record](reviews/2026-10-11-stop-outcome/README.md) summarizes the
+verified limits; this result does not repair the original financial gate.
 
 ### Completed — preserve index planning and reject changed predecessor values
 

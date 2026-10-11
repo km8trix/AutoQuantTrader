@@ -35,6 +35,7 @@ from packages.persistence.account_coordinator import (
     account_lease_from_row,
 )
 from packages.persistence.schema import phase5_operational_control_heads
+from tests.fixtures.lifecycle_outcome_diagnostic import emit_lifecycle_outcome_failure
 from tests.integration.test_continuous_simulation_factory import (
     configured,  # noqa: F401
     release,
@@ -309,12 +310,33 @@ def test_fixed_actual_child_parent_faults_never_accept_a_receipt(
             request, lock_descriptor=lock.fileno(), stop_requested=lambda: stopped, lifecycle=probe
         )
     assert result.receipt is None and result.status != "completed"
-    if fault == "stop":
-        assert "leased" in observed and result.status == "stopped"
-    if fault in ("early_release", "takeover"):
-        assert acted
-    assert supervisor._probe_thread is not None and not supervisor._probe_thread.is_alive()
-    assert not tuple(tmp_path.glob(".continuous-operation-*"))
+    try:
+        if fault == "stop":
+            assert "leased" in observed and result.status == "stopped"
+        if fault in ("early_release", "takeover"):
+            assert acted
+        assert supervisor._probe_thread is not None and not supervisor._probe_thread.is_alive()
+        assert not tuple(tmp_path.glob(".continuous-operation-*"))
+    except AssertionError:
+        try:  # noqa: SIM105 - preserve the explicit guarded metadata boundary.
+            emit_lifecycle_outcome_failure(
+                fault=fault,
+                status=(
+                    result.status
+                    if type(result) is process_module.ContinuousProcessOutcome
+                    else None
+                ),
+                reason=(
+                    result.reason
+                    if type(result) is process_module.ContinuousProcessOutcome
+                    else None
+                ),
+                stopped=stopped,
+                acted=acted,
+            )
+        except BaseException:
+            pass
+        raise
 
 
 def test_fixed_child_requires_probe_sampled_after_exit_before_accepting_result(
