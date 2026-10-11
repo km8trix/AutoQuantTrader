@@ -284,3 +284,22 @@ attribute delay or grant source/trading authority. No production code, clock,
 Preserve completed original CI before selecting a new exact-source location
 question; no blind retry or consumed-study replay. Local52 diagnostic passes and
 270 process passes/3 Linux skips do not qualify real Linux worker acceptance.
+
+## 2026-10-11 — test-only two-iteration lifecycle forwarding output
+
+**Decision:** use two caller-owned scalar recorder slots and a free wrapper around
+an already-constructed lifecycle probe. Preserve original dynamic forwarding,
+arguments/results/errors; new setup faults return the original delegate.
+
+**Rationale:** the failed903438b worker reports probe_stalled before any child
+observation, and the existing test performs two iterations. Separate scalar
+snapshots can identify an unfinished attempted forwarding boundary without
+retaining private probes/inputs/errors or claiming SQL entry or delay cause.
+
+**Consequences/constraints:** setup is single-threaded, snapshots have no global
+atomic epoch, and unavailable/missing metadata is unknown. A compact ASCII line
+includes prefix/LF within4096B, follows the unchanged child diagnostic and attempts
+one guarded dynamic stdout write with no retry. Original assertion and financial
+checks/cleanup remain authoritative. Inert wiring uses a pinned original Source
+oracle and fake ports; no real account/worker or financial acceptance follows.
+No production, lease, observer, risk or trading-authority change is made.

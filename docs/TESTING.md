@@ -1,5 +1,19 @@
 # Testing and validation
 
+## Current parent-forwarding diagnostic assembly
+
+Read the [dated record](reviews/2026-10-11-parent-forwarding/README.md). Architecture
+passes before imports; configured statics and independent Source review pass.
+One fresh bounded public run passes 197 unique cases: 38 wiring, 55 output,
+52 forwarding, 19 observer and 33 timeout-site; zero failures/errors/skips.
+All 15 Source pins match before/after, both EOF and no capture/timeout/reap flags.
+Independent result and scoped public diff/privacy reviews pass.
+Private126-case results do not substitute for this candidate's actual selection.
+Use the exact scoped commands in that record with a fresh owned output directory;
+keep stock strict pytest/conftest and plugin/cache isolation. No real worker/account,
+provider or initializer is selected by the inert unit recipe. Prior financial
+CI failures remain separate and failed.
+
 This is the current personal-profile validation guide. Historical/native and
 credential-aware deployment runbooks remain scoped evidence, not prerequisites
 for ordinary offline development. Record the tested commit, commands, outcomes,

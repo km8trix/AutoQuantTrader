@@ -12,6 +12,11 @@ from packages.application import continuous_process as process_module
 from packages.application.continuous_process import ContinuousProcessSupervisor
 from packages.application.personal_runtime import LocalInstanceGuard
 from tests.fixtures.continuous_process_observation import ChildObservationDiagnostic
+from tests.fixtures.lifecycle_failure_output import (
+    create_parent_diagnostics,
+    emit_parent_failure_line,
+    wrap_already_constructed,
+)
 from tests.integration import test_continuous_simulation_factory as factory_fixture
 
 configured = factory_fixture.configured
@@ -33,6 +38,7 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
     supervisor = ContinuousProcessSupervisor(artifact_directory=private)
     with LocalInstanceGuard(private / "instance.lock") as lock:
         results = []
+        parent_diagnostics = create_parent_diagnostics()
         for iteration in range(1, 3):
             diagnostic = ChildObservationDiagnostic(
                 process_module._observe_child,
@@ -44,7 +50,11 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
                     request,
                     lock_descriptor=lock.fileno(),
                     stop_requested=lambda: False,
-                    lifecycle=SqlContinuousParentProbe(request),
+                    lifecycle=wrap_already_constructed(
+                        SqlContinuousParentProbe(request),
+                        diagnostics=parent_diagnostics,
+                        iteration=iteration,
+                    ),
                 )
             try:
                 assert outcome.status == "completed", outcome.reason
@@ -55,6 +65,10 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
                     "AQT_CHILD_OBSERVATION_DIAGNOSTIC "
                     + json.dumps(diagnostic.summary(iteration=iteration), sort_keys=True)
                 )
+                try:  # noqa: SIM105 - isolate metadata without a new context manager
+                    emit_parent_failure_line(parent_diagnostics, iteration=iteration)
+                except BaseException:
+                    pass
                 raise
             assert outcome.receipt is not None
             payload = outcome.receipt.path.read_bytes()

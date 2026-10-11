@@ -3,9 +3,30 @@
 ## Current queue — 2026-10-11
 
 Read [STATUS](STATUS.md) before the historical milestone details below. This
-focused checkpoint preserves the published `821f068` architecture and adds only
-ordinary ownership/reference failure cleanup and tests. Wave 4 remains open;
-the older pending/completed descriptions retain their recorded scope.
+checkpoint preserves the published architecture and ownership fixes. Public903438b
+completed its exact Linux gate failed; the parent diagnostic below is now selected.
+Wave 4 remains open; older pending/completed descriptions are historical scopes.
+
+### Current — bounded parent-forwarding diagnostic assembly
+
+- **Objective:** identify attempted lifecycle forwarding still active across two iterations when probe_stalled occurs before child observation; do not infer delay cause or a timing remedy.
+- **Scope:** two test-only helpers, their two unit files, one inert wiring unit, minimal original-worker wiring, dated review and focused operating-doc updates. No production/CI-limit changes or private evidence/history publication.
+- **Dependencies:** completed903438b failed matrix/profile preservation, qualified offline forwarding/output units and supporting Source review; architecture before imports, current exact Source/counts and independent public diff/privacy/validation review.
+- **Acceptance criteria:** at most two scalar recorders; original constructor once at its keyword evaluation point. Complete normalized original AST/8 assertions/deadline/arguments/cleanup match. New line follows unchanged child print, is4096B including prefix/LF and one fault-isolated write; bare original assertion stays authoritative. Meaningful inert constructor/fault/order/cleanup/lifetime controls pass; no real account/worker effects.
+- **Validation commands:** TESTING's exact scoped statics and fresh sanitized stock pytest with reviewed60s/65536B/5s/native524288B/JUnit131072B/report16384B bounds, native result first; static original/golden AST checks and independent actual Source/result/public diff review.
+- **Completion criteria:** applicable checks and independent review pass, accurate STATUS/record and focused local commit. Later publication is selected separately for the concrete forwarding-state question; never push the private evidence branch or claim financial acceptance from these units.
+
+Validation and independent Source/result/public diff/privacy review pass: 197
+unique cases, zero failures/errors/skips. A focused local commit remains.
+
+### Next — publish the reviewed forwarding-state question
+
+- **Objective:** identify which attempted lifecycle forwarding boundaries remain active if the original Linux worker again reports probe_stalled before child observation.
+- **Scope:** normal fast-forward of the reviewed public descendant to the already approved remote codex/autonomous-development branch and existing draft PR56. Automatic exact-source CI only; no manual rerun, workflow change, private history, merge or deployment.
+- **Dependencies:** accepted eleven-file assembly and focused local commit; current remote/PR metadata, clean publication checkout and exact staged/public tree qualification.
+- **Acceptance criteria:** the remote and draft PR bind the intended head/base; Linux checks bind their actual merge/head/tree. Preserve and inspect all completed financial shards, original failures and any new parent diagnostic. Unknown/missing metadata and unobserved branches stay unknown.
+- **Validation commands:** git diff --cached --check before commit; Git/PR/head/base/tree checks and normal git push; inspect the automatic exact-source CI and available completed logs/artifacts. Never push the private evidence branch or retry a failed gate blindly.
+- **Completion criteria:** publication and exact CI evidence are recorded in STATUS; investigate new failures before dependent work. A diagnostic identifies attempted boundaries only, and cannot authorize a timing change or close financial acceptance.
 
 ### Completed — preserve index planning and reject changed predecessor values
 
@@ -34,7 +55,7 @@ the older pending/completed descriptions retain their recorded scope.
 - **Validation commands:** architecture before imports; Ruff format/lint on seven Python paths; strict mypy for Darwin/Linux; one fresh ten-file ordinary checkpoint; doc diff/link/source/privacy checks. Standard exact-revision CI after publication validates this new ownership code, not a timing remedy. Do not manually replay consumed diagnostics or blindly rerun a failed CI run.
 - **Completion criteria:** reviewed focused commit, admitted normal fast-forward push to the already approved remote codex/autonomous-development branch and updated existing draft PR56 against W4 integration, then inspect actual CI tree/results and repair any new failure. Preserve the separate full local evidence branch; do not push its unpublished history. A pass cannot close unresolved source/capacity/retained/W4 gates or authorize merge.
 
-### Current — original exact-checkpoint Linux gate
+### Historical completed investigation — original1382752 Linux gate
 
 - **Objective:** qualify the new ownership code on public1382752 without reclassifying old failures.
 - **Scope:** original run38121952457, candidate/base/merge tree, completed logs and all16 financial shards plus foundations/browser/aggregate.
@@ -52,7 +73,7 @@ the older pending/completed descriptions retain their recorded scope.
 - **Validation commands:** architecture before imports; configured Ruff/compile on three changed test paths; the two focused commands in TESTING, with permitted Darwin process inspection and Linux skips explicit; independent Source/result/privacy/link review.
 - **Completion criteria:**52 diagnostic passes;270 process passes/3 exact Linux skips; original failed preparation retained; independent review and a local focused commit. Select publication only after complete original CI preservation for the new rejecting-check question. No test retry, late acceptance, cap change or production fix is inferred.
 
-### Next task — publish the reviewed deadline-location question (ready after original evidence review)
+### Historical completed publication — deadline-location question
 
 - **Objective:** qualify the test-only diagnostic on Linux and identify the rejecting native deadline check if the original worker failure recurs.
 - **Scope:** normal fast-forward of the focused test/docs descendant to the already approved remote `codex/autonomous-development` branch and existing draft PR56. No manual rerun, workflow/configuration change, private history, merge or deployment.
