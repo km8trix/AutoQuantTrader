@@ -472,3 +472,39 @@ and cleanup failures. The actual original test/teardown result remains decisive;
 valid partial capture or returned execute cannot establish lease release. No
 candidate preparation/qualification/matching cost, net speedup or Linux margin
 is established by observing the original path.
+
+## Bounded timeout location diagnostic
+
+Run in the clean environment above, after the architecture check:
+
+```sh
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_continuous_process_observation_diagnostic.py \
+  tests/unit/test_continuous_observation_timeout_site.py
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_continuous_linux_observation.py \
+  tests/unit/test_continuous_process.py
+```
+
+The optional metadata has33 new controlled-clock/syscall/traceback/privacy cases;
+52 diagnostic cases pass including19 original cases. The separate process run
+collects273, passes270 and skips the three actual-Linux cases on macOS. Darwin
+process tests require permission for `/bin/ps` to inspect their own inert children;
+a denied sandbox run is a failed observation, not a reason to skip or weaken tests.
+Unchanged tests pass when that process inspection is permitted. This does not
+explain the separate Linux CI timeout. The original worker is not run locally
+for this test-only change; preserve the complete current matrix before selecting
+a new source-bound rejection-location CI question.
+
+A preparation test exposed temporary exception/frame/payload retention; its
+one-case failing baseline and passing unchanged retest are retained. The first
+process run retains249 passes/21 failures/3 skips, plus a wrapper report-size
+failure. Its actual JUnit is preserved; native child result/pin fields lost before
+persistence remain unavailable. A corrected wrapper saves bounded native output
+separately before building its16KiB report; child60s/raw65536B/reap5s and original
+product bounds remain unchanged. Reports cannot manufacture missing wire data.
+
+The retained factory helper's120s SIGALRM begins before factory construction and
+is disarmed before close; its lease is60s. Historical150s parent language is not a
+universal helper or standard-runner timeout. Worker supervision separately uses
+29.25s work plus0.75s cleanup. These scope corrections do not increase any limit.

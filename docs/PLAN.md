@@ -25,7 +25,7 @@ the older pending/completed descriptions retain their recorded scope.
 - **Validation commands:** the ten-file checkpoint in TESTING; architecture, configured Ruff, Darwin/Linux mypy and separately owned PostgreSQL cases.
 - **Completion criteria:** 158 ordinary offline passes/3 explicit PG skips plus a separate 3-case PG pass and independent source review. Same-key reentrancy, registered-but-unreturned handles and universal native/OOM recovery are not qualified.
 
-### Current — qualify and publish the focused checkpoint
+### Completed publication — focused ownership checkpoint (CI still open)
 
 - **Objective:** validate a reviewable code/docs checkpoint while preserving private local workflow evidence.
 - **Scope:** one production file, six test files, current operating guides and a concise public [validation record](reviews/2026-10-11-ownership-checkpoint/README.md), based on published `821f068`. Preserve all earlier published evidence; do not import unrelated local evidence history.
@@ -33,6 +33,24 @@ the older pending/completed descriptions retain their recorded scope.
 - **Acceptance criteria:** exact reviewed source hashes; no secret/private workflow metadata or broken unpublished links; fresh affected validation passes with skips explicit. Preserve old Linux failures and original limits. No source code/configuration outside the named scope changes.
 - **Validation commands:** architecture before imports; Ruff format/lint on seven Python paths; strict mypy for Darwin/Linux; one fresh ten-file ordinary checkpoint; doc diff/link/source/privacy checks. Standard exact-revision CI after publication validates this new ownership code, not a timing remedy. Do not manually replay consumed diagnostics or blindly rerun a failed CI run.
 - **Completion criteria:** reviewed focused commit, admitted normal fast-forward push to the already approved remote codex/autonomous-development branch and updated existing draft PR56 against W4 integration, then inspect actual CI tree/results and repair any new failure. Preserve the separate full local evidence branch; do not push its unpublished history. A pass cannot close unresolved source/capacity/retained/W4 gates or authorize merge.
+
+### Current — original exact-checkpoint Linux gate
+
+- **Objective:** qualify the new ownership code on public1382752 without reclassifying old failures.
+- **Scope:** original run38121952457, candidate/base/merge tree, completed logs and all16 financial shards plus foundations/browser/aggregate.
+- **Dependencies:** reviewed17-path checkpoint published to the approved branch and existing draft PR56; remaining external jobs must finish.
+- **Acceptance criteria:** exact Source/tree binding and complete counts/skips/failures; inspect every new failure before dependent work. Shard3's current worker observation failure remains failed.
+- **Validation commands:** `gh run view 38121952457 --repo km8trix/AutoQuantTrader --json status,conclusion,headSha,jobs`; exact completed-job logs/artifacts and current PR metadata. No rerun or matrix cancellation.
+- **Completion criteria:** preserve and independently review the actual complete outcome; correct STATUS and distinguish supported causes from hypotheses. No merge or broader acceptance follows from partial passes.
+
+### Completed local task — bounded test-only deadline location
+
+- **Objective:** identify the native check rejecting a future observation; do not claim delay causation.
+- **Scope:** diagnostic fixture, one optional worker constructor keyword and33 new unit cases. Production observer/supervisor and all original assertions/bounds unchanged.
+- **Dependencies:** actual shard3 aggregate timeout does not identify its check; no supported production timing remedy established. Original matrix preservation precedes further publication.
+- **Acceptance criteria:** complete at-most8-frame scan, exact static code binding at-most32 constants, bounded scalar offset, primary/clock/first-failure compatibility and immediate private error/frame/payload release. Invalid/deep metadata fails admission; default/foreign cases preserve old summary.
+- **Validation commands:** architecture before imports; configured Ruff/compile on three changed test paths; the two focused commands in TESTING, with permitted Darwin process inspection and Linux skips explicit; independent Source/result/privacy/link review.
+- **Completion criteria:**52 diagnostic passes;270 process passes/3 exact Linux skips; original failed preparation retained; independent review and a local focused commit. Select publication only after complete original CI preservation for the new rejecting-check question. No test retry, late acceptance, cap change or production fix is inferred.
 
 ### Next dependency — original retained and genuine-source acceptance (held)
 
@@ -117,8 +135,8 @@ credentials, start live services or authorize provider traffic.
   source-owned synthetic retained-history fixture and isolated runtime.
 - **Acceptance criteria:** byte/hash/error/read-order and subclass/mutation
   compatibility; unchanged ledger, venue, artifacts and controls; original
-  60-second lease, 120-second operation, 150-second parent and existing resource
-  limits; successful owned child/group/engine/lease cleanup. All Linux shards pass.
+  60-second lease and120-second fixture alarm with the separate parent
+  bounds documented in TESTING; existing resource limits; successful owned child/group/engine/lease cleanup. All Linux shards pass.
 - **Validation commands:** clean focused tests for each modified pure helper;
   `$AQT_PYTHON -B -m pytest -q -p no:cacheprovider
   tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease`;

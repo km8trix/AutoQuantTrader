@@ -34,7 +34,10 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
     with LocalInstanceGuard(private / "instance.lock") as lock:
         results = []
         for iteration in range(1, 3):
-            diagnostic = ChildObservationDiagnostic(process_module._observe_child)
+            diagnostic = ChildObservationDiagnostic(
+                process_module._observe_child,
+                deadline_code=process_module._observe_linux_child.__code__,
+            )
             with monkeypatch.context() as observation_patch:
                 observation_patch.setattr(process_module, "_observe_child", diagnostic.observe)
                 outcome = supervisor.run(

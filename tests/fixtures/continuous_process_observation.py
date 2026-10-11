@@ -4,10 +4,14 @@ import math
 import subprocess
 from collections.abc import Callable
 from time import perf_counter_ns
+from types import CodeType
 from typing import Any
 
 _COUNT_CAP = 4096
 _ELAPSED_CAP_NS = 10**15
+_TRACEBACK_CAP = 8
+_CONSTANT_CAP = 32
+_LINE_OFFSET_CAP = 4095
 _CATEGORIES = ("returned", "TimeoutExpired", "ValueError", "OSError", "SubprocessError", "other")
 
 
@@ -19,6 +23,7 @@ class ChildObservationDiagnostic:
         original: Callable[..., Any],
         *,
         clock_ns: Callable[[], int] = perf_counter_ns,
+        deadline_code: CodeType | None = None,
     ) -> None:
         self._original = original
         self._clock_ns = clock_ns
@@ -26,14 +31,80 @@ class ChildObservationDiagnostic:
         self._counts = dict.fromkeys(_CATEGORIES, 0)
         self._overflow = False
         self._first_failure: tuple[int, str, int | float | None, int] | None = None
+        self._first_timeout_site: int | None = None
+        self._deadline_code: CodeType | None = None
+        self._deadline_check_code: CodeType | None = None
+        if deadline_code is not None:
+            try:
+                self._bind_deadline_code(deadline_code)
+            except BaseException:
+                # Optional metadata must not prevent the original observation.
+                self._deadline_code = None
+                self._deadline_check_code = None
+                self._overflow = True
+
+    def _bind_deadline_code(self, code: CodeType) -> None:
+        if type(code) is not CodeType or len(code.co_consts) > _CONSTANT_CAP:
+            self._overflow = True
+            return
+        check: CodeType | None = None
+        for constant in code.co_consts:
+            if type(constant) is CodeType and constant.co_name == "require_time":
+                if check is not None:
+                    self._overflow = True
+                    return
+                check = constant
+        if check is None:
+            self._overflow = True
+            return
+        # Code identities are static metadata, not callable/global/frame owners.
+        self._deadline_code = code
+        self._deadline_check_code = check
+
+    def _timeout_check_offset(self, error: BaseException) -> int | None:
+        if (
+            type(error) is not subprocess.TimeoutExpired
+            or self._deadline_code is None
+            or self._deadline_check_code is None
+        ):
+            return None
+        traceback = error.__traceback__
+        previous_code: CodeType | None = None
+        previous_offset: int | None = None
+        found: int | None = None
+        depth = 0
+        while traceback is not None and depth < _TRACEBACK_CAP:
+            code = traceback.tb_frame.f_code
+            if code is self._deadline_check_code and previous_code is self._deadline_code:
+                if (
+                    found is not None
+                    or previous_offset is None
+                    or not 0 <= previous_offset <= _LINE_OFFSET_CAP
+                ):
+                    self._overflow = True
+                    return None
+                found = previous_offset
+            previous_code = code
+            previous_offset = (
+                traceback.tb_lineno - code.co_firstlineno if code is self._deadline_code else None
+            )
+            traceback = traceback.tb_next
+            depth += 1
+        if traceback is not None:
+            self._overflow = True
+            return None
+        # Exhaust the bounded scan: an early match cannot hide extra frames.
+        return found
 
     def observe(self, *args: Any, **kwargs: Any) -> Any:
         started = self._clock_ns()
         category = "returned"
+        timeout_error: BaseException | None = None
         try:
             return self._original(*args, **kwargs)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
             category = "TimeoutExpired"
+            timeout_error = error
             raise
         except ValueError:
             category = "ValueError"
@@ -48,10 +119,23 @@ class ChildObservationDiagnostic:
             category = "other"
             raise
         finally:
-            elapsed = self._clock_ns() - started
-            self._record(category, kwargs.get("timeout", 0.1), elapsed)
+            try:
+                elapsed = self._clock_ns() - started
+                timeout_site: int | None = None
+                if timeout_error is not None and self._first_failure is None:
+                    try:
+                        timeout_site = self._timeout_check_offset(timeout_error)
+                    except BaseException:
+                        self._overflow = True
+                self._record(category, kwargs.get("timeout", 0.1), elapsed, timeout_site)
+            finally:
+                # The propagated traceback includes this frame. Leaving the
+                # error here would add an exception/frame/payload retention cycle.
+                timeout_error = None
 
-    def _record(self, category: str, timeout: object, elapsed: int) -> None:
+    def _record(
+        self, category: str, timeout: object, elapsed: int, timeout_site: int | None = None
+    ) -> None:
         if self._calls == _COUNT_CAP or self._counts[category] == _COUNT_CAP:
             self._overflow = True
         self._calls = min(_COUNT_CAP, self._calls + 1)
@@ -75,20 +159,26 @@ class ChildObservationDiagnostic:
             requested,
             min(_ELAPSED_CAP_NS, max(0, elapsed)),
         )
+        self._first_timeout_site = timeout_site
 
     def summary(self, *, iteration: int) -> dict[str, object]:
         first = self._first_failure
-        return {
-            "iteration": iteration,
-            "call_count": self._calls,
-            "counts": dict(self._counts),
-            "overflow": self._overflow,
-            "first_failure": None
+        first_summary = (
+            None
             if first is None
             else {
                 "call": first[0],
                 "category": first[1],
                 "requested_timeout_seconds": first[2],
                 "elapsed_ns": first[3],
-            },
+            }
+        )
+        if first_summary is not None and self._first_timeout_site is not None:
+            first_summary["deadline_check_line_offset"] = self._first_timeout_site
+        return {
+            "iteration": iteration,
+            "call_count": self._calls,
+            "counts": dict(self._counts),
+            "overflow": self._overflow,
+            "first_failure": first_summary,
         }

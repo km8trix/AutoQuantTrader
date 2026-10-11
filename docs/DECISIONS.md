@@ -260,3 +260,27 @@ exact-revision Linux, genuine-source or Wave 4 acceptance. Arbitrary callback
 effects and registered-but-unreturned finalizers remain outside the cleanup
 guarantee. No financial/risk limit, lease, timer, native/seal mechanism or live
 authorization is changed.
+
+## 2026-10-11 — failure-only native deadline location metadata
+
+**Decision:** the test diagnostic may bind the unchanged native Linux observer
+and its one immediate deadline-check code, then transiently inspect at most8
+traceback frames after the original ending clock sample. Admit only an exact
+TimeoutExpired with one adjacent known pair and a0–4095 line offset after a
+complete bounded scan. Binding inspects at most32 constants. Clear failed
+bindings and the temporary exception reference; keep only static code identities
+and scalar metadata. Unknown cases preserve the legacy summary shape.
+
+**Rationale:** public1382752 shard3 reports an observation timeout but its aggregate
+213556818ns does not identify the rejecting check. Finite Source review finds no
+demonstrated compatible production bug. Meaningful oracles distinguish original
+check locations, finally-moved frame state, foreign/subclass errors, bounds,
+metadata faults and immediate error/payload release. A failed preparation
+regression demonstrated why clearing the local exception is necessary.
+
+**Consequences/constraints:** this identifies rejection location only. It cannot
+attribute delay or grant source/trading authority. No production code, clock,
+100ms deadline, retry, ownership/cleanup, financial assertion or risk limit changes.
+Preserve completed original CI before selecting a new exact-source location
+question; no blind retry or consumed-study replay. Local52 diagnostic passes and
+270 process passes/3 Linux skips do not qualify real Linux worker acceptance.
