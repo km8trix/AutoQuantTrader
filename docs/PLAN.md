@@ -9,19 +9,23 @@ The initial combined-fragment candidate a78d6b9 passed467 local cases but fails
 three newly added literal-baseline formatting-result lifetime regressions and is
 rejected. Its completed Linux run has5730 financial passes/one retired-proof
 lease failure at60.180s; the diagnostic also expires at60.242s. The compatible
-five-append source separately passed470 local cases. The current pair-framing/
-string-comma descendant passes477 fresh cases (351+118+8), including the
-original retained/proof tests with unchanged financial assertions. Preserve the60s lease, financial checks and
+five-append source separately passed470 local cases. Published e14's pair-framing/
+string-comma source passes477 fresh local cases but its exact Linux run completed
+failed:5739 financial passes/two failures, zero errors/skips. Original proof loses
+its60s lease after61.178s; worker observation correctly expires at the100ms
+post-open checkpoint. A narrow nested-pair comma refinement now passes365 encoder
+and118 related cases. Original8 and current-source diagnostic300 also pass,
+giving791 distinct local cases. Preserve the60s lease, financial checks and
 original tests. Exact-source Linux acceptance remains required; Wave4 stays open.
 Historical results retain their original scope.
 
 ### Selected task — corrected restore encoding and exact Linux acceptance
 
 - **Objective:** reduce avoidable canonical encoding work while preserving retained financial/ownership behavior and per-item formatting-result lifetimes.
-- **Scope:** nested exact two-string tuple shortcut with two separate per-item fstrings and exact-string comma coalescing;34 pair-specific cases retaining all27 prior cases, literal baseline and existing six-case lifetime dependency; focused seven-file public assembly. No cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
-- **Dependencies:** owner offline repair authorization; preserved preceding failures; independently reviewed Source and477 fresh local passes (351 encoder,118 related,8 original retained/proof). Public-location architecture/Ruff/351/Linux mypy421/API checks pass; final independent Source/native/privacy review passes. Normal publication and exact-source Linux acceptance are next. Verify current public/remote/PR identity.
+- **Scope:** coalesce a preceding comma into the first nested exact-string-pair append while preserving two completed formatting expressions;35 pair cases retain all34 previous identities/literal baseline. Add optional exact-native thread-CPU failure metadata in the test fixture and minimal original-worker wiring,47 new controls and golden wiring controls. No production observer, cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
+- **Dependencies:** owner offline repair authorization; preserved failed e14 Linux run and current-source profile; independent Source/inverse/lifetime review. Current791 distinct cases (365 encoder +300 diagnostic +118 related +8 original) and architecture/Ruff/Linux mypy421/API pass. Fixed72-window comparison preserves six literal byte workloads and observes pair-heavy5.133%/4.729% wall gains, with nonpair0.601% regression retained. Final independent financial/public assembly review is required before publication.
 - **Acceptance criteria:** exact bytes/hashes, conversion/error/dynamic-lookup order and lifetimes; original tests, real clock,60s lease/120s alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
-- **Validation commands:** TESTING's architecture/configured Ruff/types/API and sanitized targeted tests; normal push from explicit public checkout; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
+- **Validation commands:** TESTING's architecture/configured Ruff/types/API, canonical/semantic/codec and native CPU diagnostic units,118 related and unchanged original8 retained/proof tests on fresh fixtures. After local acceptance/review, normal push from explicit public checkout; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
 - **Completion criteria:** original-eight and public-location validations pass, independent assembly review passes, and exact completed Linux result is recorded; repair failures before dependent work. A synthetic gain or historical pass cannot close this gate. Wave4 source/account/session/initializer and adoption gates remain separate.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly

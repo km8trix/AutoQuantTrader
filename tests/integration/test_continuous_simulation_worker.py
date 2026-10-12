@@ -6,6 +6,7 @@ SQLite probes. Canonical history and integrity remain the child's responsibility
 
 import json
 from pathlib import Path
+from time import thread_time_ns
 
 from apps.trader.continuous_process_lifecycle import SqlContinuousParentProbe
 from packages.application import continuous_process as process_module
@@ -43,6 +44,7 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
             diagnostic = ChildObservationDiagnostic(
                 process_module._observe_child,
                 deadline_code=process_module._observe_linux_child.__code__,
+                thread_clock_ns=thread_time_ns,
             )
             with monkeypatch.context() as observation_patch:
                 observation_patch.setattr(process_module, "_observe_child", diagnostic.observe)

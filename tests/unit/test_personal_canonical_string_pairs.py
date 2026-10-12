@@ -528,6 +528,7 @@ def _destructor_replacement_outcome(encode, monkeypatch, shape):
         "nested": (pair,),
         "repeated-alias": (pair, pair),
         "leading-null": (None, "first", "second"),
+        "leading-null-nested-pair": (None, pair),
     }[shape]
 
     def alive():
@@ -578,7 +579,9 @@ def _destructor_replacement_outcome(encode, monkeypatch, shape):
     return payload, sha256(payload).hexdigest(), tuple(events)
 
 
-@pytest.mark.parametrize("shape", ["root", "nested", "repeated-alias", "leading-null"])
+@pytest.mark.parametrize(
+    "shape", ["root", "nested", "repeated-alias", "leading-null", "leading-null-nested-pair"]
+)
 def test_pair_format_result_destructor_replaces_encoder_before_next_lookup(monkeypatch, shape):
     pair1 = (
         b'{"type":"tuple","value":[{"type":"string","value":"first"},'
@@ -596,6 +599,9 @@ def test_pair_format_result_destructor_replaces_encoder_before_next_lookup(monke
             b'{"type":"tuple","value":[{"type":"null","value":null},'
             b'{"type":"string","value":"first"},'
             b'{"type":"string","value":"second-via-replacement-1"}]}'
+        ),
+        "leading-null-nested-pair": (
+            b'{"type":"tuple","value":[{"type":"null","value":null},' + pair1 + b"]}"
         ),
     }[shape]
     events = []

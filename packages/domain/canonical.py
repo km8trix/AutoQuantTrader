@@ -169,24 +169,34 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
                     f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item)}}}'
                 )
             continue
-        if index:
-            parts.append(",")
         if type(item) is tuple:
             # Exact string pairs can avoid recursion. Keep each item's formatting
             # result released before the next dynamic encoder lookup.
             if len(item) == 2 and type(item[0]) is str and type(item[1]) is str:
-                parts.append(
-                    '{"type":"tuple","value":['
-                    f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
-                    ","
-                )
+                if index:
+                    parts.append(
+                        ',{"type":"tuple","value":['
+                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                        ","
+                    )
+                else:
+                    parts.append(
+                        '{"type":"tuple","value":['
+                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                        ","
+                    )
                 parts.append(
                     f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[1])}}}'
                     "]}"
                 )
             else:
+                if index:
+                    parts.append(",")
                 _append_typed_text(item, parts, deferred)
-        elif item is None:
+            continue
+        if index:
+            parts.append(",")
+        if item is None:
             parts.append('{"type":"null","value":null}')
         elif type(item) is bool:
             parts.append(

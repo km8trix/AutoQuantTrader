@@ -4,13 +4,15 @@
 
 The [current record](reviews/2026-10-11-restore-string-pairs/README.md) preserves
 original60s leases/120s alarms and every financial check. Current local validation
-passes477 distinct fresh cases:351 canonical/semantic/codec,118 account/factory/
-admission and8 original retained/proof, zero failures/errors/skips. Architecture/
-configured Ruff/Linux mypy421/API checks pass. Original8 pass567.84s pytest/
-569.688s healthy capture; restores print44.599s/45.122s/46.187s, five injected
+passes791 distinct fresh cases:365 canonical/semantic/codec,300 diagnostic,
+118 account/factory/admission and8 original retained/proof, zero failures/errors/skips.
+Architecture/configured Ruff/Linux mypy421/API checks pass. Original8 pass537.64s
+pytest/539.251s healthy capture; restores print41.811s/41.893s/42.756s, five injected
 negative cases reject, original limits/assertions and Source pins unchanged.
-Public-location architecture/configured Ruff/351/Linux mypy421/API checks also
-pass with stable pins. Exact-source Linux/PostgreSQL acceptance remains pending. The preceding
+Repository format1054 files/lint/whitespace also pass. Published e14's preceding477
+local passes remain historical; its exact Linux run has5739 financial passes/two
+failures (original proof61.178s lease expiry and100ms worker observation).
+Corrected-source Linux/PostgreSQL acceptance remains pending. The preceding
 five-append implementation separately passed470 cases (344+118+8), Linux-platform
 mypy421 files and API checks. Its local restore times45.360s/45.242s/46.303s and
 five injected rejections are historical observations for that source.
@@ -23,7 +25,8 @@ exact strings' commas within that item's expression. It must release each custom
 formatting result before the next dynamic lookup. All previous27 cases and literal
 oracle remain. Seven further cases independently check destructor-driven encoder
 replacement across root/nested/repeated/leading-null shapes and first lookup/
-encode/format exception identity, cause and context. Total pair cases:34.
+encode/format exception identity, cause and context. A leading-null nested-pair
+control extends the same byte/release contract to the new comma branch. Total pair cases:35.
 Earlier failed gates and candidate observations stay separate; do not transfer
 initial synthetic gains or historical restore timings to this source.
 
@@ -39,6 +42,7 @@ prepared CPython3.12.13 runtime and new owned temporary outputs:
   packages/domain/canonical.py tests/unit/test_personal_canonical_string_pairs.py \
   tests/unit/test_personal_canonical_fallback_lifetime.py
 "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_canonical.py \
   tests/unit/test_personal_canonical_string_pairs.py \
   tests/unit/test_personal_canonical_fallback_lifetime.py \
   tests/unit/test_personal_canonical_tuple_dispatch.py \
@@ -57,7 +61,8 @@ prepared CPython3.12.13 runtime and new owned temporary outputs:
   tests/unit/test_personal_contract_type_dispatch.py
 ```
 
-The separate1200s outer subprocess bound covers fixture creation and eight tests;
+The current900s outer subprocess bound covers fixture creation and eight tests
+(the preceding capture used1200s);
 it changes neither a lease nor the restore alarm. Preserve the original formatter/
 lint/coverage findings and nonpair synthetic regression; investigate failures
 before a dependent gate. Previous1821d78 CI stays failed (5699 pass/two fail).
@@ -650,3 +655,33 @@ The retained factory helper's120s SIGALRM begins before factory construction and
 is disarmed before close; its lease is60s. Historical150s parent language is not a
 universal helper or standard-runner timeout. Worker supervision separately uses
 29.25s work plus0.75s cleanup. These scope corrections do not increase any limit.
+
+## Native thread-CPU failure metadata
+
+After architecture and clean-environment preparation, run:
+
+```sh
+"$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  tests/unit/test_personal_continuous_observation_cpu_time.py \
+  tests/unit/test_continuous_process_observation_diagnostic.py \
+  tests/unit/test_continuous_observation_timeout_site.py \
+  tests/unit/test_personal_worker_parent_diagnostic_wiring.py \
+  tests/unit/test_personal_lifecycle_failure_output.py \
+  tests/unit/test_personal_lifecycle_forwarding_diagnostic.py
+```
+
+The focused selection has300 cases (47+19+33+45+104+52). Its preceding-canonical
+run passes after preserving299pass/one new-test TypeError and repairing only the
+delegate signature/forwarded-input assertion. Fresh current-canonical validation
+also passes the same300 cases,0 failures/errors/skips,1.57s/1.923s healthy capture;
+the repeated identities are counted once. Controls cover literal defaultNone behavior, foreign-clock
+no-call/no-retention, exact native admission, invalid/backward/bounded samples,
+first-failure freezing, stable pointer binding and retained auxiliary/primary
+exception lifetimes. Golden normalization preserves all8 original worker assertions
+and rejects seven additional clock-wiring mutations. Fault injection is a finite unit model.
+
+Optional metadata measures the parent thread across the existing diagnostic wrapper,
+including wall-clock samples and original delegate cleanup. It does not measure
+child CPU, procfs-open duration or the timeout's cause. Production observer/SQL
+checks and100ms/500ms/30s/60s/120s bounds remain unchanged. Three actual-Linux
+process cases still require Linux CI; do not turn their macOS skips into acceptance.

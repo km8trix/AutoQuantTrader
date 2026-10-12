@@ -130,6 +130,18 @@ def admitted_function(source):
         (name, None) for name in _NEW_NAMES
     )
     candidate.body.remove(selected_import)
+    clocks = [
+        node
+        for node in candidate.body
+        if isinstance(node, ast.ImportFrom) and node.module == "time"
+    ]
+    assert len(clocks) == 1
+    clock_import = clocks[0]
+    assert clock_import.level == 0
+    assert tuple((name.name, name.asname) for name in clock_import.names) == (
+        ("thread_time_ns", None),
+    )
+    candidate.body.remove(clock_import)
     functions = [
         node
         for node in candidate.body
@@ -138,6 +150,20 @@ def admitted_function(source):
     assert len(functions) == 1
     function = functions[0]
     executable = copy.deepcopy(function)
+    diagnostics = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "ChildObservationDiagnostic"
+    ]
+    assert len(diagnostics) == 1
+    cpu_keywords = [
+        keyword for keyword in diagnostics[0].keywords if keyword.arg == "thread_clock_ns"
+    ]
+    assert len(cpu_keywords) == 1
+    assert dump(cpu_keywords[0].value) == dump(expression("thread_time_ns"))
+    diagnostics[0].keywords.remove(cpu_keywords[0])
     guards = [node for node in function.body if isinstance(node, ast.With)]
     assert len(guards) == 1
     guard = guards[0]
@@ -194,6 +220,13 @@ def nodes(tree, kind):
         "duplicate_import",
         "missing_import_name",
         "aliased_import",
+        "missing_clock_import",
+        "duplicate_clock_import",
+        "aliased_clock_import",
+        "missing_clock_keyword",
+        "duplicate_clock_keyword",
+        "foreign_clock",
+        "called_clock",
         "manager_arguments",
         "manager_outside_guard",
         "wrapper_arguments",
@@ -220,6 +253,17 @@ def test_admission_rejects_changed_behavior_before_any_function_execution(change
     import_node = next(
         node for node in tree.body if isinstance(node, ast.ImportFrom) and node.module == _IMPORT
     )
+    clock_import = next(
+        node for node in tree.body if isinstance(node, ast.ImportFrom) and node.module == "time"
+    )
+    diagnostic = next(
+        node
+        for node in nodes(function, ast.Call)
+        if isinstance(node.func, ast.Name) and node.func.id == "ChildObservationDiagnostic"
+    )
+    clock_keyword = next(
+        keyword for keyword in diagnostic.keywords if keyword.arg == "thread_clock_ns"
+    )
     if change == "extra_import":
         tree.body.insert(1, ast.parse("import os").body[0])
     elif change == "duplicate_import":
@@ -228,6 +272,20 @@ def test_admission_rejects_changed_behavior_before_any_function_execution(change
         import_node.names.pop()
     elif change == "aliased_import":
         import_node.names[0].asname = "other_factory"
+    elif change == "missing_clock_import":
+        tree.body.remove(clock_import)
+    elif change == "duplicate_clock_import":
+        tree.body.append(copy.deepcopy(clock_import))
+    elif change == "aliased_clock_import":
+        clock_import.names[0].asname = "other_clock"
+    elif change == "missing_clock_keyword":
+        diagnostic.keywords.remove(clock_keyword)
+    elif change == "duplicate_clock_keyword":
+        diagnostic.keywords.append(copy.deepcopy(clock_keyword))
+    elif change == "foreign_clock":
+        clock_keyword.value = ast.Name(id="foreign_clock", ctx=ast.Load())
+    elif change == "called_clock":
+        clock_keyword.value = expression("thread_time_ns()")
     elif change == "manager_arguments":
         guard.body[1].value.args.append(ast.Constant(value=None))
     elif change == "manager_outside_guard":
@@ -277,6 +335,7 @@ class Harness:
             [],
         )
         self.scope, self.request, self.startup = object(), object(), object()
+        self.thread_clock = object()
         self.counts = ("synthetic", 2)
         self.pending = self.manager = None
         self.error = kind("inert selected failure")
@@ -391,9 +450,10 @@ class Harness:
         self.events.append("supervisor")
         return SimpleNamespace(run=self.run)
 
-    def child_diagnostic(self, original, *, deadline_code):
+    def child_diagnostic(self, original, *, deadline_code, thread_clock_ns):
         assert original is self.raw_observe
         assert deadline_code is self.linux_reader.__code__
+        assert thread_clock_ns is self.thread_clock
         self.events.append("child-diagnostic")
         diagnostic = SimpleNamespace(observe=lambda *args, **kwargs: original(*args, **kwargs))
         diagnostic.summary = lambda *, iteration: {"iteration": iteration, "inert": True}
@@ -488,6 +548,7 @@ class Harness:
             "ContinuousProcessSupervisor": self.supervisor,
             "LocalInstanceGuard": self.guard,
             "ChildObservationDiagnostic": self.child_diagnostic,
+            "thread_time_ns": self.thread_clock,
             "SqlContinuousParentProbe": self.probe,
             "process_module": self.process,
             "create_parent_diagnostics": self.create,

@@ -20,7 +20,48 @@ returned, test exit1. Canonical traversal leads project self costs at7.300s
 (12.133s inclusive). These overlapping instrumented measurements concern rejected
 initial a78 only and establish neither removable time nor current-source lease fit.
 
-## Current focused descendant
+## Current nested-pair refinement and observation metadata
+
+Published e14's [automatic run38185750843](https://github.com/km8trix/AutoQuantTrader/actions/runs/38185750843)
+is completed failed:5739 financial passes/two failures/zero errors-skips;
+foundations/browser pass. Exact checkout23e20d3 has ordered parentsb1156ba/e14cb7f
+and tree0f9909e equal to the published tree. The original proof restores61.178s
+and correctly loses its60s lease; the signed profile separately fails at61.397s.
+The worker's first failure requests0.1s, wrapper elapsed308874473ns, at the native
+post-open deadline checkpoint. This interval includes cleanup/propagation and
+does not establish procfs-open latency or scheduling cause.
+
+The current production refinement coalesces only a nested exact-string pair's
+leading comma into its first completed formatting expression. The second expression,
+dynamic lookups, release/errors and every fallback remain. Whole-module inverse
+review passes. Pair35 retains all34 previous identities and adds a leading-null
+nested-pair literal-byte/destructor-replacement control. Current365 encoder and
+118 related financial cases pass with zero failures/errors/skips;
+architecture/configured Ruff/Linux mypy421/API pass. Original8 pass537.64s pytest/
+539.251s healthy capture on fresh fixtures; completed restores41.811s retained,
+41.893s original proof,42.756s retired, and five injected invalid cases reject.
+Original60s lease/120s alarm and every financial/venue/cleanup assertion remain.
+
+One fixed72-window comparison against e14's encoding retains all samples and six
+literal-byte workloads. Pair-heavy wall medians improve5.133%/4.729%, nested0.798%,
+mixed0.208%, scalar0.308%; nonpair tuples regress0.601%. Six accepted/29 rejected
+inert memory controls pass. Darwin uses existing512MiB RSS-high-water checks plus
+CPU30s/outer60s, with no address-space or instantaneous allocation-kill guarantee.
+The initial Darwin AS-limit preparation failure occurred before module loading/
+timing and is preserved. Synthetic timing does not establish financial lease fit.
+
+Test-only native thread-CPU failure metadata preserves defaultNone behavior,
+original delegate/deadline assertions and a stable exact-native pointer. Focused
+300 cases pass against preceding canonical Source after preserving a legitimate
+new-test signature failure. Fresh current-canonical300 also pass1.57s/1.923s
+healthy capture. Current distinct local selection totals791=365+300+118+8; repeated
+preceding-canonical diagnostic cases are not counted twice. Repository format1054
+files/lint/whitespace also pass.
+The delta measures parent-thread wrapper work, including wall samples/cleanup;
+no child CPU, open-call latency or timeout cause is inferred. Original financial
+tests, workflows, limits and production observer/SQL probe remain unchanged.
+
+## Preceding published e14 descendant
 
 Nested exact two-string tuples avoid recursion using two separate append/fstring
 statements, with only literal pair framing coalesced within each item expression.

@@ -460,3 +460,43 @@ pending. Private
 partial fragment layout, allocation/resource thresholds and arbitrary frame
 reflection are outside the established compatibility claim. Financial/risk checks,
 original tests, lease/alarm, workflows and trading authority remain unchanged.
+
+## 2026-10-11 — reduce nested-pair framing work
+
+**Decision:** move a nested exact-string pair's leading comma into its first
+completed formatting expression. Keep the second expression separate, both
+dynamic encoder lookups and all recursive/nonpair fallback behavior. Do not bind
+the encoder, cache records/types or remove financial validation.
+
+**Rationale:** the failed e14 restore profile identifies canonical traversal as
+the largest project self cost (7.596s; inclusive13.879s). The compatible two-append
+precedent avoids the rejected combined-expression lifetime defect. A whole-module
+inverse and leading-null nested-pair byte/release/error control support this narrow
+refinement. A fixed72-window comparison retains six literal-byte workloads and
+observes5.133%/4.729% pair-heavy wall gains; nonpair tuples regress0.601%.
+
+**Consequences/constraints:**35 pair cases retain all34 prior identities and the
+literal baseline. Current365 encoder +118 related +8 original cases and statics
+pass; exact Linux acceptance remains a separate gate. Synthetic
+timing and overlapping profile costs establish no removable time or lease fit.
+Preserve the60s lease,120s alarm and all ledger/venue/ownership assertions.
+
+## 2026-10-11 — measure native parent-thread CPU on observation failure
+
+**Decision:** allow the test-only child diagnostic to sample only the exact native
+`time.thread_time_ns` pointer beside its original wall samples, and freeze one
+bounded scalar delta with the first failure. DefaultNone preserves legacy behavior;
+foreign markers are not called/stored. Production observer enforcement is unchanged.
+
+**Rationale:** e14's100ms observation expires at the post-open checkpoint, but its
+308874473ns wrapper wall interval cannot distinguish CPU work from waiting or
+descheduling. The existing bounded test metadata is an established diagnostic
+boundary. Native fault cleanup preserves the pending original error and discards
+only auxiliary traceback/direct pending-primary edges.
+
+**Consequences/constraints:**300 focused units pass against the preceding canonical
+source after a preserved new-test signature failure. Fresh current-canonical
+validation also passes the same300 identities; count them once. Preserve unrelated exception edges, suppression and primary
+entry traceback. Metadata faults cannot replace delegate outcomes. Samples occur
+outside the observer deadline and measure parent-thread wrapper work, including
+wall samples/cleanup; no child CPU, open-latency, cause or timing-fit claim.

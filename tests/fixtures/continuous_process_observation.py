@@ -2,17 +2,39 @@
 
 import math
 import subprocess
+import sys
 from collections.abc import Callable
 from time import perf_counter_ns
+from time import thread_time_ns as _native_thread_time_ns
 from types import CodeType
 from typing import Any
 
 _COUNT_CAP = 4096
 _ELAPSED_CAP_NS = 10**15
+_CPU_CLOCK_CAP_NS = (1 << 63) - 1
 _TRACEBACK_CAP = 8
 _CONSTANT_CAP = 32
 _LINE_OFFSET_CAP = 4095
 _CATEGORIES = ("returned", "TimeoutExpired", "ValueError", "OSError", "SubprocessError", "other")
+
+
+def _release_thread_clock_error(
+    error: BaseException, primary: BaseException | None, primary_traceback: object
+) -> None:
+    """Discard clock-fault history without adding ownership of the pending primary."""
+    try:
+        BaseException.__traceback__.__set__(error, primary_traceback if error is primary else None)
+        if error is not primary and primary is not None:
+            if BaseException.__context__.__get__(error) is primary:
+                BaseException.__context__.__set__(error, None)
+            if BaseException.__cause__.__get__(error) is primary:
+                suppressed = BaseException.__suppress_context__.__get__(error)
+                BaseException.__cause__.__set__(error, None)
+                BaseException.__suppress_context__.__set__(error, suppressed)
+    except BaseException:
+        pass
+    finally:
+        error = primary = primary_traceback = None
 
 
 class ChildObservationDiagnostic:
@@ -24,6 +46,7 @@ class ChildObservationDiagnostic:
         *,
         clock_ns: Callable[[], int] = perf_counter_ns,
         deadline_code: CodeType | None = None,
+        thread_clock_ns: Callable[[], int] | None = None,
     ) -> None:
         self._original = original
         self._clock_ns = clock_ns
@@ -31,6 +54,13 @@ class ChildObservationDiagnostic:
         self._counts = dict.fromkeys(_CATEGORIES, 0)
         self._overflow = False
         self._first_failure: tuple[int, str, int | float | None, int] | None = None
+        # Only the native clock marker enables sampling; foreign values are not stored or called.
+        self._thread_cpu_enabled = thread_clock_ns is not None
+        self._thread_cpu_admitted = thread_clock_ns is _native_thread_time_ns
+        self._thread_cpu_clock = _native_thread_time_ns if self._thread_cpu_admitted else None
+        self._first_thread_cpu_elapsed_ns: int | None = None
+        if self._thread_cpu_enabled and not self._thread_cpu_admitted:
+            self._overflow = True
         self._first_timeout_site: int | None = None
         self._deadline_code: CodeType | None = None
         self._deadline_check_code: CodeType | None = None
@@ -97,6 +127,7 @@ class ChildObservationDiagnostic:
         return found
 
     def observe(self, *args: Any, **kwargs: Any) -> Any:
+        thread_started = self._sample_thread_cpu() if self._thread_cpu_admitted else None
         started = self._clock_ns()
         category = "returned"
         timeout_error: BaseException | None = None
@@ -121,6 +152,23 @@ class ChildObservationDiagnostic:
         finally:
             try:
                 elapsed = self._clock_ns() - started
+                thread_elapsed: int | None = None
+                if self._thread_cpu_admitted:
+                    thread_finished = self._sample_thread_cpu()
+                    if (
+                        thread_started is not None
+                        and thread_finished is not None
+                        and 0 <= thread_finished - thread_started <= _ELAPSED_CAP_NS
+                    ):
+                        thread_elapsed = thread_finished - thread_started
+                    else:
+                        self._overflow = True
+                if (
+                    self._thread_cpu_enabled
+                    and category != "returned"
+                    and self._first_failure is None
+                ):
+                    self._first_thread_cpu_elapsed_ns = thread_elapsed
                 timeout_site: int | None = None
                 if timeout_error is not None and self._first_failure is None:
                     try:
@@ -132,6 +180,28 @@ class ChildObservationDiagnostic:
                 # The propagated traceback includes this frame. Leaving the
                 # error here would add an exception/frame/payload retention cycle.
                 timeout_error = None
+
+    def _sample_thread_cpu(self) -> int | None:
+        """Bound native metadata only; faults cannot replace the original observation."""
+        value = primary = primary_traceback = None
+        primary_admitted = False
+        try:
+            primary = sys.exception()
+            if primary is not None:
+                primary_traceback = BaseException.__traceback__.__get__(primary)
+            primary_admitted = True
+            value = self._thread_cpu_clock()
+            if type(value) is int and 0 <= value <= _CPU_CLOCK_CAP_NS:
+                return value
+            self._overflow = True
+            return None
+        except BaseException as error:
+            if primary_admitted:
+                _release_thread_clock_error(error, primary, primary_traceback)
+            self._overflow = True
+            return None
+        finally:
+            self = value = primary = primary_traceback = None
 
     def _record(
         self, category: str, timeout: object, elapsed: int, timeout_site: int | None = None
@@ -175,6 +245,8 @@ class ChildObservationDiagnostic:
         )
         if first_summary is not None and self._first_timeout_site is not None:
             first_summary["deadline_check_line_offset"] = self._first_timeout_site
+        if first_summary is not None and self._thread_cpu_enabled:
+            first_summary["thread_cpu_elapsed_ns"] = self._first_thread_cpu_elapsed_ns
         return {
             "iteration": iteration,
             "call_count": self._calls,
