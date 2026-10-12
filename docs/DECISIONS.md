@@ -531,3 +531,42 @@ The prior c2 Linux5794/two lease failures and failed diagnostic remain failed.
 No execution authority, initializer, provider request, workflow or trading change.
 See [STATUS](STATUS.md), [TESTING](TESTING.md) and the
 [repair record](reviews/2026-10-11-restore-string-pairs/README.md).
+
+## 2026-10-12 — measure bounded whole-execute clocks without changing enforcement
+
+**Decision:** add exact-bool, defaultFalse `measure_execute` to the test-only retained
+profile helper. Default schema1 and unprofiled execution remain unchanged; the
+existing profile-enabled branch requestsTrue and emits schema2's fixed five-field
+`execute_timing` object. Freeze native wall/process/thread pointers, admit exact
+integer endpoints/deltas and retain all report/privacy bounds.
+
+**Rationale:** published90's closed failed CI and valid313-row/4,943-entry profile
+provide partial overlapping costs, not whole process/thread CPU totals. Its failed
+instrumented signed-retained test prints61.473s restore elapsed/303.77s pytest.
+Whole clocks can inform the next investigation without interpreting these rows as
+CPU totals or choosing another speculative optimization.
+
+**Consequences/constraints:** preserve original forwarding/result, actual pending
+primary traceback/cause/context/suppression and unrelated auxiliary ownership.
+Only direct primary edges/auxiliary tracebacks are detached. Fresh interruptions
+without an operation primary propagate even with an ambient handled exception;
+repeat calls invalidate metadata and still forward. An initial pending-end metadata
+guard gap was preserved and repaired before validation. Independent Source review,
+architecture/configured four-file Ruff, full repository format/lint (1,057 files
+in the format check) and120 focused cases (26+94) pass.
+One fresh offline opt-in fixture is closed failed on genuine execute and cleanup
+lease denial: restore60.415s/pytest236.78s/JUnit236.777s, one failure/zero errors-
+skips. Its healthy return1 capture takes240.250946125s with stable17 pins/no capture
+or output faults. Independent DATA review accepts diagnostic validity only:
+schema2 valid315 selected/5,130 considered/211 project rows, started/not returned/
+no faults; native wall/process/thread deltas60,385,780,334 /60,237,137,000 /
+60,237,139,334ns. Preserve this failed fixture before final public review and
+publication;900s outer/65,536 raw bytes/5s reap do not replace60s/120s enforcement.
+These staggered intervals
+include overhead, exclude construction/assertions/cleanup/report and establish no
+precise waiting cause, removable work, unprofiled lease fit or financial acceptance.
+Published90 remains failed with5,929 financial passes/three failures. Preserve60s
+lease/120s alarm, financial/venue/ownership checks, workflows and HALTED/trading-
+disabled state. No initializer, provider/credential, production or live/risk change.
+See [STATUS](STATUS.md), [PLAN](PLAN.md), [ARCHITECTURE](ARCHITECTURE.md) and
+[TESTING](TESTING.md) for current runtime and publication gates.

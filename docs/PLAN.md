@@ -2,48 +2,59 @@
 
 ## Current queue — 2026-10-12
 
-Read [STATUS](STATUS.md) before the historical milestones below. Current Source69d4feac
-adds exact string-first tuple/None/bool/int/bytes encoding shortcuts with independent
-31+105 regressions. Local627 distinct cases pass (501 encoder/semantic/codec +
-118 related +8 original); architecture, full1056-file formatting/lint,
-Linux-platform mypy421 and API contracts pass. The300 diagnostic cases are
-historical c2 results and are not counted again.
+Read [STATUS](STATUS.md) before the historical milestones below. Published
+`90e30237` retains canonical Source `69d4feac` and prior627 local passes. Its
+[automatic CI38206800710](https://github.com/km8trix/AutoQuantTrader/actions/runs/38206800710)
+closed failed:5,929 financial passes/three failures/no errors-skips; foundations/
+browser pass, aggregate and signed-retained diagnostic fail. The latter prints
+61.473s restore elapsed and303.77s pytest. Its valid313 selected/4,943 considered/
+204 project rows describe a failed instrumented execute and supply no whole
+process/thread CPU totals. Preserve all failures, financial checks and limits.
 
-Published c2fd147's [automatic CI38193711344](https://github.com/km8trix/AutoQuantTrader/actions/runs/38193711344)
-completed failed:5794 financial passes/two genuine lease failures,60.097s/61.118s;
-aggregate and signed diagnostic fail (61.080s). The current candidate has no exact
-Linux result yet. Preserve every financial check, original test and60s lease.
-Dated sections below retain their original revision/validation scope.
+### Selected task — bounded whole-execute diagnostic and next timeout investigation
 
-### Selected task — reviewed field-pair publication and exact Linux acceptance
-
-- **Objective:** qualify the locally validated encoding improvement on its exact
-  Linux revision while preserving wire identities and retained financial behavior.
-- **Scope:** current canonical tuple dispatch,31 string/tuple and105 native-field
-  cases, and operating docs. Skip only admitted outer-pair recursion; retain
-  separate first/second formatting, fresh child/encoder lookup, full conversion/
-  deferred order and fallback. No cache, check removal, limit/lease change,
-  initializer, provider/live effects, workflow edit or private history.
-- **Dependencies:** owner offline repair/publication authorization; closed local627
-  and static gates; independent financial and final public Source/diff/privacy/
-  document review. Fresh195 controls/120 fixed windows preserve literal identities
-  and all samples; copied-shape gains and retained control regressions establish
-  no actual frequency, removable restore time or whole-lease fit.
-- **Acceptance criteria:** original bytes/hashes, conversion/error/lookup order and
-  selected lifetimes; unchanged UTC,60s lease/120s alarm, financial/venue state and
-  cleanup. Exact candidate checkout/head/tree joins and completed Linux foundations,
-  browser, all16 financial shards and aggregate pass; failed gates remain failed.
+- **Objective:** distinguish elapsed, process CPU and calling-thread CPU intervals
+  around the existing instrumented execute to inform the next safe investigation.
+- **Scope:** four test-support files only: optional profile helper, its preserved
+  unit file, new timing units and one profile-constructor keyword in the original
+  integration runner. Default schema1/unprofiled execution, production, workflows,
+  financial assertions, credentials and execution authority remain unchanged.
+- **Dependencies:** admitted closed90 CI/profile; reviewed default/error/lifetime
+  Source; architecture before imports, configured four-file statics and full
+  repository Ruff format/lint (1,057 files in the format check);120 focused
+  cases pass (26+94,3.13s pytest/3.816s capture). The reviewed fresh offline opt-in
+  fixture is closed failed; independent DATA review accepts diagnostic validity
+  only. Its17 input pins are stable and its bounded return1 capture is healthy.
+- **Acceptance criteria:** exact native bool opt-in and integer bounds; enabled
+  schema2 has only five fixed timing fields. Preserve operation result/forwarding,
+  primary traceback/cause/context/suppression, direct auxiliary-edge ownership,
+  fresh interrupt propagation without an operation primary and repeated-call
+  forwarding. Original UTC,60s lease/120s alarm, financial/venue/cleanup checks
+  and report privacy/caps remain. Admit closed native/JUnit/report data honestly;
+  a lease failure remains failure rather than diagnostic acceptance.
 - **Validation commands:** [TESTING](TESTING.md)'s architecture, repository-CWD
-  configured formatting/lint, Linux-platform types/API,501 canonical/semantic/codec,
-  118 related and unchanged original8 on fresh offline fixtures. After review,
-  normal push from this explicit public checkout to the approved existing remote/
-  draft PR56, then read automatic exact-source CI metadata/logs. No manual retry,
-  force push, merge or deployment.
-- **Completion criteria:** independent financial/public reviews pass, reviewed public
-  commit is normally published, and exact completed Linux result is recorded and
-  accepted. Local627 or synthetic gains cannot close this task or Wave4. Investigate
-  actual failures before dependent work; continue independent unblocked tasks.
-  Genuine source/account/session/initializer and adoption gates remain separate.
+  configured four-file Ruff, scoped120-unit invocation and separately reviewed
+  single signed-retained opt-in invocation with fresh external outputs. The
+  fixture used900s outer/65,536 raw bytes/5s reap, with the original60s lease and
+  120s alarm unchanged. It fails execute and cleanup lease checks (restore60.415s;
+  pytest236.78s; JUnit236.777s/one failure/zero errors-skips; capture240.250946125s).
+  Valid schema2 has315 selected/5,130 considered/211 project rows, started/not
+  returned/no diagnostic faults and wall/process/thread deltas60,385,780,334 /
+  60,237,137,000 /60,237,139,334ns. No original8 rerun or consumed-study replay is
+  selected by this task.
+- **Completion criteria:** the selected fixture's failed result and valid bounded
+  clock fields are preserved and independently qualified. Pass final public
+  Source/diff/privacy review before normal publication to approved draft PR56.
+  Qualify automatic exact-source Linux CI. A failing financial gate keeps Wave4
+  open. Choose further work from actual evidence; do not infer waiting cause,
+  removable time or lease fit from partial profiles or staggered clock deltas.
+
+### Blocked downstream work
+
+Exact financial/observer/lease acceptance, genuine-source/account/session/host
+qualification and separate initializer/adoption approvals remain open. No live
+execution, risk increase, provider access or changed limit is selected.
+Dated milestones below retain their original revision and validation scope.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
 

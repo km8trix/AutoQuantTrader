@@ -10,16 +10,60 @@ Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/
 
 This section describes the `b1156ba` baseline and subsequent reviewed additions;
 later numbered sections preserve the accepted target design. Source presence is
-not operational acceptance. Current canonical Source69d4feac passes627 distinct
-local cases (501+118+8) and architecture/full1056-file Ruff/Linux mypy421/API gates.
-The300 diagnostic cases are historical c2 results and were not counted again.
-Published c2fd147's exact Linux run38193711344 completed failed with5794 passes/
-two lease failures (60.097s/61.118s); aggregate and signed diagnostic also fail
-(61.080s). Current69 Linux acceptance remains pending. Earlier restore/pilot and
-same-source repeat observations retain their original revision scope.
+not operational acceptance. Published `90e30237` retains canonical Source69d4feac
+and prior627 local cases (501+118+8) plus their static gates. Its
+[automatic CI38206800710](https://github.com/km8trix/AutoQuantTrader/actions/runs/38206800710)
+closed failed with5,929 financial passes/three failures/no errors-skips;
+foundations/browser pass and the aggregate fails. The automatic instrumented
+signed-retained test also fails (printed restore61.473s, pytest303.77s).
+Its valid313 selected/4,943 considered/204 project rows cover execute-started/
+not-returned with test exit1; overlapping costs give no whole CPU or cause proof.
+Prior c2/e14 and other dated observations retain their own revision scope.
 Wave4 captured-session replay, provider/account/host and initializer gates remain
-open. Read [STATUS](STATUS.md) and [PLAN](PLAN.md) for current gates; the older
-`107fa79` review below is a historical design baseline.
+open. Read [STATUS](STATUS.md) and [PLAN](PLAN.md); the older `107fa79` review is a
+historical design baseline. No service or broker is activated.
+
+### Default-off whole-execute clock metadata — 2026-10-12
+
+`tests/retained_restore_profile.py` is test support, excluded from the application
+wheel. Exact `measure_execute=True` binds native `perf_counter_ns`,
+`process_time_ns` and `thread_time_ns` pointers before the delegate, sampling
+staggered endpoints inside the existing successfully enabled profiler span.
+DefaultFalse retains legacy schema1, no clock reads and the preceding operation/
+report behavior. Only the existing environment-enabled profile branch requestsTrue;
+the unprofiled factory call and workflow are unchanged.
+
+Enabled schema2 adds one fixed `execute_timing` object: `status`,
+`wall_elapsed_ns`, `process_cpu_elapsed_ns`, `thread_cpu_elapsed_ns`, `scope`.
+Exact integer endpoints0..2^63-1 and nonnegative deltas0..10^15 are required;
+invalid metadata has null deltas and an allowlisted static fault. Native pointers
+survive delegate alias replacement. Finite private test fault seams are not a
+public custom-clock API. Repeated calls invalidate metadata while preserving every
+original operation call. Existing512-row/1,000,000-byte/exclusive0600/silent JSON
+report limits remain.
+
+Only an actually pending operation exception authorizes isolation of end-metadata
+faults. Preserve its native traceback/cause/context/suppression and detach only
+auxiliary traceback/direct primary edges; preserve unrelated ownership. Without
+that primary, fresh interrupts propagate, even inside an ambient handled error.
+Clock/wrapper/profiler overhead and staggered endpoints prevent precise waiting
+or cross-clock subtraction. Process CPU includes other process threads, excludes
+children; thread CPU covers the calling thread. Construction, assertions, cleanup
+and report work are excluded. These measurements confer no deadline or trading
+acceptance.
+
+Independent Source/default/error/lifetime review, architecture, configured four-
+file Ruff and full repository format/lint (1,057 files in the format check) pass.
+120 focused cases pass (26+94,3.13s pytest/3.816s capture). A fresh offline opt-in
+signed-retained fixture is closed failed on genuine execute and cleanup lease
+checks: printed restore60.415s, pytest236.78s, JUnit236.777s/one failure/zero errors-
+skips. The healthy return1 capture takes240.250946125s, stable17 pins/no capture or
+output faults. Independent DATA review accepts schema2 diagnostic validity only:
+315 selected/5,130 considered/211 project rows, started/not returned/no faults;
+wall/process/thread deltas60,385,780,334 /60,237,137,000 /60,237,139,334ns. The
+900s outer fixture bound does not replace the original60s lease/120s alarm. No
+unprofiled or Linux fit follows. Ownership/financial/venue checks and HALTED
+state remain unchanged.
 
 ### Components and entry points
 

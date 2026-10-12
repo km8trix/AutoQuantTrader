@@ -1,6 +1,119 @@
 # Testing and validation
 
-## Current native field-pair candidate — 2026-10-12
+## Current whole-execute clock diagnostic — 2026-10-12
+
+The four test-support files pass independent default/error/lifetime Source review,
+architecture, configured four-file Ruff and full repository format/lint (1,057
+files in the format check). **120 focused cases** (26 preserved +94 new)
+pass in3.13s pytest/3.816s healthy bounded capture. They cover exact native bounds,
+legacy wire bytes, forwarding, alias replacement, pending/ambient interrupts,
+traceback/direct-edge ownership, no-GC baseline-relative releases, repeated calls
+and report privacy/caps. Finite private fault seams establish no public clock API.
+
+The one fresh offline opt-in signed-retained fixture is **closed failed** on genuine
+execute and cleanup lease denial. Printed restore60.415s, pytest236.78s and JUnit
+suite236.777s/case233.908s are distinct; JUnit records one failure/zero errors-skips.
+Its return1 capture is healthy (240.250946125s, EOF/flags/output checks pass,
+17 unchanged input pins). Independent DATA review accepts diagnostic validity
+only: schema2 valid315 selected/5,130 considered/211 project rows, execute started/
+not returned/no diagnostic faults. Its five-field clock object is valid with
+wall60,385,780,334ns, process CPU60,237,137,000ns and calling-thread CPU60,237,139,334ns.
+A valid report cannot turn the failed restore into acceptance.
+
+The reviewed fixture wrapper used900s outer wall/65,536 combined raw bytes/5s reap.
+Exclusive output caps were report1,000,000 bytes, JUnit131,072, native524,288 and
+post-check16,384. Original60s lease/120s alarm and financial/venue/cleanup assertions
+remain. Source/pin/output work outside the child stopwatch is not part of restore.
+
+Published90's [CI38206800710](https://github.com/km8trix/AutoQuantTrader/actions/runs/38206800710)
+closed failed:5,929 financial passes/three failures/no errors-skips, foundations/
+browser success and aggregate failure. Its separate automatic signed-retained
+diagnostic fails (printed restore61.473s, pytest303.77s), with valid313 selected/
+4,943 considered/204 project rows, execute started/not returned and exit1. These
+partial overlapping cProfile rows provide no whole process/thread CPU totals.
+Prior90's627 local passes and dated validation below are separate from the new120
+focused cases and failed single fixture; do not combine them into acceptance.
+
+Use a verified prepared runtime and repository root. `AQT_PYTHON`, `AQT_RUFF`,
+`AQT_RUNTIME_BIN`, `AQT_PUBLIC_CHECKOUT`, `AQT_UNIT_OUTPUT` and
+`AQT_DIAGNOSTIC_OUTPUT` are placeholders for reviewed local choices; do not source
+credentials. The following scoped unit child command ran through the reviewed
+ordinary launcher with60s outer wall/65,536 raw bytes/5s reap and exclusive native/
+JUnit outputs. Source/runtime/config pins were checked before and after execution;
+native results are preserved before derived or post-pin failure handling.
+
+```sh
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 TZ=UTC \
+  "$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
+
+"$AQT_RUFF" format --check --no-cache --config pyproject.toml \
+  tests/retained_restore_profile.py \
+  tests/unit/test_personal_retained_restore_profile.py \
+  tests/unit/test_personal_retained_restore_execute_timing.py \
+  tests/integration/test_continuous_simulation_factory_outcome.py
+"$AQT_RUFF" check --no-cache --config pyproject.toml \
+  tests/retained_restore_profile.py \
+  tests/unit/test_personal_retained_restore_profile.py \
+  tests/unit/test_personal_retained_restore_execute_timing.py \
+  tests/integration/test_continuous_simulation_factory_outcome.py
+
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_UNIT_OUTPUT" "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  --basetemp "$AQT_UNIT_OUTPUT/fixture" --junitxml "$AQT_UNIT_OUTPUT/junit.xml" \
+  tests/unit/test_personal_retained_restore_profile.py \
+  tests/unit/test_personal_retained_restore_execute_timing.py
+```
+
+These next two examples record the closed fixture's wrapper and child command
+shapes, with private paths replaced by placeholders. They select one signed-
+retained node; they do not select the original8 suite or authorize a retry of a
+consumed run. Any future execution requires a fresh reviewed launcher, output
+location and pins. Fixture setup is outside the lease. The wrapper enforces the
+outer capture bounds; a direct child command alone does not enforce those bounds.
+
+The wrapper had exactly four environment fields and ran in `AQT_LAUNCHER_ROOT`.
+`AQT_VALIDATION_LAUNCHER` identifies the separately reviewed launcher. Its literal
+`{OUTPUT}` arguments are expanded by that launcher, not by the shell.
+
+```sh
+(
+  cd "$AQT_LAUNCHER_ROOT"
+  env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 TZ=UTC \
+    TMPDIR="$AQT_LAUNCHER_ROOT" "$AQT_PYTHON" -I -B "$AQT_VALIDATION_LAUNCHER" \
+    execute-clock-signed-retained 900 -B -m pytest -q -s -p no:cacheprovider \
+    --basetemp '{OUTPUT}/fixture' --junitxml '{OUTPUT}/junit.xml' \
+    tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+)
+```
+
+The child had exactly seven environment fields and ran in `AQT_PUBLIC_CHECKOUT`.
+The prepared runtime directory precedes the system PATH. The original profile
+switch uses the following exact report filename; the child command has no added
+traceback option.
+
+```sh
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_DIAGNOSTIC_OUTPUT" \
+  AQT_RETAINED_RESTORE_PROFILE_PATH="$AQT_DIAGNOSTIC_OUTPUT/retained-execute-profile.json" \
+  "$AQT_PYTHON" -B -m pytest -q -s -p no:cacheprovider \
+  --basetemp "$AQT_DIAGNOSTIC_OUTPUT/fixture" \
+  --junitxml "$AQT_DIAGNOSTIC_OUTPUT/junit.xml" \
+  tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+```
+
+Admit enabled schema2 and exactly five nested timing fields separately from legacy
+schema1. Deltas are bounded native integers or allnull; invalid/unavailable timing
+is not an elapsed observation. Process CPU includes other process threads and
+excludes children; thread CPU covers the caller. Staggered endpoints include clock/
+wrapper/profiler overhead: do not subtract into precise waiting/other-thread time,
+assert cross-clock inequalities, infer a lock/syscall/scheduler cause or claim
+whole unprofiled or Linux deadline fit. Preserve every failed native/JUnit/report
+result. The new observations cover this failed instrumented execute only.
+
+## Published native field-pair checkpoint — historical local validation
+
 
 Current canonical Source69d4feac passes **627 distinct local cases**:501
 canonical/semantic/codec,118 related account/factory/admission and8 original
@@ -25,7 +138,8 @@ proof60.097s and signed-retained61.118s expire the unchanged lease. Aggregate an
 signed diagnostic also fail; the latter prints61.080s. Its314 selected/4855
 considered profile rows describe execute-started/not-returned with test exit1.
 Overlapping costs establish no removable time or current69 Linux/lease fit.
-Exact current-source Linux/PostgreSQL acceptance remains pending.
+The published90 Linux financial gate is failed, as recorded above; PostgreSQL and
+Wave4 acceptance remain open. This section preserves the preceding local gate.
 
 The fresh scalar-pair comparison versus preceding string/tuple candidate45be35e1
 preserves195 finite controls/120 fixed windows:
