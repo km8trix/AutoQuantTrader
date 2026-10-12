@@ -2,52 +2,52 @@
 
 ## Current queue — 2026-10-12
 
-Read [STATUS](STATUS.md) before the historical milestones below. Published
-`90e30237` retains canonical Source `69d4feac` and prior627 local passes. Its
-[automatic CI38206800710](https://github.com/km8trix/AutoQuantTrader/actions/runs/38206800710)
-closed failed:5,929 financial passes/three failures/no errors-skips; foundations/
-browser pass, aggregate and signed-retained diagnostic fail. The latter prints
-61.473s restore elapsed and303.77s pytest. Its valid313 selected/4,943 considered/
-204 project rows describe a failed instrumented execute and supply no whole
-process/thread CPU totals. Preserve all failures, financial checks and limits.
+Read [STATUS](STATUS.md) before dated milestones below; their facts retain their
+own Source and validation scope. Current9e5f1525 has697 distinct passing cases
+(70+501+118+8) and full static gates. Original8 closes8pass490.67s pytest/
+492.188829917s healthy capture; independent financial DATA review passes. Preceding
+published `d8e27bef`'s [CI38306788427](https://github.com/km8trix/AutoQuantTrader/actions/runs/38306788427)
+is closed failed: all 16 financial shards record 6,024 passes / two lease failures
+across 6,026 nodes, zero errors/skips. Signed retained and retired print failed
+restores 61.487s / 60.228s. Foundations/browser pass; the aggregate and separate
+automatic signed-retained diagnostic fail (61.474s restore, one failure in 373.77s).
+All 20 jobs are closed, 16 successful / four failed. That run uses canonical69,
+not the local9e5f refinement.
 
-### Selected task — bounded whole-execute diagnostic and next timeout investigation
+### Selected task — preserve fallback identities while skipping one pair frame
 
-- **Objective:** distinguish elapsed, process CPU and calling-thread CPU intervals
-  around the existing instrumented execute to inform the next safe investigation.
-- **Scope:** four test-support files only: optional profile helper, its preserved
-  unit file, new timing units and one profile-constructor keyword in the original
-  integration runner. Default schema1/unprofiled execution, production, workflows,
-  financial assertions, credentials and execution authority remain unchanged.
-- **Dependencies:** admitted closed90 CI/profile; reviewed default/error/lifetime
-  Source; architecture before imports, configured four-file statics and full
-  repository Ruff format/lint (1,057 files in the format check);120 focused
-  cases pass (26+94,3.13s pytest/3.816s capture). The reviewed fresh offline opt-in
-  fixture is closed failed; independent DATA review accepts diagnostic validity
-  only. Its17 input pins are stable and its bounded return1 capture is healthy.
-- **Acceptance criteria:** exact native bool opt-in and integer bounds; enabled
-  schema2 has only five fixed timing fields. Preserve operation result/forwarding,
-  primary traceback/cause/context/suppression, direct auxiliary-edge ownership,
-  fresh interrupt propagation without an operation primary and repeated-call
-  forwarding. Original UTC,60s lease/120s alarm, financial/venue/cleanup checks
-  and report privacy/caps remain. Admit closed native/JUnit/report data honestly;
-  a lease failure remains failure rather than diagnostic acceptance.
-- **Validation commands:** [TESTING](TESTING.md)'s architecture, repository-CWD
-  configured four-file Ruff, scoped120-unit invocation and separately reviewed
-  single signed-retained opt-in invocation with fresh external outputs. The
-  fixture used900s outer/65,536 raw bytes/5s reap, with the original60s lease and
-  120s alarm unchanged. It fails execute and cleanup lease checks (restore60.415s;
-  pytest236.78s; JUnit236.777s/one failure/zero errors-skips; capture240.250946125s).
-  Valid schema2 has315 selected/5,130 considered/211 project rows, started/not
-  returned/no diagnostic faults and wall/process/thread deltas60,385,780,334 /
-  60,237,137,000 /60,237,139,334ns. No original8 rerun or consumed-study replay is
-  selected by this task.
-- **Completion criteria:** the selected fixture's failed result and valid bounded
-  clock fields are preserved and independently qualified. Pass final public
-  Source/diff/privacy review before normal publication to approved draft PR56.
-  Qualify automatic exact-source Linux CI. A failing financial gate keeps Wave4
-  open. Choose further work from actual evidence; do not infer waiting cause,
-  removable time or lease fit from partial profiles or staggered clock deltas.
+- **Objective:** reduce repeated canonical traversal for exact string-first
+  two-element fallback pairs while preserving existing identities and checks.
+- **Scope:** canonical.py's19-line outer fallback shortcut, one new70-case unit
+  file and these five operating documents. First formatting completes before
+  fresh `_typed_node(item[1])`; actual fragment index/placeholder and deferred
+  serialization order remain. Existing native arms, daily identity checks,
+  financial assertions, workflows, credentials and execution authority stay fixed.
+- **Dependencies:** independent Source/control/result review; architecture before
+  project imports;70 new +501 existing +118 related cases and full1,058-file
+  Ruff/Linux-platform mypy421/API checks pass. The132-window/11-workload finite
+  comparison retains literal identities, slow trials and control regressions.
+  Original8 closes8pass with20 stable pins, three completed restores
+  (39.192s/39.202s/39.849s) and five expected negative rejections; independent
+  financial DATA review passes.
+- **Acceptance criteria:** preserve full fallback conversion, dynamic encoder
+  lookup and first formatter release before the second leaf; deferred mutations/
+  errors, exact primary edges, ordinary native guards and all prior assertions
+  pass. Original UTC,60s lease/120s alarm, venue/ownership/retirement/cleanup remain.
+  A failed financial case stays failed. No cache/check/limit change or timing-fit
+  inference is admitted by synthetic medians.
+- **Validation commands:** [TESTING](TESTING.md)'s architecture, full configured
+  no-cache Ruff, Linux-platform mypy/API, new70 selector, preserved501/118 commands
+  and separately reviewed original8 fresh-fixture invocation. The closed original run
+  is full-traceback and unprofiled under unchanged900s outer/65,536 raw bytes/5s reap; this wrapper
+  does not change the60s lease/120s alarm. Do not replay consumed comparisons.
+- **Completion criteria:** original8 and all applicable gates are closed and
+  independently admitted; failures are repaired before dependent work. Pass a
+  separate final public Source/docs/diff/privacy review before normal publication
+  to approved draft PR56 after the preceding closed d8 CI, aggregate and automatic
+  diagnostic evidence is preserved and independently admitted. Qualify actual
+  automatic exact-source Linux gates;
+  local components or a normal push cannot close Wave4 financial acceptance.
 
 ### Blocked downstream work
 

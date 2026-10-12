@@ -570,3 +570,39 @@ lease/120s alarm, financial/venue/ownership checks, workflows and HALTED/trading
 disabled state. No initializer, provider/credential, production or live/risk change.
 See [STATUS](STATUS.md), [PLAN](PLAN.md), [ARCHITECTURE](ARCHITECTURE.md) and
 [TESTING](TESTING.md) for current runtime and publication gates.
+
+## 2026-10-12 — retain fresh fallback conversion while skipping the outer field pair
+
+**Decision:** append a19-line fallback arm to the existing exact two-element
+string-first tuple guard. Complete the first formatting statement, then call
+fresh `_typed_node(item[1])`, retain the actual deferred fragment index/placeholder
+and close the pair. All fallback serialization remains after traversal conversions.
+Existing native arms and every financial/daily identity check stay unchanged.
+No type/value/encoder cache, new proof, renewal or limit change is introduced.
+
+**Rationale:** repeated semantic field pairs use the existing typed conversion
+boundary; skipping one outer frame avoids repeated traversal without replacing
+that conversion. Independent70 regressions plus501 existing and118 related cases
+pass. The finite132-window/11-workload comparison against69 retains literal bytes/
+hashes and all slow trials: nested synthetic wall median improves5.263571%, while
+native-pair/nonpair controls regress0.156117%/0.135187%. Explicit synthetic shapes
+provide no actual record frequency, removable time or whole-restore/lease fit.
+
+**Consequences/constraints:** first formatter result release and fresh second-leaf
+conversion/dynamic lookup, deferred mutations/errors and primary exception edges
+remain required. Full1,058-file formatting/lint, Linux-platform mypy421 and API
+checks pass. Original8 closes8pass490.67s pytest/492.188829917s healthy capture,
+20 unchanged input pins and completed restores39.192s/39.202s/39.849s; five expected
+negative cases reject. The full-traceback/profile-disabled fresh fixture preserves
+original UTC/60s lease/120s alarm and financial/venue/ownership/retirement/cleanup
+assertions. Current distinct total697=70+501+118+8; independent financial DATA review
+passes. Do not infer causal savings from earlier differently bound timings.
+A separate final public review and exact-source Linux acceptance remain required.
+Published d8's closed 16-shard matrix has 6,024 passes / two genuine lease
+failures across 6,026 nodes (signed retained 61.487s, retired 60.228s). Its
+aggregate and separate automatic diagnostic fail; the latter prints 61.474s
+restore / one failure in 373.77s. These remain failed. The local9e5f candidate
+is not the canonical69 Source tested by that CI. No broker/provider/credential,
+workflow, initializer, deployment, live authority or risk change is selected.
+See [STATUS](STATUS.md), [PLAN](PLAN.md), [TESTING](TESTING.md) and
+[ARCHITECTURE](ARCHITECTURE.md).

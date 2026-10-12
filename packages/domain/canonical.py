@@ -277,6 +277,25 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
                         "]}"
                     )
                     continue
+                else:
+                    # This statement must finish before fresh fallback conversion.
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    converted = _typed_node(item[1])
+                    deferred.append((len(parts), converted))
+                    parts.append("")
+                    parts.append("]}")
+                    continue
             if index:
                 parts.append(",")
             _append_typed_text(item, parts, deferred)

@@ -1,6 +1,79 @@
 # Testing and validation
 
-## Current whole-execute clock diagnostic — 2026-10-12
+## Current fallback field-pair validation — 2026-10-12
+
+Current canonical9e5f1525/newunit47094c98 pass independent Source/result review
+and **697 distinct local cases**:70 new fallback-pair +501 existing encoder/
+semantic/codec +118 related account/factory/admission +8 original retained/proof,
+zero failures/errors/skips.
+Architecture, full1,058-file formatting, full lint, Linux-platform mypy421 and API
+contracts pass. Linux-platform type checking runs in the verified prepared runtime;
+it is not a Linux financial execution result. Original8 closes8pass490.67s pytest/
+492.188829917s healthy capture with20 unchanged input pins. Three completed
+restores print39.192s/39.202s/39.849s; five expected negative cases reject. The
+full-traceback, profile-disabled fresh-fixture invocation preserves original UTC/
+60s lease/120s alarm and every financial/venue/ownership/retirement/cleanup assertion.
+Its900s outer/65,536 raw bytes/5s reap cover setup and the suite, never extend the
+lease or restore alarm. Independent financial DATA review passes; no timing
+from a prior revision transfers here.
+
+The one fixed comparison against preceding69 retains132 raw windows across11
+literal-matching synthetic workloads. Nested declared synthetic fields improve
+wall median5.263571%; native-pair/nonpair controls regress0.156117%/0.135187%.
+All slow trials remain. Decimal/date/datetime/UUID/Enum/list/Mapping/set materials
+are explicit synthetic shapes, not admitted financial records or measured actual
+frequency. Native wall/process/thread sampling is staggered; observed Darwin RSS
+high-water checks are outside windows. CPU30s, observed RSS budget512MiB and
+outer60s/raw65536B/reap5 remain. These observations establish no instantaneous
+allocation prevention, precise waiting/CPU attribution, removable cost or whole
+restore/lease fit. Preserve every comparison failure and raw sample; do not replay
+the consumed launcher.
+
+Preceding published `d8e27bef`'s [automatic CI38306788427](https://github.com/km8trix/AutoQuantTrader/actions/runs/38306788427)
+is closed failed. All 16 financial shards record 6,024 passes / two failures across
+6,026 collected nodes, no errors/skips. Signed retained and retired fail execute
+and cleanup lease expiry (printed restores 61.487s / 60.228s). Foundations/browser
+pass; the aggregate fails. The separate automatic signed-retained diagnostic also
+fails (61.474s restore, one failure in 373.77s); its case is not an extra node in
+the 6,026-case standard matrix. All 20 jobs close: 16 successful / four failed.
+That run uses committed69 and does not qualify current9e5f. Prior627 local cases on69 and
+120 whole-execute diagnostic cases below remain separate historical scopes,
+not extra cases in697 or acceptance of the failed opt-in fixture.
+
+After architecture, the existing full static and501/118/original8 command bodies
+below remain unchanged. For the new70 selector, use a verified prepared runtime,
+repository root and fresh owned output. Placeholder meanings match the clean
+environment definitions below. The reviewed wrapper preserves native output
+before post-pin/JUnit admission with60s outer/65,536 combined raw bytes/5s reap;
+the direct child command alone does not impose those capture bounds.
+
+```sh
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_UNIT_OUTPUT" "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  --basetemp "$AQT_UNIT_OUTPUT/fixture" --junitxml "$AQT_UNIT_OUTPUT/junit.xml" \
+  tests/unit/test_personal_canonical_fallback_field_pairs.py
+```
+
+The current original8 invocation uses the following exact selector shape.
+`AQT_FINANCIAL_OUTPUT` is a fresh owned fixture/JUnit directory. The child has
+no profile-path variable and no traceback option; preserved historical
+`--tb=short` examples below describe their earlier runs. The reviewed wrapper
+enforces900s outer wall/65,536 raw bytes/5s reap and saves native capture before
+post-pin/JUnit admission. These bounds include setup and the suite; original60s
+lease/120s alarm remain. A direct child command does not impose the wrapper bounds.
+
+```sh
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_FINANCIAL_OUTPUT" "$AQT_PYTHON" -B -m pytest -q -s -p no:cacheprovider \
+  --basetemp "$AQT_FINANCIAL_OUTPUT/fixture" \
+  --junitxml "$AQT_FINANCIAL_OUTPUT/junit.xml" \
+  tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease \
+  tests/integration/test_continuous_attempt_factory_proof_lifecycle.py
+```
+
+## Published whole-execute clock diagnostic — historical validation
 
 The four test-support files pass independent default/error/lifetime Source review,
 architecture, configured four-file Ruff and full repository format/lint (1,057

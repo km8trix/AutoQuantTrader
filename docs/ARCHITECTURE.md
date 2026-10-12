@@ -29,7 +29,7 @@ historical design baseline. No service or broker is activated.
 wheel. Exact `measure_execute=True` binds native `perf_counter_ns`,
 `process_time_ns` and `thread_time_ns` pointers before the delegate, sampling
 staggered endpoints inside the existing successfully enabled profiler span.
-DefaultFalse retains legacy schema1, no clock reads and the preceding operation/
+DefaultFalse retains legacy schema1, no new execute-clock reads and the preceding operation/
 report behavior. Only the existing environment-enabled profile branch requestsTrue;
 the unprofiled factory call and workflow are unchanged.
 
@@ -90,15 +90,34 @@ names plus ordered field tuples; `content_digest` hashes the typed canonical UTF
 JSON. These bytes bind persisted financial/source identities. Preserve all fields,
 type tags, exact decimal and UTC encoding, mapping order and existing rejection.
 
-`canonical._append_typed_text` skips outer recursion only for exact two-element
+Published69's preceding `canonical._append_typed_text` shortcut skips outer
+recursion for exact two-element
 tuples with an exact string first leaf and exact string/tuple/None/bool/int/bytes
 second leaf. The first formatting statement completes before a fresh child
 recursion or second expression/encoder lookup. Keep each custom formatting result
 released before later dynamic lookups, original fallback conversions and deferred
 fragment indices/order. No cached type/value/encoder, new proof or daily identity
 recheck removal is introduced. SQL/fences/lease/risk/venue and broker boundaries
-are unchanged. Finite501 ordinary and118+8 financial cases do not replace
+are unchanged. Historical69's501 ordinary and118+8 financial cases do not replace
 exact-source Linux acceptance or establish arbitrary frame/resource equivalence.
+
+
+Current fallback refinement9e5f1525 adds only the outer exact string-first pair
+shortcut. The first complete formatting statement precedes fresh
+`_typed_node(item[1])`; conversion appends its actual `len(parts)` deferred slot
+and placeholder before closing the pair. All conversion hooks still complete in
+traversal order before fallback serialization. Existing native string/tuple/None/
+bool/int/bytes arms, identity checks, SQL/fences/lease/risk/venue and broker
+boundaries stay unchanged. There is no cache, new proof or changed limit.
+Current697 distinct local cases/static gates pass, including8 original cases
+with unchanged financial/UTC/lease/alarm checks and independent financial DATA
+review passing. Finite synthetic timing establishes no private-frame/resource
+equivalence, actual shape frequency or whole-lease fit. Earlier69's627 and the
+whole-execute diagnostic120 retain separate historical scopes. Read [STATUS](STATUS.md)
+for current exact-source CI and financial acceptance. Preceding published d8's
+closed Linux matrix has 6,024 passes / two lease failures across 6,026 nodes;
+the separate automatic diagnostic and aggregate also fail. That run uses 69,
+not the current fallback refinement; no failed gate becomes accepted.
 
 ### Bounded factory proof pilot (implementation under validation)
 
