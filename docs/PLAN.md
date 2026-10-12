@@ -1,32 +1,49 @@
 # Executable plan
 
-## Current queue — 2026-10-11
+## Current queue — 2026-10-12
 
-Read [STATUS](STATUS.md) before the historical milestone details below. This
-checkpoint preserves the published architecture, ownership and diagnostic fixes.
-Published1821d78 failed its exact Linux gate with two lease-expiry failures.
-The initial combined-fragment candidate a78d6b9 passed467 local cases but fails
-three newly added literal-baseline formatting-result lifetime regressions and is
-rejected. Its completed Linux run has5730 financial passes/one retired-proof
-lease failure at60.180s; the diagnostic also expires at60.242s. The compatible
-five-append source separately passed470 local cases. Published e14's pair-framing/
-string-comma source passes477 fresh local cases but its exact Linux run completed
-failed:5739 financial passes/two failures, zero errors/skips. Original proof loses
-its60s lease after61.178s; worker observation correctly expires at the100ms
-post-open checkpoint. A narrow nested-pair comma refinement now passes365 encoder
-and118 related cases. Original8 and current-source diagnostic300 also pass,
-giving791 distinct local cases. Preserve the60s lease, financial checks and
-original tests. Exact-source Linux acceptance remains required; Wave4 stays open.
-Historical results retain their original scope.
+Read [STATUS](STATUS.md) before the historical milestones below. Current Source69d4feac
+adds exact string-first tuple/None/bool/int/bytes encoding shortcuts with independent
+31+105 regressions. Local627 distinct cases pass (501 encoder/semantic/codec +
+118 related +8 original); architecture, full1056-file formatting/lint,
+Linux-platform mypy421 and API contracts pass. The300 diagnostic cases are
+historical c2 results and are not counted again.
 
-### Selected task — corrected restore encoding and exact Linux acceptance
+Published c2fd147's [automatic CI38193711344](https://github.com/km8trix/AutoQuantTrader/actions/runs/38193711344)
+completed failed:5794 financial passes/two genuine lease failures,60.097s/61.118s;
+aggregate and signed diagnostic fail (61.080s). The current candidate has no exact
+Linux result yet. Preserve every financial check, original test and60s lease.
+Dated sections below retain their original revision/validation scope.
 
-- **Objective:** reduce avoidable canonical encoding work while preserving retained financial/ownership behavior and per-item formatting-result lifetimes.
-- **Scope:** coalesce a preceding comma into the first nested exact-string-pair append while preserving two completed formatting expressions;35 pair cases retain all34 previous identities/literal baseline. Add optional exact-native thread-CPU failure metadata in the test fixture and minimal original-worker wiring,47 new controls and golden wiring controls. No production observer, cache, lease renewal/increase, weakened check, initializer, provider, live effects, workflow change or private history.
-- **Dependencies:** owner offline repair authorization; preserved failed e14 Linux run and current-source profile; independent Source/inverse/lifetime review. Current791 distinct cases (365 encoder +300 diagnostic +118 related +8 original) and architecture/Ruff/Linux mypy421/API pass. Fixed72-window comparison preserves six literal byte workloads and observes pair-heavy5.133%/4.729% wall gains, with nonpair0.601% regression retained. Final independent financial/public assembly review is required before publication.
-- **Acceptance criteria:** exact bytes/hashes, conversion/error/dynamic-lookup order and lifetimes; original tests, real clock,60s lease/120s alarm, financial/venue state and cleanup unchanged. Exact-revision Linux foundations and all16 financial shards pass; synthetic timing is not acceptance.
-- **Validation commands:** TESTING's architecture/configured Ruff/types/API, canonical/semantic/codec and native CPU diagnostic units,118 related and unchanged original8 retained/proof tests on fresh fixtures. After local acceptance/review, normal push from explicit public checkout; existing draft PR56 and automatic exact-source CI metadata/log review. No manual retry, force push, merge or deployment.
-- **Completion criteria:** original-eight and public-location validations pass, independent assembly review passes, and exact completed Linux result is recorded; repair failures before dependent work. A synthetic gain or historical pass cannot close this gate. Wave4 source/account/session/initializer and adoption gates remain separate.
+### Selected task — reviewed field-pair publication and exact Linux acceptance
+
+- **Objective:** qualify the locally validated encoding improvement on its exact
+  Linux revision while preserving wire identities and retained financial behavior.
+- **Scope:** current canonical tuple dispatch,31 string/tuple and105 native-field
+  cases, and operating docs. Skip only admitted outer-pair recursion; retain
+  separate first/second formatting, fresh child/encoder lookup, full conversion/
+  deferred order and fallback. No cache, check removal, limit/lease change,
+  initializer, provider/live effects, workflow edit or private history.
+- **Dependencies:** owner offline repair/publication authorization; closed local627
+  and static gates; independent financial and final public Source/diff/privacy/
+  document review. Fresh195 controls/120 fixed windows preserve literal identities
+  and all samples; copied-shape gains and retained control regressions establish
+  no actual frequency, removable restore time or whole-lease fit.
+- **Acceptance criteria:** original bytes/hashes, conversion/error/lookup order and
+  selected lifetimes; unchanged UTC,60s lease/120s alarm, financial/venue state and
+  cleanup. Exact candidate checkout/head/tree joins and completed Linux foundations,
+  browser, all16 financial shards and aggregate pass; failed gates remain failed.
+- **Validation commands:** [TESTING](TESTING.md)'s architecture, repository-CWD
+  configured formatting/lint, Linux-platform types/API,501 canonical/semantic/codec,
+  118 related and unchanged original8 on fresh offline fixtures. After review,
+  normal push from this explicit public checkout to the approved existing remote/
+  draft PR56, then read automatic exact-source CI metadata/logs. No manual retry,
+  force push, merge or deployment.
+- **Completion criteria:** independent financial/public reviews pass, reviewed public
+  commit is normally published, and exact completed Linux result is recorded and
+  accepted. Local627 or synthetic gains cannot close this task or Wave4. Investigate
+  actual failures before dependent work; continue independent unblocked tasks.
+  Genuine source/account/session/initializer and adoption gates remain separate.
 
 ### Completed validation — bounded Stop outcome diagnostic assembly
 

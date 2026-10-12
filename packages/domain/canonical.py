@@ -172,27 +172,114 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
         if type(item) is tuple:
             # Exact string pairs can avoid recursion. Keep each item's formatting
             # result released before the next dynamic encoder lookup.
-            if len(item) == 2 and type(item[0]) is str and type(item[1]) is str:
-                if index:
+            if len(item) == 2 and type(item[0]) is str:
+                if type(item[1]) is str:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
                     parts.append(
-                        ',{"type":"tuple","value":['
-                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
-                        ","
+                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[1])}}}'
+                        "]}"
                     )
-                else:
+                    continue
+                elif type(item[1]) is tuple:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    _append_typed_text(item[1], parts, deferred)
+                    parts.append("]}")
+                    continue
+                elif item[1] is None:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append('{"type":"null","value":null}]}')
+                    continue
+                elif type(item[1]) is bool:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
                     parts.append(
-                        '{"type":"tuple","value":['
-                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
-                        ","
+                        '{"type":"bool","value":true}]}'
+                        if item[1]
+                        else '{"type":"bool","value":false}]}'
                     )
-                parts.append(
-                    f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[1])}}}'
-                    "]}"
-                )
-            else:
-                if index:
-                    parts.append(",")
-                _append_typed_text(item, parts, deferred)
+                    continue
+                elif type(item[1]) is int:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        f'{{"type":"int","value":{json.encoder.encode_basestring_ascii(str(item[1]))}}}'
+                        "]}"
+                    )
+                    continue
+                elif type(item[1]) is bytes:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        f'{{"type":"bytes","value":{json.encoder.encode_basestring_ascii(item[1].hex())}}}'
+                        "]}"
+                    )
+                    continue
+            if index:
+                parts.append(",")
+            _append_typed_text(item, parts, deferred)
             continue
         if index:
             parts.append(",")

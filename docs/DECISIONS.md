@@ -500,3 +500,34 @@ validation also passes the same300 identities; count them once. Preserve unrelat
 entry traceback. Metadata faults cannot replace delegate outcomes. Samples occur
 outside the observer deadline and measure parent-thread wrapper work, including
 wall samples/cleanup; no child CPU, open-latency, cause or timing-fit claim.
+
+## 2026-10-12 — preserve identities while skipping native field-pair recursion
+
+**Decision:** extend the existing exact two-element string-first tuple dispatch
+to exact tuple/None/bool/int/bytes second leaves. Complete the first formatting
+expression before fresh child recursion or the second native expression/dynamic
+encoder lookup. Keep all other conversion, deferred, subclass/Enum and error paths.
+Daily identity calculations and both original native id calls remain unchanged;
+there is no record/type/encoder cache or financial-check/limit/lease change.
+
+**Rationale:** semantic_value represents dataclasses as qualified model names plus
+ordered field tuples. The failed c2 profile identifies canonical encoding as a
+cost, without measuring shape frequency or removable work. Independent finite195
+controls and120 fixed windows preserve legacy identities and selected hook/error/
+lifetime behavior. Relative to preceding string/tuple candidate45be35e1,
+record11.526%, declared-hold-shape18.167% and nested13.495%
+gains retain control regressions up to0.796%. Copied model-shape values are not
+admitted financial records; timings include fixed RSS checks and do not establish
+whole-restore or60s lease fit.
+
+**Consequences/constraints:**31 string/tuple and105 native-field regressions retain
+all365 prior cases, including first/second result release, fresh third lookup,
+selected primary edges, integer conversion order and deferred mutation. Local627
+(501+118+8), architecture/full1056-file Ruff/Linux mypy421/API pass. The new unit's
+repository-CWD I001 remains preserved; its one-blank repair leaves the AST equal.
+Original8 use UTC/60s lease/120s alarm, preserve all financial assertions and pass;
+current exact Linux acceptance and independent publication review remain required.
+The prior c2 Linux5794/two lease failures and failed diagnostic remain failed.
+No execution authority, initializer, provider request, workflow or trading change.
+See [STATUS](STATUS.md), [TESTING](TESTING.md) and the
+[repair record](reviews/2026-10-11-restore-string-pairs/README.md).

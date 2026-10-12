@@ -1,49 +1,58 @@
 # Testing and validation
 
-## Compatible restore string-pair candidate — 2026-10-11
+## Current native field-pair candidate — 2026-10-12
 
-The [current record](reviews/2026-10-11-restore-string-pairs/README.md) preserves
-original60s leases/120s alarms and every financial check. Current local validation
-passes791 distinct fresh cases:365 canonical/semantic/codec,300 diagnostic,
-118 account/factory/admission and8 original retained/proof, zero failures/errors/skips.
-Architecture/configured Ruff/Linux mypy421/API checks pass. Original8 pass537.64s
-pytest/539.251s healthy capture; restores print41.811s/41.893s/42.756s, five injected
-negative cases reject, original limits/assertions and Source pins unchanged.
-Repository format1054 files/lint/whitespace also pass. Published e14's preceding477
-local passes remain historical; its exact Linux run has5739 financial passes/two
-failures (original proof61.178s lease expiry and100ms worker observation).
-Corrected-source Linux/PostgreSQL acceptance remains pending. The preceding
-five-append implementation separately passed470 cases (344+118+8), Linux-platform
-mypy421 files and API checks. Its local restore times45.360s/45.242s/46.303s and
-five injected rejections are historical observations for that source.
-No Linux, cross-host or universal speedup follows from local observations.
+Current canonical Source69d4feac passes **627 distinct local cases**:501
+canonical/semantic/codec,118 related account/factory/admission and8 original
+retained/proof, zero failures/errors/skips. The501 retain365 existing cases and
+add31 string/tuple plus105 native-field regressions. The300 diagnostic cases
+last passed on c2 and were not rerun or counted in this frontier.
 
-The initial combined-fragment candidate a78d6b9 passes467 local cases but fails
-three subsequent legitimate lifetime cases and is rejected. The current shortcut
-coalesces only literal pair framing within two separate per-item fstrings and
-exact strings' commas within that item's expression. It must release each custom
-formatting result before the next dynamic lookup. All previous27 cases and literal
-oracle remain. Seven further cases independently check destructor-driven encoder
-replacement across root/nested/repeated/leading-null shapes and first lookup/
-encode/format exception identity, cause and context. A leading-null nested-pair
-control extends the same byte/release contract to the new comma branch. Total pair cases:35.
-Earlier failed gates and candidate observations stay separate; do not transfer
-initial synthetic gains or historical restore timings to this source.
+Architecture, full1056-file formatting/lint, Linux-platform mypy421 and API
+contracts pass. Run configured Ruff from the repository root: a real I001 in
+the new unit was missed by temporary-CWD checks, preserved and fixed by one
+import separator blank line with whole-file AST unchanged. Earlier formatting/
+B023 and bounded-reader failures/repairs remain preserved.
 
-After architecture, use the sanitized environment below with the verified
-prepared CPython3.12.13 runtime and new owned temporary outputs:
+Original8 pass554.21s pytest/556.070s healthy capture on fresh offline fixtures.
+Three completed restores print44.263s/43.889s/44.944s; five expected negative cases
+reject. Original UTC,60s lease/120s alarm and every financial/venue/ownership/
+retirement/cleanup assertion remain. No timing from another Source transfers here.
+
+Published c2fd147's [automatic CI38193711344](https://github.com/km8trix/AutoQuantTrader/actions/runs/38193711344)
+completed failed:5794 financial passes/two failures/zero errors-skips; original
+proof60.097s and signed-retained61.118s expire the unchanged lease. Aggregate and
+signed diagnostic also fail; the latter prints61.080s. Its314 selected/4855
+considered profile rows describe execute-started/not-returned with test exit1.
+Overlapping costs establish no removable time or current69 Linux/lease fit.
+Exact current-source Linux/PostgreSQL acceptance remains pending.
+
+The fresh scalar-pair comparison versus preceding string/tuple candidate45be35e1
+preserves195 finite controls/120 fixed windows:
+record11.526%, declared-hold-shape18.167% and nested13.495% gains retain control
+regressions up to0.796%. Copied semantic shape material is not an admitted
+financial record; timings include fixed RSS checks. CPU30s, Darwin observed
+RSS high-water budget512MiB and actual peak27,328,512B, outer60s/raw65536B/reap5
+remain; no address-space/transient prevention, actual-frequency or whole-restore
+inference follows. Keep all samples.
+The earlier string/tuple comparison's57 controls/120 windows and its modest
+record gain/control regressions remain separately bound to the45 candidate.
+
+After architecture, use the sanitized environment below, a verified prepared
+CPython3.12.13 runtime and fresh owned temporary outputs. These commands select
+the same501,8 and118 cases as the closed local gates:
 
 ```sh
 "$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
-"$AQT_PYTHON" -I -B -m ruff format --check --no-cache --config pyproject.toml \
-  packages/domain/canonical.py tests/unit/test_personal_canonical_string_pairs.py \
-  tests/unit/test_personal_canonical_fallback_lifetime.py
-"$AQT_PYTHON" -I -B -m ruff check --no-cache --config pyproject.toml \
-  packages/domain/canonical.py tests/unit/test_personal_canonical_string_pairs.py \
-  tests/unit/test_personal_canonical_fallback_lifetime.py
+"$AQT_PYTHON" -I -B -m ruff format --check --no-cache --config pyproject.toml .
+"$AQT_PYTHON" -I -B -m ruff check --no-cache --config pyproject.toml .
+"$AQT_PYTHON" -I -B -m mypy --platform linux apps packages
+"$AQT_PYTHON" -B -m scripts.generate_api_contracts --check
 "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
   tests/unit/test_canonical.py \
   tests/unit/test_personal_canonical_string_pairs.py \
+  tests/unit/test_personal_canonical_string_tuple_pairs.py \
+  tests/unit/test_personal_canonical_native_field_pairs.py \
   tests/unit/test_personal_canonical_fallback_lifetime.py \
   tests/unit/test_personal_canonical_tuple_dispatch.py \
   tests/unit/test_personal_canonical_deferred_dispatch.py \
@@ -61,16 +70,18 @@ prepared CPython3.12.13 runtime and new owned temporary outputs:
   tests/unit/test_personal_contract_type_dispatch.py
 ```
 
-The current900s outer subprocess bound covers fixture creation and eight tests
-(the preceding capture used1200s);
-it changes neither a lease nor the restore alarm. Preserve the original formatter/
-lint/coverage findings and nonpair synthetic regression; investigate failures
-before a dependent gate. Previous1821d78 CI stays failed (5699 pass/two fail).
-Initial a78d6b9 CI38176341845 is also closed failed:5730 pass/one retired-proof
-lease failure at60.180s, zero errors/skips. Its signed diagnostic expires at60.242s;
-310 valid profile rows/4855 considered describe execute-started/not-returned with
-test exit1 on that initial source only. Inclusive costs overlap and are not
-removable-time or current-source lease-fit evidence.
+The900s outer subprocess bound covers fixture creation and eight tests; it changes
+neither lease nor restore alarm. Preserve native captures before post-pin checks,
+complete raw/JUnit results and every legitimate failed gate. Use fresh outputs;
+do not replay consumed experiment launchers.
+
+Historical c2 Sourcecd04 passes791 local cases (365+300+118+8); e14 separately
+passes477 locally but fails Linux5739/two cases. Earlier five-append Source passes470
+locally. The initial a78 combined expression is rejected by three legitimate
+formatter-result lifetime cases despite467 financial/unit positives. Its Linux
+retired proof60.180s and diagnostic60.242s fail; old310 profile rows bind that
+Source only. Existing35 string-pair identities/literal baseline remain unchanged.
+Dated recovery/ownership sections below retain their original scopes.
 
 ## Constructor/snapshot recovery — 2026-10-11
 

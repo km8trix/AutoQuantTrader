@@ -8,7 +8,18 @@ Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/
 
 ## Current implementation map (verified 2026-09-26)
 
-This section describes the `b1156ba` baseline and subsequent reviewed additions recorded in [STATUS.md](STATUS.md); later numbered sections preserve the accepted target design. Source presence is not operational acceptance. Wave 4 code is integrated on its feature branch, and the revised retained-restore candidate passed one full Linux/PostgreSQL run but failed its same-source repeat; retained restore acceptance remains reopened. The subsequent terminal-probe repair passes the original local worker gates and the `7c73cd6` worker shard. The later `2a9fc2c` attempt-proof pilot fails exact-source Linux acceptance: three positive restore gates expire and an original worker reports a separate observation failure. The diagnostic follow-up and preserved failures are recorded in STATUS; no repeat pass alone establishes repair. Actual captured-session replay, provider/account and initializer gates remain open in the latest checked-in status. Read [STATUS.md](STATUS.md) and [PLAN.md](PLAN.md) for the resumable work queue and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed wave gates and evidence. The older `107fa79` review below is a historical design baseline.
+This section describes the `b1156ba` baseline and subsequent reviewed additions;
+later numbered sections preserve the accepted target design. Source presence is
+not operational acceptance. Current canonical Source69d4feac passes627 distinct
+local cases (501+118+8) and architecture/full1056-file Ruff/Linux mypy421/API gates.
+The300 diagnostic cases are historical c2 results and were not counted again.
+Published c2fd147's exact Linux run38193711344 completed failed with5794 passes/
+two lease failures (60.097s/61.118s); aggregate and signed diagnostic also fail
+(61.080s). Current69 Linux acceptance remains pending. Earlier restore/pilot and
+same-source repeat observations retain their original revision scope.
+Wave4 captured-session replay, provider/account/host and initializer gates remain
+open. Read [STATUS](STATUS.md) and [PLAN](PLAN.md) for current gates; the older
+`107fa79` review below is a historical design baseline.
 
 ### Components and entry points
 
@@ -27,6 +38,23 @@ This section describes the `b1156ba` baseline and subsequent reviewed additions 
 | `apps/trader/continuous_simulation.py`, `continuous_simulation_factory.py` | Supervised fixed worker restores or checks integrity of existing private HALTED account/venue SQLite stores. Requires preexisting schema and separate account/venue storage, acquires/revalidates a lease and releases resources. It does not initialize a deployment, re-arm it or reconstruct a first-send token. |
 | `packages/persistence/` | SQLAlchemy repositories for catalog/jobs, immutable financial facts, leases/fences, controls, risk assignments/reservations, attempts, journals, source captures and reconciliation. New continuous structures use migration `0040_personal_continuous`; `0039_personal_research` remains a separately recognized research revision. |
 | `packages/adapters/` | External I/O boundaries: private immutable artifacts, licensed data import/capture, explicitly selected E*TRADE GET/OAuth transports, clock observations and historical alert/trusted-time/broker components. Importing adapters is not authority to invoke them. |
+
+### Canonical identities and tuple dispatch
+
+`personal_contracts.semantic_value` represents dataclasses as qualified model
+names plus ordered field tuples; `content_digest` hashes the typed canonical UTF-8
+JSON. These bytes bind persisted financial/source identities. Preserve all fields,
+type tags, exact decimal and UTC encoding, mapping order and existing rejection.
+
+`canonical._append_typed_text` skips outer recursion only for exact two-element
+tuples with an exact string first leaf and exact string/tuple/None/bool/int/bytes
+second leaf. The first formatting statement completes before a fresh child
+recursion or second expression/encoder lookup. Keep each custom formatting result
+released before later dynamic lookups, original fallback conversions and deferred
+fragment indices/order. No cached type/value/encoder, new proof or daily identity
+recheck removal is introduced. SQL/fences/lease/risk/venue and broker boundaries
+are unchanged. Finite501 ordinary and118+8 financial cases do not replace
+exact-source Linux acceptance or establish arbitrary frame/resource equivalence.
 
 ### Bounded factory proof pilot (implementation under validation)
 
