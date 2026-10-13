@@ -18,6 +18,7 @@ from tests.fixtures.lifecycle_forwarding_diagnostic import (
     LifecycleForwardingDiagnostic,
     ObservedLifecycle,
     _scalar_snapshot,
+    _scalar_timing_snapshot,
 )
 
 LINE_CAP = 4096
@@ -32,11 +33,14 @@ _UNKNOWN = (
 class ParentLifecycleDiagnostics:
     """Only two None/False/exact-recorder slots and a sticky setup-misuse flag."""
 
-    __slots__ = ("__weakref__", "_misused", "_slots")
+    __slots__ = ("__weakref__", "_misused", "_native_timing", "_slots")
 
-    def __init__(self) -> None:
+    def __init__(self, *, native_timing: bool = False) -> None:
+        if type(native_timing) is not bool:
+            raise TypeError("native_timing must be an exact bool")
         self._slots: list[LifecycleForwardingDiagnostic | None | bool] = [None, None]
         self._misused = False
+        self._native_timing = native_timing
 
 
 # Exact admission remains independent of injectable constructors in unit tests.
@@ -45,7 +49,21 @@ _RECORDER_TYPE = LifecycleForwardingDiagnostic
 _WRAPPER_TYPE = ObservedLifecycle
 
 
-def create_parent_diagnostics() -> ParentLifecycleDiagnostics | None:
+def _manager_timing_enabled(diagnostics) -> bool:
+    try:
+        return (
+            type(diagnostics) is _MANAGER_TYPE
+            and object.__getattribute__(diagnostics, "_native_timing") is True
+        )
+    except BaseException:
+        return False
+    finally:
+        diagnostics = None
+
+
+def create_parent_diagnostics(*, native_timing: bool = False) -> ParentLifecycleDiagnostics | None:
+    if type(native_timing) is not bool:
+        raise TypeError("native_timing must be an exact bool")
     manager = primary = primary_traceback = None
     primary_admitted = False
     try:
@@ -53,7 +71,11 @@ def create_parent_diagnostics() -> ParentLifecycleDiagnostics | None:
         if primary is not None:
             primary_traceback = BaseException.__traceback__.__get__(primary)
         primary_admitted = True
-        manager = ParentLifecycleDiagnostics()
+        manager = (
+            ParentLifecycleDiagnostics(native_timing=True)
+            if native_timing
+            else ParentLifecycleDiagnostics()
+        )
         return manager if type(manager) is _MANAGER_TYPE else None
     except BaseException as error:
         if primary_admitted:
@@ -112,7 +134,11 @@ def wrap_already_constructed(
         # Reserve before constructors: duplicate/reentrant attempts cannot allocate
         # a third recorder or replace an earlier successful slot.
         slots[index] = False
-        recorder = LifecycleForwardingDiagnostic()
+        recorder = (
+            LifecycleForwardingDiagnostic(native_timing=True)
+            if _manager_timing_enabled(diagnostics)
+            else LifecycleForwardingDiagnostic()
+        )
         if type(recorder) is not _RECORDER_TYPE:
             return delegate
         wrapped = ObservedLifecycle(delegate, recorder)
@@ -140,7 +166,17 @@ def wrap_already_constructed(
         primary = primary_traceback = None
 
 
-def _unknown_snapshot() -> dict[str, object]:
+def _unknown_snapshot(*, native_timing: bool = False) -> dict[str, object]:
+    if native_timing:
+        return {
+            "schema_version": 2,
+            "available": False,
+            "incomplete": True,
+            "overflow": False,
+            "state": "unavailable",
+            "stages": None,
+            "timing": {"available": False, "overflow": False, "stages": None},
+        }
     return {
         "schema_version": 1,
         "available": False,
@@ -151,7 +187,7 @@ def _unknown_snapshot() -> dict[str, object]:
     }
 
 
-def _snapshot_for_slot(slot: object) -> dict[str, object]:
+def _snapshot_for_slot(slot: object, *, native_timing: bool = False) -> dict[str, object]:
     value = primary = primary_traceback = None
     primary_admitted = False
     try:
@@ -161,13 +197,14 @@ def _snapshot_for_slot(slot: object) -> dict[str, object]:
         primary_admitted = True
         if type(slot) is _RECORDER_TYPE:
             value = slot.snapshot()
-            if _scalar_snapshot(value):
+            validator = _scalar_timing_snapshot if native_timing else _scalar_snapshot
+            if validator(value):
                 return value
-        return _unknown_snapshot()
+        return _unknown_snapshot(native_timing=True) if native_timing else _unknown_snapshot()
     except BaseException as error:
         if primary_admitted:
             _release_metadata_traceback(error, primary, primary_traceback)
-        return _unknown_snapshot()
+        return _unknown_snapshot(native_timing=True) if native_timing else _unknown_snapshot()
     finally:
         slot = value = primary = primary_traceback = None
 
@@ -185,6 +222,12 @@ def _snapshot_payload(
         }
         if type(diagnostics) is not _MANAGER_TYPE:
             return payload
+        if _manager_timing_enabled(diagnostics):
+            payload["schema_version"] = 2
+            payload["iterations"] = [
+                _unknown_snapshot(native_timing=True),
+                _unknown_snapshot(native_timing=True),
+            ]
         slots = diagnostics._slots
         if not _slots_valid(slots) or type(diagnostics._misused) is not bool:
             return payload
@@ -192,7 +235,13 @@ def _snapshot_payload(
         if diagnostics._misused or not _iteration(iteration):
             return payload
         # Deliberately separate, nonblocking snapshots. No global epoch is claimed.
-        payload["iterations"] = [_snapshot_for_slot(slots[0]), _snapshot_for_slot(slots[1])]
+        if _manager_timing_enabled(diagnostics):
+            payload["iterations"] = [
+                _snapshot_for_slot(slots[0], native_timing=True),
+                _snapshot_for_slot(slots[1], native_timing=True),
+            ]
+        else:
+            payload["iterations"] = [_snapshot_for_slot(slots[0]), _snapshot_for_slot(slots[1])]
         return payload
     finally:
         diagnostics = iteration = slots = None
@@ -204,7 +253,7 @@ def _scalar_payload(value: object) -> bool:
     keys = tuple(value)
     if any(type(key) is not str for key in keys) or keys != _KEYS:
         return False
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+    if type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2):
         return False
     current = value["current_iteration"]
     if current is not None and not _iteration(current):
@@ -213,10 +262,11 @@ def _scalar_payload(value: object) -> bool:
     if misuse is not None and type(misuse) is not bool:
         return False
     rows = value["iterations"]
-    return type(rows) is list and len(rows) == 2 and all(_scalar_snapshot(row) for row in rows)
+    validator = _scalar_snapshot if value["schema_version"] == 1 else _scalar_timing_snapshot
+    return type(rows) is list and len(rows) == 2 and all(validator(row) for row in rows)
 
 
-def _fallback_line(iteration: object) -> str:
+def _fallback_line(iteration: object, *, native_timing: bool = False) -> str:
     try:
         current = (
             "1"
@@ -225,6 +275,22 @@ def _fallback_line(iteration: object) -> str:
             if (type(iteration) is int and iteration == 2)
             else "null"
         )
+        if native_timing:
+            unknown = (
+                '{"schema_version":2,"available":false,"incomplete":true,'
+                '"overflow":false,"state":"unavailable","stages":null,'
+                '"timing":{"available":false,"overflow":false,"stages":null}}'
+            )
+            return (
+                PREFIX
+                + '{"schema_version":2,"current_iteration":'
+                + current
+                + ',"misused":null,"iterations":['
+                + unknown
+                + ","
+                + unknown
+                + "]}\n"
+            )
         return (
             PREFIX
             + '{"schema_version":1,"current_iteration":'
@@ -265,7 +331,11 @@ def emit_parent_failure_line(
         if primary is not None:
             primary_traceback = BaseException.__traceback__.__get__(primary)
         primary_admitted = True
-        line = _fallback_line(iteration)
+        line = (
+            _fallback_line(iteration, native_timing=True)
+            if _manager_timing_enabled(diagnostics)
+            else _fallback_line(iteration)
+        )
         try:
             payload = _snapshot_payload(diagnostics, iteration)
             if _scalar_payload(payload):

@@ -5,9 +5,8 @@ Updated 2026-10-12 (America/New_York). Read [SPEC](SPEC.md), [PLAN](PLAN.md),
 exact-revision CI for current HEAD and gate state.
 
 - **Current milestone:** Wave 4 integration acceptance remains open.
-- **Current task:** finish independent public review, preserve the preceding closed
-  CI evidence, normally publish this fallback checkpoint and qualify its automatic
-  exact-source Linux CI.
+- **Current task:** review and normally publish the test-only parent-probe timing
+  diagnostic, then qualify the existing automatic Ubuntu worker/financial gates.
 - **Completed work:** canonical `9e5f1525` and new unit `47094c98` pass **697 distinct
   local cases**: 70 fallback-pair + 501 existing encoder/semantic/codec + 118 related
   + 8 original retained/proof, zero failures/errors/skips. Architecture, full 1,058-
@@ -17,11 +16,28 @@ exact-revision CI for current HEAD and gate state.
   negative cases reject. Independent financial DATA review passes. Full traceback
   and profile-disabled execution preserve original UTC, 60s lease / 120s alarm and
   every financial, venue, ownership, retirement and cleanup assertion.
-- **Work in progress:** final public Source/docs/diff/privacy review, normal
-  publication to the approved existing branch/draft PR and exact-source Linux CI.
-  Preserve the closed predecessor, including its failed automatic diagnostic;
-  local validation cannot replace Linux financial acceptance.
-- **Known failures:** preceding published `d8e27bef`'s
+- **Diagnostic validation:** five installed test-only paths pass architecture,
+  configured formatting/lint and 444 unique ordinary cases, zero failures/errors/
+  skips, suite1.430s / healthy capture1.780963417s with57stable pins. Independent
+  Source and actual-result reviews pass. The prior ambient-error retention failure
+  and three incorrect new fault-model expectations remain preserved; the repair
+  retains propagation of fresh non-OSError failures and every original assertion.
+  These cases are a separate scope from697 and confer no financial/worker pass.
+- **Work in progress:** final public diagnostic Source/docs/privacy review and
+  normal publication to the existing approved branch/draft PR. The original worker
+  opts into bounded stage wall/thread-CPU aggregates without changing its behavior
+  or eight assertions. Default callers retain v1 bytes and no new clock reads.
+- **Known failures:** published `f3c600f`'s
+  [CI38317396025](https://github.com/km8trix/AutoQuantTrader/actions/runs/38317396025)
+  is closed failed: 6,093 financial passes / three failures across6,096 nodes,
+  zero errors/skips. Worker iteration1/call3 expires the unchanged100ms observer;
+  original and signed-retained restores expire the60s lease (printed60.034s /
+  61.336s). Aggregate and automatic signed-retained diagnostic also fail; all20
+  jobs close15success/fivefailure. Foundations/browser pass. Current profile DATA
+  admits309rows/4,953considered, started/notreturned and testexit1, with valid
+  instrumented wall60.381168522s / processCPU60.318351386s /
+  threadCPU60.318352007s. These establish no removable cost or unprofiled fit.
+  Earlier published `d8e27bef`'s
   [automatic CI38306788427](https://github.com/km8trix/AutoQuantTrader/actions/runs/38306788427)
   is **closed failed**: all 16 financial shards record **6,024 passes / two failures**
   across 6,026 nodes, no errors/skips. Signed retained and retired fail genuine
@@ -34,13 +50,15 @@ exact-revision CI for current HEAD and gate state.
   account, session and host qualification and separate initializer/adoption approval.
   `CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED` remains. No credential or owner location
   is missing for this offline work.
-- **Next actions:** complete independent public review and preserve all failed
-  predecessor outcomes before normal publication to the approved existing branch/
-  [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56). Qualify actual
-  automatic exact-source Linux gates, repair failures and continue unblocked work.
+- **Next actions:** complete independent diagnostic public review, preserve all
+  failed predecessor outcomes and normally publish to the approved existing branch/
+  [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56). Existing Ubuntu CI
+  discovers the original worker node in shard3 of16; macOS uses the separate `ps`
+  observer and cannot qualify the failing Linux `/proc` path. Qualify exact-source
+  outcomes and new metadata, investigate failures and continue offline cost work.
   No blind retry, manual dispatch, force push, merge or deployment.
-- **Checkout:** public history descends from `d8e27bef`; this checkpoint includes
-  canonical fallback dispatch, its new unit file and five operating documents.
+- **Checkout:** public history descends from `f3c600f`; this diagnostic checkpoint
+  changes five test-only paths and five operating documents. Production unchanged.
   Use Git for actual HEAD and dirty state. Approved destination remains remote
   `codex/autonomous-development`, draft PR56, base `b1156ba`.
 

@@ -39,7 +39,7 @@ def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_finan
     supervisor = ContinuousProcessSupervisor(artifact_directory=private)
     with LocalInstanceGuard(private / "instance.lock") as lock:
         results = []
-        parent_diagnostics = create_parent_diagnostics()
+        parent_diagnostics = create_parent_diagnostics(native_timing=True)
         for iteration in range(1, 3):
             diagnostic = ChildObservationDiagnostic(
                 process_module._observe_child,

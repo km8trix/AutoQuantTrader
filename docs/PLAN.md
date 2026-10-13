@@ -2,6 +2,41 @@
 
 ## Current queue — 2026-10-12
 
+### Selected task — bounded parent-probe timing and actual Linux qualification
+
+- **Objective:** measure completed parent prepare/observe/require-result callbacks
+  to investigate the original worker observation failure without assuming its cause.
+- **Scope:** two lifecycle diagnostic fixtures, explicit original-worker opt-in,
+  wiring units and new native-timing units; five operating documents. Default-off
+  v1 wire stays exact. Opt-in v2 adds bounded count/wall/thread-CPU sum/max fields
+  for three fixed stages and two iterations. No production or workflow change.
+- **Dependencies:** independent Source/default/error/lifetime review and installed
+  validation pass:444unique ordinary cases/zero failures-errors-skips,57stable pins.
+  Currentf3 CI is closed failed (6,093financial passes/three failures); preserve
+  all results. Public review precedes approved normal publication to draft PR56.
+- **Acceptance criteria:** retain every operation/exception/result and all eight
+  original worker assertions; preserve native fault/interrupt/ambient lifetime,
+  fixed counters/output bounds and default bytes/no new default clocks. Qualify
+  actual Linux node outcomes and available diagnostic metadata separately.
+- **Validation commands:** [TESTING](TESTING.md)'s architecture/configured Ruff and
+  five-file ordinary recipe; existing Ubuntu CI executes
+  `.venv/bin/python -B scripts/run_personal_tests.py --postgres-url "$AQT_DISPOSABLE_TEST_DB" --shard-count 16 --shard-index 3`
+  with the explicitly disposable CI service URL.
+  Actual host/checkout/head/node/result must be admitted. No local Darwin run can
+  establish Linux `/proc` acceptance; no manual dispatch or blind retry.
+- **Completion criteria:** public review, normal publication and exact-revision CI
+  evidence are recorded. Diagnostic acceptance is distinct from a timeout repair.
+  Failures remain open until their compatible repair passes unchanged financial,
+  60s lease,100ms observer and worker/resource checks; continue unblocked offline work.
+
+The identity-field Source screen found no supported compatible reduction: fresh
+graph walks contain no SQL, and adjacent unused SQL construction lacks established
+constructor/getter/error/lifetime equivalence. No caching, skipped fields, new
+proof, lease renewal or higher cap is selected. The current profile's valid whole
+CPU clocks measure a failed instrumented span, not removable work or deadline fit.
+
+### Historical fallback checkpoint — local qualification
+
 Read [STATUS](STATUS.md) before dated milestones below; their facts retain their
 own Source and validation scope. Current9e5f1525 has697 distinct passing cases
 (70+501+118+8) and full static gates. Original8 closes8pass490.67s pytest/

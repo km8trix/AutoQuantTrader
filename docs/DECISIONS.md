@@ -571,6 +571,32 @@ disabled state. No initializer, provider/credential, production or live/risk cha
 See [STATUS](STATUS.md), [PLAN](PLAN.md), [ARCHITECTURE](ARCHITECTURE.md) and
 [TESTING](TESTING.md) for current runtime and publication gates.
 
+## 2026-10-12 — bounded test-only parent callback timing
+
+**Decision:** retain defaultFalse/v1 lifecycle diagnostics and add exact-bool
+native timing opt-in for prepare/observe/require-result stages. The original
+fixed-worker test requestsTrue; production and all eight assertions stay unchanged.
+Use fixed completed count and wall/thread-CPU sum/max fields, native bounds,
+nonblocking accounting and the existing two-slot/4,096-byte line limit.
+
+**Rationale:** currentf3's original Linux worker fails the100ms post-open observer
+guard (iteration1/call3). Existing observing-thread clocks do not measure parent
+callback costs or establish the cause. Bounded callback aggregates can inform the
+next investigation without changing execution, lease or resource policy.
+
+**Consequences/constraints:** preserve actual pending callback-primary traceback/
+cause/context/suppression and unrelated ownership. Ambient handled exceptions
+permit cleanup only; only exact OSError metadata faults are isolated without a
+callback primary, while fresh other errors/interrupts propagate. Preserve V1's
+ambient retention failure and V2's three incorrect new fault-model expectations;
+V3 keeps the repair, corrects that finite model and adds propagation controls.
+Independent Source and installed444-case actual-result reviews pass, no skips.
+No real-worker/financial pass follows. Timings include overhead and possible
+overlap, do not prove SQL/GIL contention or removable time, and cannot close the
+60s lease or100ms observer gates. Existing Ubuntu CI already selects the node;
+normal reviewed publication and actual exact-source Linux outcome remain separate.
+HALTED/trading authorityfalse, all financial checks and safety bounds stay fixed.
+
 ## 2026-10-12 — retain fresh fallback conversion while skipping the outer field pair
 
 **Decision:** append a19-line fallback arm to the existing exact two-element

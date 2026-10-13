@@ -170,7 +170,7 @@ def admitted_function(source):
     assert len(guard.body) == 3
     assert dump(guard.body[0]) == dump(ast.parse("results = []").body[0])
     assert dump(guard.body[1]) == dump(
-        ast.parse("parent_diagnostics = create_parent_diagnostics()").body[0]
+        ast.parse("parent_diagnostics = create_parent_diagnostics(native_timing=True)").body[0]
     )
     del guard.body[1]
     lifecycles = [
@@ -228,6 +228,10 @@ def nodes(tree, kind):
         "foreign_clock",
         "called_clock",
         "manager_arguments",
+        "missing_native_timing",
+        "false_native_timing",
+        "integer_native_timing",
+        "called_native_timing",
         "manager_outside_guard",
         "wrapper_arguments",
         "constructor_hoisted",
@@ -288,6 +292,14 @@ def test_admission_rejects_changed_behavior_before_any_function_execution(change
         clock_keyword.value = expression("thread_time_ns()")
     elif change == "manager_arguments":
         guard.body[1].value.args.append(ast.Constant(value=None))
+    elif change == "missing_native_timing":
+        guard.body[1].value.keywords.clear()
+    elif change == "false_native_timing":
+        guard.body[1].value.keywords[0].value = ast.Constant(value=False)
+    elif change == "integer_native_timing":
+        guard.body[1].value.keywords[0].value = ast.Constant(value=1)
+    elif change == "called_native_timing":
+        guard.body[1].value.keywords[0].value = expression("bool(True)")
     elif change == "manager_outside_guard":
         function.body.insert(function.body.index(guard), guard.body.pop(1))
     elif change == "wrapper_arguments":
@@ -474,9 +486,10 @@ class Harness:
         self.probes.append(probe)
         return probe
 
-    def create(self):
+    def create(self, *, native_timing):
+        assert type(native_timing) is bool and native_timing is True
         self.events.append("manager")
-        self.manager = output.create_parent_diagnostics()
+        self.manager = output.create_parent_diagnostics(native_timing=True)
         return self.manager
 
     def wrap(self, delegate, *, diagnostics, iteration):
@@ -612,10 +625,13 @@ def test_normal_two_iterations_preserve_request_lock_stop_patch_binding_receipts
         harness.receipts[1].path.read_bytes()
     )
     for snapshot in (recorder.snapshot() for recorder in harness.manager._slots):
+        assert snapshot["schema_version"] == 2
         assert snapshot["available"] is True
         assert all(
             row["returned"] == 1 and row["active"] == 0 for row in snapshot["stages"].values()
         )
+        assert snapshot["timing"]["available"] is True
+        assert all(row["completed_count"] == 1 for row in snapshot["timing"]["stages"].values())
     assert_cleanup(harness)
 
 
@@ -634,6 +650,7 @@ def test_failed_second_iteration_keeps_first_receipt_and_prints_child_before_par
     assert harness.lines[0].startswith("AQT_CHILD_OBSERVATION_DIAGNOSTIC ")
     assert harness.lines[1].startswith(output.PREFIX)
     payload = json.loads(harness.lines[1][len(output.PREFIX) :])
+    assert payload["schema_version"] == 2
     assert payload["current_iteration"] == 2
     assert payload["iterations"][0]["stages"]["require_result"]["returned"] == 1
     assert payload["iterations"][1]["stages"]["require_result"]["entered"] == 0
@@ -747,7 +764,8 @@ def test_safe_manager_creation_failure_still_uses_original_delegates_and_unknown
 ):
     harness = Harness(tmp_path, statuses=("completed", "failed"))
 
-    def failed_manager():
+    def failed_manager(*, native_timing):
+        assert type(native_timing) is bool and native_timing is True
         raise KeyboardInterrupt("new metadata constructor failure")
 
     with monkeypatch.context() as patch:

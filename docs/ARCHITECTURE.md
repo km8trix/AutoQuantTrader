@@ -23,7 +23,31 @@ Wave4 captured-session replay, provider/account/host and initializer gates remai
 open. Read [STATUS](STATUS.md) and [PLAN](PLAN.md); the older `107fa79` review is a
 historical design baseline. No service or broker is activated.
 
-### Default-off whole-execute clock metadata — 2026-10-12
+### Test-only parent-probe native timing — 2026-10-12
+
+The lifecycle forwarding/failure-output fixtures add strict `native_timing=False`.
+Default callers retain exact v1 metadata and no new clock reads. The original
+fixed-worker test alone opts into v2's three fixed callback rows with completed
+count, wall sum/max and calling-thread CPU sum/max. Nonblocking accounting, two
+iteration slots,4,096counter cap and4,096-byte ASCII failure-line cap remain.
+Native endpoint/delta bounds reject invalid timing as unknown rather than clip.
+
+Operations and original financial/restart assertions are unchanged. Only exact
+OSError metadata faults with no callback primary are isolated; other fresh errors
+and interruptions propagate. Actual callback primaries retain their traceback/
+cause/context/suppression; ambient handled errors grant cleanup ownership alone.
+Diagnostic-only cleanup detaches new retained edges and preserves unrelated owners.
+Independent no-GC lifetime and bounded/default/error controls pass within the
+444-case installed ordinary scope. Production source and resource limits are fixed.
+
+The parent aggregates measure completed callbacks, including lookup/forwarding
+and diagnostic overhead, with possible nested overlap. Thread CPU excludes other
+threads and child processes. No subtraction, SQL contention, removable-cost or
+whole-operation fit is inferred. Darwin uses `ps`; Ubuntu CI covers the original
+Linux `/proc` observer. Currentf3 financial/observer/lease acceptance remains
+failed; these test fixtures confer no execution or live-data authority.
+
+### Default-off whole-execute clock implementation
 
 `tests/retained_restore_profile.py` is test support, excluded from the application
 wheel. Exact `measure_execute=True` binds native `perf_counter_ns`,

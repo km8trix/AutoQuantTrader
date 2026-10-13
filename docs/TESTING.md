@@ -1,5 +1,54 @@
 # Testing and validation
 
+## Parent-probe native timing diagnostic — 2026-10-12
+
+Five installed test-only paths pass independent Source and actual-result review.
+The ordinary selection has444unique cases:192new timing +52forwarding +104failure
+output +49worker wiring +47child CPU; zero failures/errors/skips, suite1.430s,
+healthy capture1.780963417s and57stable Source/runtime pins. Earlier V1 ambient
+exception retention and V2 three incorrect fault-model expectations remain failed
+evidence. V3 retains fresh non-OSError propagation and every original assertion.
+This is diagnostic unit acceptance only; it does not add distinct cases to697,
+run the real worker, or qualify financial/Linux/lease acceptance.
+
+After the architecture check, the ordinary unit recipe from the checkout is:
+
+```sh
+AQT_PYTHON="$PWD/.venv/bin/python"
+AQT_UNIT_OUTPUT="$(mktemp -d)"
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 TZ=UTC \
+  "$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
+env -i PATH=/usr/bin:/bin LANG=C LC_ALL=C PYTHONHASHSEED=0 \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  PYTHONPATH="$PWD" TMPDIR="$AQT_UNIT_OUTPUT" \
+  "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider --noconftest \
+  -c "$PWD/pyproject.toml" -o addopts= -o pythonpath= \
+  tests/unit/test_personal_lifecycle_forwarding_diagnostic.py \
+  tests/unit/test_personal_lifecycle_failure_output.py \
+  tests/unit/test_personal_worker_parent_diagnostic_wiring.py \
+  tests/unit/test_personal_continuous_observation_cpu_time.py \
+  tests/unit/test_personal_parent_probe_native_timing.py \
+  --junitxml "$AQT_UNIT_OUTPUT/junit.xml"
+```
+
+This scoped pure-unit selection matches the accepted installed context; the real
+worker uses stock conftest and all original assertions in CI. Existing Ubuntu
+financial shard3 already selects
+`test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history`.
+It runs two actual restart iterations. macOS selects the `ps` observer and cannot
+establish the failing Linux `/proc` path; mocking platform does not qualify it.
+Do not change workflows, rerun a consumed study, raise deadlines or replace real
+financial checks. Original worker30s wall/CPU/512MiB, observer100ms, probe500ms,
+parent29.25s+.75s and the separate retained-fixture60s lease/120s alarm remain.
+
+Publishedf3 CI closes6,093financial passes/three failures across6,096nodes and
+15successful/fivefailed jobs. Preserve original worker observation and both
+retained restore lease failures plus the separate failed diagnostic. The latter
+has valid instrumented whole clocks60.381168522s wall/60.318351386s processCPU/
+60.318352007s threadCPU,309rows/4,953considered and testexit1. No removable cost,
+causal savings or unprofiled deadline fit follows. Next actual Linux evidence
+comes from the existing automatic PR run after reviewed normal publication.
+
 ## Current fallback field-pair validation — 2026-10-12
 
 Current canonical9e5f1525/newunit47094c98 pass independent Source/result review
