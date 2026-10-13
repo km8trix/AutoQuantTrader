@@ -632,3 +632,50 @@ is not the canonical69 Source tested by that CI. No broker/provider/credential,
 workflow, initializer, deployment, live authority or risk change is selected.
 See [STATUS](STATUS.md), [PLAN](PLAN.md), [TESTING](TESTING.md) and
 [ARCHITECTURE](ARCHITECTURE.md).
+
+## 2026-10-13 — separate first-observe profiling from financial acceptance
+
+**Decision:** add a test-only explicit environment opt-in for the first observe
+in iteration2, with a separate failure-triggered Ubuntu diagnostic job. Without
+the key, use the original lifecycle expression and skip all new profile factory,
+wrapper, export and emitter calls. Preserve all eight worker assertions and the
+required financial jobs/aggregate. No production path is changed.
+
+**Rationale:** publishedaa's closed Linux matrix has6,289 passes/three failures
+across6,292 cases. Its worker iteration2 reports570.696498ms wall/570.541414ms
+parent-thread CPU in observe with no child observations and `probe_stalled`. Source
+supports an initial500ms freshness-timeout inference; neither the exact rejecting
+branch nor SQL/automatic-GC/GIL/scheduler cause is established. A selected profiler interval can
+label capture/expression/compiler/cursor costs while retaining the callback.
+
+**Consequences/constraints:** start/stop and static conversion occur in the actual
+probe thread; preserve fresh SQL delegate lookup inside existing timed forwarding.
+Do not replace a detected trace/profile/monitoring owner, wait for an active call,
+disable it from main thread or export active stats. Fixed schema2 selects top32
+per existing metric/group, at most128 union rows and49,152 bytes after complete
+native validation. Native internal storage and the legacy512-row/1,000,000-byte
+projection remain larger than emitted limits; no universal memory/lifetime or
+arbitrary hook-takeover transparency is claimed. The scalar failure line remains
+4,096 ASCII bytes and exposes no private path, SQL, parameters, frame or arguments.
+
+Only an explicitly pending callback primary authorizes auxiliary-fault isolation,
+retaining traceback/cause/context/suppression and unrelated owners. An ambient
+handled error alone cannot authorize swallowing a new fault or interruption.
+The separate job preserves pytest exit and uploads
+only report plus test-exit JSON; missing stopped data fails as incomplete. Valid
+instrumented evidence cannot close the required unprofiled financial gate.
+
+Corrected temporary214 ordinary cases pass after preserving the prior collection
+failure and213-pass/one-failure invalid-syntax mutation. The valid `finally: pass`
+model still requires the original strict AssertionError. Preserve the earlier609
+pass and genuine full-lint I001; moving only the new worker import block preserves
+module AST apart from import order and all eight assertions. Fresh609 cases pass with identical ordered
+IDs, zero failures/errors/skips,2.76s pytest/3.200404750s healthy capture; architecture
+3.961583208s, full format1,065 files and lint pass. Independent current-result review
+and public Source/docs/privacy reviews pass. Ubuntu/runtime/report admission remains separate.
+Preserve lease60s, observer100ms, freshness500ms, worker30s wall/CPU/
+512MiB, parent29.25s+.75s cleanup and all financial checks. No live/provider/risk
+authority or removable-cost/deadline-fit inference follows.
+
+See the [diagnostic checkpoint](reviews/2026-10-13-parent-first-observe/README.md),
+[STATUS](STATUS.md), [PLAN](PLAN.md) and [TESTING](TESTING.md).

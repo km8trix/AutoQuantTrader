@@ -1,12 +1,13 @@
 # Current status
 
-Updated 2026-10-12 (America/New_York). Read [SPEC](SPEC.md), [PLAN](PLAN.md),
+Updated 2026-10-13 (America/New_York). Read [SPEC](SPEC.md), [PLAN](PLAN.md),
 [ARCHITECTURE](ARCHITECTURE.md) and [TESTING](TESTING.md). Use Git and
 exact-revision CI for current HEAD and gate state.
 
 - **Current milestone:** Wave 4 integration acceptance remains open.
-- **Current task:** review and normally publish the test-only parent-probe timing
-  diagnostic, then qualify the existing automatic Ubuntu worker/financial gates.
+- **Current task:** qualify and review the separate test-only first-observe profile
+  route, then normally publish to the approved branch and admit exact-source Ubuntu
+  results. See the [diagnostic checkpoint](reviews/2026-10-13-parent-first-observe/README.md).
 - **Completed work:** canonical `9e5f1525` and new unit `47094c98` pass **697 distinct
   local cases**: 70 fallback-pair + 501 existing encoder/semantic/codec + 118 related
   + 8 original retained/proof, zero failures/errors/skips. Architecture, full 1,058-
@@ -16,17 +17,40 @@ exact-revision CI for current HEAD and gate state.
   negative cases reject. Independent financial DATA review passes. Full traceback
   and profile-disabled execution preserve original UTC, 60s lease / 120s alarm and
   every financial, venue, ownership, retirement and cleanup assertion.
-- **Diagnostic validation:** five installed test-only paths pass architecture,
+- **Historical stage-timing validation:** five test-only paths passed architecture,
   configured formatting/lint and 444 unique ordinary cases, zero failures/errors/
   skips, suite1.430s / healthy capture1.780963417s with57stable pins. Independent
   Source and actual-result reviews pass. The prior ambient-error retention failure
   and three incorrect new fault-model expectations remain preserved; the repair
   retains propagation of fresh non-OSError failures and every original assertion.
   These cases are a separate scope from697 and confer no financial/worker pass.
-- **Work in progress:** final public diagnostic Source/docs/privacy review and
-  normal publication to the existing approved branch/draft PR. The original worker
-  opts into bounded stage wall/thread-CPU aggregates without changing its behavior
-  or eight assertions. Default callers retain v1 bytes and no new clock reads.
+- **Work in progress:** nine installed test/workflow paths add an explicit profile
+  opt-in for only the first observe in iteration2. Absent opt-in preserves the
+  original lifecycle expression and skips the new profile factory, wrapper and
+  output calls. Existing stage wall/thread-CPU metadata and all eight original
+  worker assertions remain. The separate failure-triggered Ubuntu job is excluded
+  from required aggregation; the required worker remains unprofiled.
+  The corrected temporary selection passes214 ordinary cases, zero failures/errors/
+  skips,0.88s pytest/1.237691708s healthy capture after fresh architecture3.292199833s.
+  Its prior213-pass/one-failure invalid-syntax mutant and earlier collection failure
+  remain failed evidence. After an import-only ordering repair, fresh installed609
+  ordinary cases pass with zero failures/errors/skips and identical ordered IDs,
+  2.76s pytest/3.200404750s healthy capture,66 stable inputs; fresh architecture
+  3.961583208s/64pins. Full format1,065 files and full lint pass. The earlier609
+  pass and genuine I001 remain historical results. Independent current-result
+  and public Source/docs/privacy reviews pass. Neither gate invokes the actual worker or confers financial
+  or Ubuntu acceptance.
+- **Latest failed CI:** published `aa311dd`'s
+  [CI38330853330](https://github.com/km8trix/AutoQuantTrader/actions/runs/38330853330)
+  closes FAILED:6,289 financial passes/three failures across6,292 selected cases,
+  zero errors/skips. Worker iteration2 reports `probe_stalled` with570.696498ms wall/
+  570.541414ms threadCPU and no child observations. Source supports a500ms freshness-
+  timeout inference; the exact rejecting branch and cause remain unproven. Retained
+  and retired proofs expire the60s lease. Aggregate and separate signed-
+  retained diagnostic fail; all20jobs close15success/fivefailure. Foundations/browser
+  pass. Valid diagnostic DATA admits309rows/4,919considered, started/notreturned,
+  testexit1 and instrumented wall60.346944174s/processCPU60.324061511s/
+  threadCPU60.324061501s. Costs overlap and establish no cause, removable work or fit.
 - **Known failures:** published `f3c600f`'s
   [CI38317396025](https://github.com/km8trix/AutoQuantTrader/actions/runs/38317396025)
   is closed failed: 6,093 financial passes / three failures across6,096 nodes,
@@ -50,15 +74,15 @@ exact-revision CI for current HEAD and gate state.
   account, session and host qualification and separate initializer/adoption approval.
   `CAPTURE_GENUINE_SOURCE_BRIDGE_REQUIRED` remains. No credential or owner location
   is missing for this offline work.
-- **Next actions:** complete independent diagnostic public review, preserve all
-  failed predecessor outcomes and normally publish to the approved existing branch/
+- **Next actions:** normally publish the reviewed checkpoint to the approved branch/
   [draft PR56](https://github.com/km8trix/AutoQuantTrader/pull/56). Existing Ubuntu CI
-  discovers the original worker node in shard3 of16; macOS uses the separate `ps`
+  discovers the required original worker node in shard3 of16; macOS uses the separate `ps`
   observer and cannot qualify the failing Linux `/proc` path. Qualify exact-source
   outcomes and new metadata, investigate failures and continue offline cost work.
   No blind retry, manual dispatch, force push, merge or deployment.
-- **Checkout:** public history descends from `f3c600f`; this diagnostic checkpoint
-  changes five test-only paths and five operating documents. Production unchanged.
+- **Checkout:** public history descends from `aa311dd`; this checkpoint changes
+  eight test-only paths, one separate diagnostic workflow job and six documents.
+  Production and required workflow jobs are unchanged.
   Use Git for actual HEAD and dirty state. Approved destination remains remote
   `codex/autonomous-development`, draft PR56, base `b1156ba`.
 

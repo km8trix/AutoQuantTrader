@@ -10,7 +10,14 @@ Wave 0 now supplies the [frozen supporting contract pack](contracts/personal-v1/
 
 This section describes the `b1156ba` baseline and subsequent reviewed additions;
 later numbered sections preserve the accepted target design. Source presence is
-not operational acceptance. Published `90e30237` retains canonical Source69d4feac
+not operational acceptance. Published `aa311dd` retains canonical9e5f1525 and697
+local cases; its [CI38330853330](https://github.com/km8trix/AutoQuantTrader/actions/runs/38330853330)
+closes FAILED with6,289 financial passes/three failures across6,292 cases, no errors/
+skips. Required worker/retained/retired failures and the separate signed-retained
+diagnostic remain open; foundations/browser pass. This new test-only route passes
+installed ordinary validation and independent current-result/public review.
+It establishes no financial or Ubuntu acceptance.
+Historical published `90e30237` retains canonical Source69d4feac
 and prior627 local cases (501+118+8) plus their static gates. Its
 [automatic CI38206800710](https://github.com/km8trix/AutoQuantTrader/actions/runs/38206800710)
 closed failed with5,929 financial passes/three failures/no errors-skips;
@@ -22,6 +29,47 @@ Prior c2/e14 and other dated observations retain their own revision scope.
 Wave4 captured-session replay, provider/account/host and initializer gates remain
 open. Read [STATUS](STATUS.md) and [PLAN](PLAN.md); the older `107fa79` review is a
 historical design baseline. No service or broker is activated.
+
+### Separate first-observe static profile — 2026-10-13
+
+The [test-only diagnostic](reviews/2026-10-13-parent-first-observe/README.md) adds
+`AQT_PARENT_FIRST_OBSERVE_PROFILE_PATH`. Without that key, the original worker
+uses its previous lifecycle expression and performs no new profile construction,
+wrapping, export or emit call. Present selection must name an unused
+`parent-probe-first-observe.json` in an owned private directory; invalid selection
+rejects before worker-body signed-history/supervisor setup; pytest's configured
+fixture is constructed first. The required financial runner never sets this variable.
+
+The outer wrapper selects only the first observe in iteration2 in the actual
+probe thread. The original fresh SQL delegate lookup remains inside the existing
+timed forwarding and profile span. Native profiler/entry admission and existing
+trace/profile/monitoring ownership checks are finite native-runtime boundaries;
+this is no hostile-code or arbitrary hook-takeover sandbox. Only an explicitly
+pending callback primary authorizes auxiliary-fault isolation, preserving native
+traceback/cause/context/suppression. An unrelated ambient handled error does not
+authorize swallowing a new error or interruption; retained ambient owners are
+protected without granting suppression authority.
+
+The probe thread stops profiling and converts native stats to admitted static
+data. Main-thread output after supervisor cleanup is nonblocking; an active call
+is unavailable, with no added wait, cross-thread disable or active export. Schema2
+uses top32 inclusive/self overall/project sets, at most128 union rows and49,152
+bytes. Every native entry is validated before selection. Legacy512-row/1,000,000-
+byte projection remains intermediate; native profiler storage/code retention is
+not limited by emitted caps. The failure line contains only bounded scalar
+availability and retains its4,096-byte ASCII cap, without paths or raw SQL/values.
+
+The separate Ubuntu job runs only after successful foundations and failed backend
+tests, and is excluded from required aggregation. It uses the original worker node,
+keeps pytest exit, uploads only the static report and test-exit JSON, and treats a
+missing stopped report as incomplete. Instrumentation includes existing dispatch/
+clock/bookkeeping overhead and conversion can delay publication. Inclusive rows
+overlap; no automatic-GC, CPU/wait decomposition, cause or deadline fit follows.
+Temporary214 and fresh installed609 ordinary controls pass; the latter retains
+identical ordered IDs after an import-only repair. Architecture, full format1,065
+files and lint pass. The earlier609 pass and actual I001 remain historical;
+independent current-result and public Source/docs/privacy reviews pass. No actual worker was invoked.
+Production, financial assertions,60s lease and all original resource limits stay fixed.
 
 ### Test-only parent-probe native timing — 2026-10-12
 
@@ -44,7 +92,7 @@ The parent aggregates measure completed callbacks, including lookup/forwarding
 and diagnostic overhead, with possible nested overlap. Thread CPU excludes other
 threads and child processes. No subtraction, SQL contention, removable-cost or
 whole-operation fit is inferred. Darwin uses `ps`; Ubuntu CI covers the original
-Linux `/proc` observer. Currentf3 financial/observer/lease acceptance remains
+Linux `/proc` observer. Historicalf3 financial/observer/lease acceptance remains
 failed; these test fixtures confer no execution or live-data authority.
 
 ### Default-off whole-execute clock implementation

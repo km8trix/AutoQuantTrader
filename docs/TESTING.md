@@ -1,6 +1,103 @@
 # Testing and validation
 
-## Parent-probe native timing diagnostic — 2026-10-12
+## First iteration2 observe profile route — 2026-10-13
+
+The separate [diagnostic checkpoint](reviews/2026-10-13-parent-first-observe/README.md)
+keeps the required worker unprofiled. Absent
+`AQT_PARENT_FIRST_OBSERVE_PROFILE_PATH` skips every new profile factory/wrapper/
+writer/emitter call and preserves the original lifecycle expression and eight
+assertions. Only the failure-triggered Ubuntu diagnostic supplies the opt-in.
+Malformed or already-owned output selection rejects before worker-body signed-
+history/supervisor setup; pytest's configured fixture is constructed first.
+
+Temporary214 ordinary controls pass with zero failures/errors/skips,0.88s pytest/
+1.237691708s healthy capture and architecture3.292199833s. The preceding213-pass/
+one-failure invalid-syntax cleanup mutant remains failed: its test was repaired to
+valid `finally: pass` so the unchanged AssertionError checks actual missing cleanup.
+An earlier collection failure constructed hostile inputs during pytest IDs; the
+repair defers construction into the test without weakening their hooks. The first
+installed609 pass (2.20s pytest/2.535625917s healthy capture) preceded a genuine full-
+lint I001. Moving only the new worker import block preserves module AST apart from import order, all eight
+assertions and ordered case identities. Fresh609 unique cases pass, zero failures/
+errors/skips,2.76s pytest/3.200404750s healthy capture/885raw bytes/66stable inputs;
+fresh architecture3.961583208s/64pins. Full format1,065 files and full lint pass.
+Independent current-result and final public Source/docs/privacy reviews pass.
+This disjoint ordinary
+selection combines214 with395 retained cases from the prior444 gate; shared49
+wiring cases are counted once. It neither runs the actual worker nor adds to697
+financial/canonical cases. All older command bodies below retain their scope.
+
+After the architecture check, this is the installed ordinary child recipe with a
+verified runtime and fresh owned output. It requires explicit configuration and
+no inherited plugins/conftest. A reviewed wrapper adds60s outer/65,536 combined raw
+bytes/5s reap,524,288 native JSON/131,072 JUnit/16,384 postcheck bytes; the direct
+child recipe does not impose those capture bounds. The public placeholders below
+match the reviewed child argv order and preserve configured strict markers/config.
+
+```sh
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONDONTWRITEBYTECODE=1 TZ=UTC \
+  "$AQT_PYTHON" -I -B scripts/check_personal_architecture.py
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_UNIT_OUTPUT" "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  --noconftest -c "$AQT_PUBLIC_CHECKOUT/pyproject.toml" \
+  --basetemp "$AQT_UNIT_OUTPUT/fixture" --junitxml "$AQT_UNIT_OUTPUT/junit.xml" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_parent_first_observe_profile.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_parent_first_observe_profile_adverse.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_worker_parent_diagnostic_wiring.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_parent_first_observe_linux_route.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_parent_first_observe_linux_route_faults.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_parent_probe_native_timing.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_lifecycle_forwarding_diagnostic.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_lifecycle_failure_output.py" \
+  "$AQT_PUBLIC_CHECKOUT/tests/unit/test_personal_continuous_observation_cpu_time.py"
+```
+
+The following documents the separately selected Ubuntu diagnostic child shape;
+it is not permission to run the actual worker on a different host. The workflow
+checks architecture first, creates an owned0700 directory under umask077, preserves
+the exact pytest exit and uploads only the two named files. A missing stopped
+profile fails as incomplete; no artifact or valid report can change a failed test.
+This job is excluded from required backend aggregation, and required shard3 has
+no profile-path variable. `AQT_WORKER_FIXTURE_OUTPUT` is fresh owned fixture storage.
+
+```sh
+umask 077
+mkdir -m 700 "$AQT_DIAGNOSTIC_OUTPUT/parent-first-observe-profile"
+set +e
+env -i PATH="$AQT_RUNTIME_BIN:/usr/bin:/bin" PYTHONPATH="$AQT_PUBLIC_CHECKOUT" \
+  PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC \
+  TMPDIR="$AQT_DIAGNOSTIC_OUTPUT" \
+  AQT_PARENT_FIRST_OBSERVE_PROFILE_PATH="$AQT_DIAGNOSTIC_OUTPUT/parent-first-observe-profile/parent-probe-first-observe.json" \
+  "$AQT_PYTHON" -B -m pytest -q -p no:cacheprovider \
+  --basetemp "$AQT_WORKER_FIXTURE_OUTPUT" \
+  tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history
+test_exit=$?
+set -e
+printf '{"schema":"parent-first-observe-test-exit/1","diagnostic_only":true,"pytest_exit_code":%s}\n' \
+  "$test_exit" > "$AQT_DIAGNOSTIC_OUTPUT/parent-first-observe-profile/test-exit.json"
+exit "$test_exit"
+```
+
+The bounded schema2 report validates every native entry before selecting top32
+inclusive/self entries overall/project-only, at most128 union rows and49,152 bytes.
+Oversized, invalid or unfinished data stays unavailable; an active call is not
+waited for, disabled from another thread or exported. Legacy projection retains
+its512-row/1,000,000-byte intermediate cap; native profiler storage is not capped
+by emitted output. Scalar availability remains ASCII4096 bytes without paths/raw
+SQL/parameters. Profiler overhead, overlapping inclusive rows and export delay
+preclude cause, automatic-GC or unprofiled deadline-fit conclusions.
+
+Publishedaa [CI38330853330](https://github.com/km8trix/AutoQuantTrader/actions/runs/38330853330)
+closed6,289 financial passes/three failures across6,292 cases, zero errors/skips;
+all20jobs close15success/fivefailure. Worker iteration2 reports `probe_stalled` with
+570ms wall/threadCPU; Source supports an initial500ms freshness-timeout inference,
+not proof of the rejecting branch/cause.
+Retained/retired proofs lose the60s lease, and aggregate/separate signed diagnostic
+fail. Those required failures remain authoritative. New route Ubuntu native,
+report/ZIP/JSON and actual-worker acceptance remain separate future gates.
+
+## Historical parent-probe native timing diagnostic — 2026-10-12
 
 Five installed test-only paths pass independent Source and actual-result review.
 The ordinary selection has444unique cases:192new timing +52forwarding +104failure

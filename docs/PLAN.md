@@ -1,8 +1,62 @@
 # Executable plan
 
-## Current queue — 2026-10-12
+## Current queue — 2026-10-13
 
-### Selected task — bounded parent-probe timing and actual Linux qualification
+### Selected task — normal publication and exact Ubuntu diagnostic admission
+
+- **Objective:** publish the reviewed test-only parent-profile route to the approved
+  branch, then qualify exact required and diagnostic outcomes without changing the
+  financial contract or guessing SQL, GC, scheduler or GIL cause.
+- **Scope:** default-off test helper, explicit original-worker environment selection,
+  portable ordinary controls and a separate failure-triggered Ubuntu job. Absent
+  selection retains the original unprofiled lifecycle and all eight assertions.
+  Profile only the first observe in iteration2 on the actual probe thread.
+- **Dependencies:** stopped Source/model/collector reviews and corrected temporary
+  214-case result pass. Fresh installed609 cases pass after an import-only repair,
+  zero failures/errors/skips and identical ordered IDs,2.76s pytest/3.200404750s
+  healthy capture; architecture3.961583208s, full format1,065 files and lint pass.
+  Preserve the earlier609 pass and actual I001. Independent current-result and
+  public Source/docs/privacy reviews pass. Publishedaa [CI38330853330](https://github.com/km8trix/AutoQuantTrader/actions/runs/38330853330)
+  closes6,289 financial passes/three failures across6,292 cases. Preserve every failure.
+- **Acceptance criteria:** retain native/default/error/primary/ambient/lifetime and
+  fresh delegate lookup behavior; no hook replacement, added wait, active export or
+  cleanup disable from another thread. Full native-row validation precedes top32
+  selection/128-row union/49,152-byte report; line4096 remains. The separate job
+  preserves pytest exit, uploads only profile plus test-exit and fails if a stopped
+  profile is missing. Native storage and legacy projection are not bounded by the
+  smaller emitted file. Required financial jobs and aggregation remain unchanged.
+- **Validation commands:** [TESTING](TESTING.md)'s architecture, configured statics
+  and installed ordinary selection; then reviewed normal publication and existing
+  automatic Ubuntu gates. Do not execute the original worker locally to emulate
+  Linux or replay a consumed study. Report/ZIP/JSON/native-interface admission is
+  separate from successful transport or ordinary units.
+- **Completion criteria:** normally publish the reviewed checkpoint; exact-source
+  required and diagnostic outcomes are preserved and independently
+  qualified afterward. A profile cannot close an unprofiled financial failure.
+  All60s lease,100ms observer,500ms freshness and worker/resource limits remain.
+
+### Next task — compatible restore-cost investigation
+
+- **Objective:** select one supported small remedy for CPU-heavy restore.
+- **Scope:** current code/callers and newly qualified diagnostic evidence, preserving
+  fresh fields/getters/errors/proofs and conversion/serialization/lifetime boundaries.
+- **Dependencies:** a distinct Source-supported mechanism and useful finite benefit;
+  earlier semantic/identity/query/type/construction/compilation HOLDs or rejections
+  remain closed. Profile totals do not establish eligible shape frequency or savings.
+- **Acceptance criteria:** no cached values, skipped financial checks, broader proof,
+  renewal or increased limits; retain all previous meaningful adverse controls.
+- **Validation commands:** architecture/configured statics, affected ordinary suites
+  and separately reviewed finite comparison; original financial gates only after
+  supported benefit and complete dependent checks.
+- **Completion criteria:** qualified compatible remedy or precise HOLD, then original
+  unprofiled local and exact-source Linux acceptance. Continue other unblocked work.
+
+The personal-record codec Source screen also closes HOLD: primitive dispatch and
+the existing annotation cache are already present; fresh constructors/re-encoding
+and caller hashes remain necessary. No dictionary/tuple/conversion rewrite is selected.
+
+### Historical task — bounded parent-probe timing and actual Linux qualification
+
 
 - **Objective:** measure completed parent prepare/observe/require-result callbacks
   to investigate the original worker observation failure without assuming its cause.

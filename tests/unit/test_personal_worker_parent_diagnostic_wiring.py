@@ -112,12 +112,110 @@ def current_source():
     ).read_bytes()
 
 
+def without_first_observe_profile(tree):
+    """Admit only the fixed opt-in delta before the old whole-module oracle."""
+    tree = copy.deepcopy(tree)
+    imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "tests.fixtures.parent_first_observe_profile"
+    ]
+    assert len(imports) == 1
+    assert imports[0].level == 0 and tuple((n.name, n.asname) for n in imports[0].names) == (
+        ("create_bounded_first_observe_profile", None),
+        ("require_first_observe_output", None),
+        ("wrap_first_observe_profile", None),
+    )
+    tree.body.remove(imports[0])
+    owners = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Import) and any(alias.name == "os" for alias in node.names)
+    ]
+    assert len(owners) == 1 and dump(owners[0]) == dump(ast.parse("import os").body[0])
+    tree.body.remove(owners[0])
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef))
+    executable = copy.deepcopy(function)
+    assert len(function.body) == 2
+    assert dump(function.body[0]) == dump(
+        ast.parse("profile_output = observe_profile = None").body[0]
+    )
+    block = function.body[1]
+    assert isinstance(block, ast.Try) and not block.handlers and not block.orelse
+    assert dump(block.finalbody[0]) == dump(
+        ast.parse("profile_output = observe_profile = None").body[0]
+    )
+    assert len(block.finalbody) == 1
+    expected_setup = ast.parse(
+        "profile_output = os.environ.get('AQT_PARENT_FIRST_OBSERVE_PROFILE_PATH')\n"
+        "observe_profile = None\n"
+        "if profile_output is not None:\n"
+        "    profile_output = require_first_observe_output(profile_output)\n"
+        "    observe_profile = create_bounded_first_observe_profile(enabled=True)\n"
+    ).body
+    assert tuple(map(dump, block.body[:3])) == tuple(map(dump, expected_setup))
+    function.body = block.body[3:]
+    guards = [node for node in function.body if isinstance(node, ast.With)]
+    assert len(guards) == 1 and len(guards[0].body) == 3
+    guard = guards[0]
+    keywords = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.keyword) and node.arg == "lifecycle"
+    ]
+    assert len(keywords) == 1
+    keyword = keywords[0]
+    expected_lifecycle = expression(
+        "wrap_already_constructed(SqlContinuousParentProbe(request), "
+        "diagnostics=parent_diagnostics, iteration=iteration)"
+    )
+    assert isinstance(keyword.value, ast.IfExp)
+    conditional = keyword.value
+    assert dump(conditional.test) == dump(expression("observe_profile is None"))
+    assert dump(conditional.body) == dump(expected_lifecycle)
+    assert dump(conditional.orelse) == dump(
+        expression(
+            "wrap_first_observe_profile(wrap_already_constructed("
+            "SqlContinuousParentProbe(request), "
+            "diagnostics=parent_diagnostics, iteration=iteration), "
+            "profile=observe_profile, iteration=iteration)"
+        )
+    )
+    keyword.value = conditional.body
+    handlers = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.ExceptHandler)
+        and dump(node.type) == dump(expression("AssertionError"))
+    ]
+    assert len(handlers) == 1 and handlers[0].name == "primary" and len(handlers[0].body) == 4
+    handler = handlers[0]
+    expected_failure = ast.parse(
+        "if observe_profile is not None:\n"
+        "    observe_profile.write_after_cleanup(profile_output, primary=primary)\n"
+        "    observe_profile.emit_availability(primary=primary)\n"
+    ).body[0]
+    assert dump(handler.body[2]) == dump(expected_failure)
+    del handler.body[2]
+    handler.name = None
+    loop = next(node for node in guard.body if isinstance(node, ast.For))
+    assert dump(loop.body[-1]) == dump(
+        ast.parse(
+            "if observe_profile is not None and iteration == 2:\n"
+            "    observe_profile.write_after_cleanup(profile_output)\n"
+        ).body[0]
+    )
+    del loop.body[-1]
+    return tree, executable
+
+
 def admitted_function(source):
     assert type(source) is bytes and len(source) <= 8192
     assert len(ORIGINAL_SOURCE.encode("utf-8")) == 3088
     assert hashlib.sha256(ORIGINAL_SOURCE.encode("utf-8")).hexdigest() == ORIGINAL_SHA256
     original = ast.parse(ORIGINAL_SOURCE)
-    candidate = ast.parse(source)
+    candidate, profiled_executable = without_first_observe_profile(ast.parse(source))
     imports = [
         node
         for node in candidate.body
@@ -149,7 +247,6 @@ def admitted_function(source):
     ]
     assert len(functions) == 1
     function = functions[0]
-    executable = copy.deepcopy(function)
     diagnostics = [
         node
         for node in ast.walk(function)
@@ -206,7 +303,9 @@ def admitted_function(source):
     # assertion, constructor order, loop, patch context and cleanup.
     assert dump(candidate) == dump(original)
     assert sum(isinstance(node, ast.Assert) for node in ast.walk(function)) == 8
-    return executable
+    # Execute the actual profiled Source with inert profile ports below; the old
+    # whole-module oracle still proves all eight financial assertions unchanged.
+    return profiled_executable
 
 
 def nodes(tree, kind):
@@ -247,7 +346,8 @@ def nodes(tree, kind):
 def test_admission_rejects_changed_behavior_before_any_function_execution(change):
     tree = ast.parse(current_source())
     function = next(node for node in tree.body if isinstance(node, ast.FunctionDef))
-    guard = next(node for node in function.body if isinstance(node, ast.With))
+    operation = function.body[1].body
+    guard = next(node for node in operation if isinstance(node, ast.With))
     lifecycle = next(node for node in nodes(function, ast.keyword) if node.arg == "lifecycle")
     handler = next(
         node
@@ -301,12 +401,14 @@ def test_admission_rejects_changed_behavior_before_any_function_execution(change
     elif change == "called_native_timing":
         guard.body[1].value.keywords[0].value = expression("bool(True)")
     elif change == "manager_outside_guard":
-        function.body.insert(function.body.index(guard), guard.body.pop(1))
+        operation.insert(operation.index(guard), guard.body.pop(1))
     elif change == "wrapper_arguments":
-        lifecycle.value.keywords.append(ast.keyword(arg="extra", value=ast.Constant(value=True)))
+        lifecycle.value.body.keywords.append(
+            ast.keyword(arg="extra", value=ast.Constant(value=True))
+        )
     elif change == "constructor_hoisted":
         function.body.insert(0, ast.parse("delegate = SqlContinuousParentProbe(request)").body[0])
-        lifecycle.value.args[0] = ast.Name(id="delegate", ctx=ast.Load())
+        lifecycle.value.body.args[0] = ast.Name(id="delegate", ctx=ast.Load())
     elif change == "emitter_before_child":
         handler.body[0], handler.body[1] = handler.body[1], handler.body[0]
     elif change == "unguarded_emitter":
@@ -337,6 +439,7 @@ class Harness:
         iteration=1,
     ):
         self.tmp_path = tmp_path
+        self.profile_environment = {}
         self.statuses, self.fault, self.kind, self.iteration = statuses, fault, kind, iteration
         self.events, self.lines, self.probes, self.wraps, self.runs, self.diagnostics = (
             [],
@@ -550,8 +653,10 @@ class Harness:
                 "range": range,
                 "len": len,
                 "print": self.print_line,
+                "str": str,
             },
             "json": json,
+            "os": SimpleNamespace(environ=self.profile_environment),
             "Path": Path,
             "factory_fixture": SimpleNamespace(
                 install_initial_signed_assignment=self.assignment,
@@ -567,6 +672,9 @@ class Harness:
             "create_parent_diagnostics": self.create,
             "wrap_already_constructed": self.wrap,
             "emit_parent_failure_line": self.emit,
+            "create_bounded_first_observe_profile": self.profile_create,
+            "require_first_observe_output": self.require_profile_output,
+            "wrap_first_observe_profile": self.profile_wrap,
         }
         # No original module imports or top-level configured binding execute.
         compiled = compile(
@@ -576,6 +684,20 @@ class Harness:
         with monkeypatch.context() as patch:
             patch.setattr(output.sys, "stdout", SimpleNamespace(write=self.lines.append))
             namespace[_FUNCTION]((self.fixture, self.config), monkeypatch)
+
+    def require_profile_output(self, value):
+        pytest.fail("absent opt-in called the new output validator")
+
+    def profile_create(self, *, enabled):
+        assert enabled is True
+        return SimpleNamespace(
+            write_after_cleanup=lambda output, **arguments: False,
+            emit_availability=lambda **arguments: None,
+        )
+
+    def profile_wrap(self, delegate, *, profile, iteration):
+        assert type(profile) is SimpleNamespace and iteration in (1, 2)
+        return delegate
 
 
 def assert_cleanup(harness, expected_error=None):
