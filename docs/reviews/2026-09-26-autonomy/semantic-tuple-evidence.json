@@ -1,0 +1,58 @@
+{
+  "schema": "semantic-tuple-compatibility-evidence/1",
+  "source_base": "b1156ba",
+  "changed_files": [
+    {
+      "path": "packages/domain/personal_contracts.py",
+      "sha256": "bb2bb0b5bd6d3a695d59e378129ffe80e8a36c45f79bdcd8965831a485537816"
+    },
+    {
+      "path": "tests/unit/test_personal_semantic_dispatch.py",
+      "sha256": "512c70037b35d7401fb3e9ba00aab2181971b7ed2aa18b720a92f12693c640db"
+    }
+  ],
+  "behavior": "Inline only exact None/str/int/bool/bytes tuple children into a fresh tuple. All other children recurse in order. No cache, source/fence/SQL/safety-limit changes.",
+  "validation": {
+    "runtime": "verified persistent Python 3.12.13; env -i, no provider or ambient config",
+    "focused_pytest": {
+      "files": [
+        "tests/unit/test_personal_semantic_dispatch.py",
+        "tests/unit/test_personal_contract_semantics.py",
+        "tests/unit/test_personal_canonical_tuple_dispatch.py",
+        "tests/unit/test_personal_canonical_deferred_dispatch.py",
+        "tests/unit/test_personal_canonical_fragment_join.py",
+        "tests/unit/test_personal_codec_primitive_dispatch.py",
+        "tests/unit/test_personal_codec.py"
+      ],
+      "passed": 233,
+      "elapsed_seconds": 0.85,
+      "failures": 0,
+      "skips": 0
+    },
+    "added_cases": 15,
+    "ruff_format": "2 files already formatted",
+    "ruff_lint": "All checks passed",
+    "mypy": "Success: no issues found in 417 source files",
+    "architecture": "Personal architecture check passed (layers, pure code, simulation import closure)",
+    "diff_check": "passed",
+    "independent_review": "architecture_audit: no actionable findings; retained/CI acceptance still required",
+    "original_retained_test": {
+      "command": "clean environment python -B -m pytest -q -s -p no:cacheprovider tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+      "passed": 1,
+      "elapsed_seconds": 245.87,
+      "fixture_setup_seconds": 196.124,
+      "restore_seconds": 46.681,
+      "lease_seconds": 60,
+      "limits_changed": false,
+      "log": "retained-local.txt",
+      "log_sha256": "aac19972e62f38663f9206adc02175938a358a3b6973faebc936419b32ec839b",
+      "scope": "Local original unprofiled synthetic-history fixture; no Linux acceptance or before/after startup speed claim."
+    }
+  },
+  "benchmark": "semantic-tuple-benchmark.json",
+  "limits": [
+    "Finite pure compatibility and synthetic converter performance only.",
+    "Parent owns original retained restore, full Linux/PostgreSQL exact-revision validation and documentation integration.",
+    "Original retained and exact-revision Linux acceptance are tracked separately in STATUS.md; this evidence does not claim either."
+  ]
+}

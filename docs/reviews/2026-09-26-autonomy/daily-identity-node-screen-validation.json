@@ -1,0 +1,20 @@
+{
+  "schema": "aqt-daily-identity-node-screen-validation/1",
+  "mechanics": {
+    "passed": 37,
+    "failed": 0,
+    "literal_log": ".....................................                                    [100%]\n37 passed in 0.03s"
+  },
+  "compile": "both sources passed",
+  "project_imports": false,
+  "new_fixture_run": false,
+  "source_hash_verification": "all original measurement before/after source+observer hashes match current files",
+  "file_sha256": {
+    "daily_identity_node_screen.py": "d4b32b71df304ffef99b3ac69e22373174e9b6dff212de8762dca455bc2e53c3",
+    "test_daily_identity_node_screen.py": "3a2d1fa1b2fc6dda38828f2b25f2a4f8e5b15d62097b9df6469cc8a9913ca3ee",
+    "daily-identity-node-layout.md": "53753c0f99ece7703690e0a685a199e929f27c51ad7340f5b5a7eeb694ad5cf0",
+    "daily-identity-node-layout-resource-screen.json": "60d3ce0e7242beaddab93138939dbe033797473826da301a208f36dd9592413f",
+    "daily-identity-node-screen-selfchecks.txt": "1fe8952db4faf2761c1390cdece61f6194747108d3557de59f428710949563d2"
+  },
+  "report_mode": "0o600"
+}

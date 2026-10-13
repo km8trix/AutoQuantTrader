@@ -1,0 +1,29 @@
+{
+  "status": "test-only monitoring replacement; updated genuine gate pending root",
+  "files_sha256": {
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "tests/unit/test_continuous_attempt_fingerprint_proof.py": "e6d24ca1db3e1a8f859ce37265834177ebe880157a4a27e04cd60d45e8ce3b1a",
+    "tests/unit/test_continuous_attempt_fingerprint_behavior.py": "26556988b85fd56d9f409bd2ae9d54a67497074964d27930212928dd10849bef",
+    "tests/unit/test_continuous_attempt_fingerprint_method_profile.py": "716db019731fade27ca482b64c02297da58036af1eaafc68fd159fc450f3fbf6",
+    "tests/integration/test_continuous_attempt_factory_proof.py": "a54dff3961aceb11684076a0883bf8e4a5f489a0d0dd5658359136a3656ada6e",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "6d3948a41d2bb216174cd6d6c5daf96bccb8702e817650152f522a8d29246751"
+  },
+  "production_changed": [],
+  "microchecks": {
+    "passed": 12,
+    "seconds": 2.67,
+    "log": "proof-local-monitoring-selfchecks.txt"
+  },
+  "expected_combined_cases": 100,
+  "python_313": "unavailable; not executed",
+  "evidence_sha256": {
+    "proof-local-monitoring-probe.py": "c5869e2e1eaf39a81b056da49e71135a9410d9a439f9e7086b3bf01ccfdbbdef",
+    "proof-local-monitoring-probe.json": "7c0f10eff9aa09c5eadf305f8d38534d36e8bf7e87f9e2c1b174a24ca411f348",
+    "test_proof_local_monitoring.py": "54615abb64455d3051545d80ef8c1b57a488d4985e59f8585d91002e408c5958",
+    "proof-local-monitoring-selfchecks.txt": "b9c2c448db6ceb08588302db717af42106e0e3859fd8d4b5efa96f9396bf75a3",
+    "factory-proof-local-monitoring-review.md": "6226fcb30aacc0afebe8e3e2269bcb5cf1ecc1c60b2c942e16f7807e450b13df"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "identity-native-id-audit-rejection/1",
+  "python": "3.12.13",
+  "observations": [
+    {
+      "function": "original",
+      "reject_second": false,
+      "events": 2,
+      "outcome": "returned"
+    },
+    {
+      "function": "id_reuse_candidate",
+      "reject_second": false,
+      "events": 1,
+      "outcome": "returned"
+    },
+    {
+      "function": "original",
+      "reject_second": true,
+      "events": 2,
+      "outcome": "AuditDenial"
+    },
+    {
+      "function": "id_reuse_candidate",
+      "reject_second": true,
+      "events": 1,
+      "outcome": "returned"
+    }
+  ],
+  "decision": "Reject id reuse: it skips a native audit event and its denial.",
+  "scope": "Temporary isolated synthetic counterexample; production unchanged."
+}

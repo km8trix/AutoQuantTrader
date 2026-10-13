@@ -1,0 +1,8 @@
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+............................................sss                          [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/unit/test_continuous_linux_observation.py:548: requires actual Linux procfs for an owned child
+SKIPPED [1] tests/unit/test_continuous_linux_observation.py:561: requires actual Linux procfs for an owned child
+SKIPPED [1] tests/unit/test_continuous_linux_observation.py:582: requires actual Linux procfs for an owned child
+188 passed, 3 skipped in 0.26s

@@ -1,0 +1,48 @@
+"""Isolated native audit counterexample; no production replacement."""
+import ast
+import inspect
+import json
+import sys
+import textwrap
+import types
+from pathlib import Path
+from packages.persistence.daily_runtime_risk import SqlDailyRuntimeRisk
+original = SqlDailyRuntimeRisk._assignment_identity_fields
+source = textwrap.dedent(inspect.getsource(original))
+variant = source.replace('            if id(item) in seen:\n', '            item_id = id(item)\n            if item_id in seen:\n').replace('            seen.add(id(item))\n', '            seen.add(item_id)\n')
+module = ast.parse(variant)
+module.body[0].decorator_list = []
+code = next(c for c in compile(module, '<id-audit-rejection>', 'exec').co_consts if isinstance(c, types.CodeType))
+candidate = types.FunctionType(code, original.__globals__)
+root = ('row', None)
+root_id = id(root)
+state = {'events': 0, 'reject_second': False}
+class AuditDenial(RuntimeError):
+    pass
+
+def audit(event, arguments):
+    if event == 'builtins.id' and arguments == (root_id,):
+        state['events'] += 1
+        if state['reject_second'] and state['events'] == 2:
+            raise AuditDenial('second identity audit denied')
+sys.addaudithook(audit)
+observations = []
+for reject in (False, True):
+    for name, function in [('original', original), ('id_reuse_candidate', candidate)]:
+        state.update(events=0, reject_second=reject)
+        try:
+            result = function(root)
+            outcome = 'returned'
+        except AuditDenial:
+            outcome = 'AuditDenial'
+        observations.append({'function': name, 'reject_second': reject, 'events': state['events'], 'outcome': outcome})
+assert observations == [
+    {'function':'original','reject_second':False,'events':2,'outcome':'returned'},
+    {'function':'id_reuse_candidate','reject_second':False,'events':1,'outcome':'returned'},
+    {'function':'original','reject_second':True,'events':2,'outcome':'AuditDenial'},
+    {'function':'id_reuse_candidate','reject_second':True,'events':1,'outcome':'returned'},
+]
+out = {'schema':'identity-native-id-audit-rejection/1','python':sys.version.split()[0],'observations':observations,'decision':'Reject id reuse: it skips a native audit event and its denial.','scope':'Temporary isolated synthetic counterexample; production unchanged.'}
+with Path('/private/tmp/aqt-autonomy-audit/identity-id-audit-rejection.json').open('x') as f:
+    json.dump(out,f,indent=2);f.write('\n')
+print(json.dumps(out))

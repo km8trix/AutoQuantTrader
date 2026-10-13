@@ -1,0 +1,22 @@
+{
+  "source_revision": "a8b92297ba0845b9038b7684ab60333d928d9c6d",
+  "tested_merge_revision": "bf7625d47f2d8a29a062d9e2310ab897a705ce82",
+  "matching_source_and_merge_tree": "1a58635e503d602085c0450a8df15b06ff2d6366",
+  "run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486",
+  "job_id": 108358796611,
+  "scope": "required unprofiled shard 7 with explicit disposable PostgreSQL",
+  "test": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "node_shard_sha256_mod_16": 7,
+  "result": "passed",
+  "restore_seconds": null,
+  "lease_seconds_unchanged": 60,
+  "operation_seconds_unchanged": 120,
+  "parent_seconds_unchanged": 150,
+  "shard_passed": 295,
+  "shard_failed": 0,
+  "shard_deselected": 4491,
+  "shard_seconds": 799.85,
+  "warnings": "One existing Starlette/httpx deprecation warning.",
+  "limitations": "Passing quiet pytest output omits individual elapsed time; do not substitute the local 41.963-second measurement as Linux timing. This shard pass alone does not close the full CI aggregate or Wave 4 qualification.",
+  "sanitized_job_log_sha256": "c20170ff8043fcdf98f8f505659818fe774b6bd2c9bb5a0585f107c68b317110"
+}

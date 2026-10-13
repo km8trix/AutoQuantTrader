@@ -1,41 +1,43 @@
 # AutoQuantTrader
 
-> [Architecture](docs/ARCHITECTURE.md) and [implementation waves](docs/IMPLEMENTATION_PLAN.md) are the current design and roadmap. Wave 1 adds a Tiingo research import and a halted standard runtime; E*TRADE production read traversal passed under the owner-approved margin-privilege amendment. Cash-funded strategy limits remain, while connected financing/reconciliation and sandbox balance identity remain unqualified. See the [account amendment](docs/contracts/personal-v1/account-eligibility-amendment.md). See the [foundation runbook](docs/runbooks/personal-v1-foundations.md).
+AutoQuantTrader is a personal quantitative research and trading system. The
+current personal profile imports declared historical datasets, runs a shared
+causal economic engine, and exposes durable research jobs, reports, comparisons
+and evaluation through a CLI, FastAPI and React workspace. Live trading remains
+disabled. Backtest results do not imply future profitability.
 
-AutoQuantTrader is a safety-first, event-driven platform for quantitative
-research, backtesting, and eventually automated trading. It is designed to move
-a versioned strategy through the same causal decision path—from point-in-time
-market data, to deterministic replay, to paper trading, and finally to a
-human-approved live canary.
+## Start here
 
-Today, the local application demonstrates two repository-owned fixture
-workflows: point-in-time data ingestion and cataloging, plus a separate
-deterministic golden backtest through strategy, risk, execution simulation, and
-accounting. The React workspace displays both. Production market data has not
-yet been admitted, and broker-connected paper and live orders remain deliberately
-disabled. Production data still requires licensing and qualification; broker
-execution still requires authoritative reconciliation and operational-readiness
-evidence.
+- [Product specification](docs/SPEC.md): confirmed behavior, requirements and open questions.
+- [Current status](docs/STATUS.md): exact next task, validation results and blockers.
+- [Executable plan](docs/PLAN.md): small milestones within the existing wave roadmap.
+- [Architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md) and
+  [testing](docs/TESTING.md): source boundaries and safe validation commands.
+- [AGENTS.md](AGENTS.md): concise autonomous-development instructions.
+- [Personal foundation runbook](docs/runbooks/personal-v1-foundations.md) and
+  [research workspace runbook](docs/runbooks/personal-v1-research.md):
+  explicit local setup and use.
 
-> The engineering focus is correctness under late data, retries, crashes, and
-> uncertain broker responses—not low-latency or high-frequency trading.
+Waves 0–3 have recorded merged-revision acceptance. Wave 4 has substantial
+continuous simulation, account coordination and applied reconciliation code,
+but its acceptance is incomplete. The latest integration CI at `b1156ba` fails
+a retained-history restore check; consult STATUS for repair progress. The
+personal simulation CLI starts HALTED; the fixed continuous worker performs
+restore/integrity against preexisting HALTED state, not active strategy execution.
 
-## At a glance
+The confirmed target remains one owner, one dedicated USD account, one
+cash-funded long-only strategy and DIA/IWM/QQQ/SPY whole-share regular-session
+orders. E*TRADE is the eventual live venue. The
+[account amendment](docs/contracts/personal-v1/account-eligibility-amendment.md)
+permits selected CASH or MARGIN account privileges while retaining no borrowing.
+Tiingo samples and prior authorized account reads provide bounded evidence;
+current account semantics, genuine source ownership/captured-session replay,
+initializer approval and connected execution remain separate gates.
 
-| | |
-|---|---|
-| **Target v1 scope** | One operator, one account, and one trade-enabled strategy |
-| **Planned paper universe** | A small set of liquid U.S. ETFs: DIA, IWM, QQQ, and SPY |
-| **Trading model** | Regular hours, bar data, long-only, whole-share `DAY` market orders |
-| **Current state** | Deterministic local research and safety foundations |
-| **Not yet enabled** | Production data, paper order submission, and live trading |
-| **Core stack** | Python 3.12, FastAPI, PostgreSQL, React, TypeScript, and Docker Compose |
-
-## Standard personal profile
-
-The new CLI imports and replays explicit Tiingo daily history and runs a local process that starts halted. It does not execute a strategy or submit orders. A real four-symbol, five-session sample has been imported and replayed; [Wave 1 evidence](docs/reviews/2026-09-08-wave1/README.md) records its limits.
-
-Follow the [foundation runbook](docs/runbooks/personal-v1-foundations.md) to create a separate environment, run `make personal-simulation`, or import a dataset. Owner OAuth and account discovery succeeded for sandbox and production. The owner confirmed account selection and exclusive use. Qualification is blocked by sandbox identity mismatch and a production balance response reporting MARGIN despite discovery reporting CASH.
+For development, start with architecture and focused offline checks in TESTING.
+Do not source private configuration or launch services to validate documentation.
+The retained instructions below describe the older fixture demonstration and
+historical native foundations, not the current personal-profile acceptance state.
 
 ## Historical application quickstart
 
@@ -52,10 +54,11 @@ From the repository root:
 ```bash
 cp .env.example .env
 chmod 600 .env
-make dev
+COMPOSE_PROFILES=legacy-golden-oracle make dev
 ```
 
-The first startup builds the containers, starts PostgreSQL, applies migrations,
+The explicit legacy profile enables the fixture worker; it is absent from the
+default Compose startup. This profile builds the containers, starts PostgreSQL, applies migrations,
 starts the API and browser application, and launches the local worker. The worker
 then:
 
@@ -100,12 +103,12 @@ make down
 To run in the background or inspect startup problems:
 
 ```bash
-make dev-detached
+COMPOSE_PROFILES=legacy-golden-oracle make dev-detached
 make ps
 make logs
 ```
 
-## How it works
+## How the historical fixture demonstration works
 
 ```mermaid
 flowchart LR
@@ -155,7 +158,7 @@ environment-specific adapters and operational gates added around it.
   broker remains authoritative, so stale evidence, lost ownership, or a mismatch
   blocks new exposure until reconciliation succeeds.
 
-## Current status
+## Historical foundation record
 
 | Status | Scope |
 |---|---|
@@ -170,7 +173,7 @@ promoted to local and remote `main` at exact revision
 [CI run #136](https://github.com/km8trix/AutoQuantTrader/actions/runs/33171993916)
 passed all 11 jobs.
 
-Wave 7 now implements ADR 0126 and ADR 0121 milestone two on the local
+The historical native Wave 7 implements ADR 0126 and ADR 0121 milestone two on the local
 integration branch. It adds native pre-Python fork ownership, role-narrow
 signers, pathname Unix-seqpacket endpoints and resource admission, tmpfs-only
 secret custody, fixed provisioners, source-only systemd topology, and four
@@ -203,8 +206,8 @@ Selected boundaries:
 | Path | Responsibility |
 |---|---|
 | `apps/api`, `apps/web` | FastAPI boundary and React/TypeScript workspace |
-| `apps/worker` | Market-data ingestion and durable backtest jobs |
-| `apps/trader` | One-shot, fail-closed paper preflight; not an active trader |
+| `apps/worker` | Bounded personal research, durable jobs, and separate historical golden oracle |
+| `apps/trader` | HALTED personal runtime, bounded continuous restore/integrity, and historical paper preflight |
 | `apps/trusted_time_supervisor` | Local trusted-time evidence supervisor |
 | `packages/domain`, `packages/application` | Pure rules and workflows coordinated through ports |
 | `packages/backtest`, `packages/market_data`, `packages/datasets` | Simulator, ingestion/admission, and immutable data artifacts |
@@ -236,14 +239,15 @@ credential-free local demo.
 
 ## Planning and next work
 
-The [consolidated implementation plan](docs/IMPLEMENTATION_PLAN.md) prioritizes usable daily research, one causal financial engine, applied reconciliation and practical operations. It defines the only current backlog, with one orchestrator and at most three concurrent worker tasks.
+The [consolidated implementation plan](docs/IMPLEMENTATION_PLAN.md) prioritizes usable daily research, one causal financial engine, applied reconciliation and practical operations. Its wave requirements are decomposed into the [executable plan](docs/PLAN.md); [STATUS](docs/STATUS.md) is the current handoff. One orchestrator may use at most three concurrent workers.
 
-The [design review](docs/reviews/2026-09-08-design-review.md) compares the independent baseline with the previous design and implemented code. E*TRADE remains the selected live target; local stateful simulation, sandbox protocol checks, production reads/previews and actual live evidence remain separate. No new implementation or trading activity was performed during planning.
+The [design review](docs/reviews/2026-09-08-design-review.md) compares the independent baseline with the previous design and implemented code. E*TRADE remains the selected live target; local stateful simulation, sandbox protocol checks, production reads/previews and actual live evidence remain separate. That dated design review is historical; current implementation and validation are recorded in STATUS.
 
 ## Deeper documentation
 
 - [Architecture and product scope](docs/ARCHITECTURE.md)
-- [Implementation roadmap and detailed status](docs/IMPLEMENTATION_PLAN.md)
+- [Wave roadmap and historical evidence](docs/IMPLEMENTATION_PLAN.md)
+- [Current executable plan](docs/PLAN.md) and [status](docs/STATUS.md)
 - [Operational budgets](docs/OPERATIONAL_BUDGETS.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Operational runbooks](docs/runbooks/README.md)

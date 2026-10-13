@@ -1,0 +1,3 @@
+tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+
+1 test collected in 3.05s

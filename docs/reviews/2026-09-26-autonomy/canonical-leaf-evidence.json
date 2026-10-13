@@ -1,0 +1,71 @@
+{
+  "change": "Three scalar leaf concat expressions to BUILD_STRING; traversal, dispatch, JSON escape, str()/hex(), deferred conversion/serialization unchanged.",
+  "base_head": "1ea4efca1c6f48d811b9e56735fb0fdff3a2331d",
+  "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+  "new_test_cases": 8,
+  "files": {
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "tests/unit/test_personal_canonical_fragment_join.py": "b45d61952972e66dd49d83c9a05d7d0e25224779461054abe2114f46f4670268"
+  },
+  "original_canonical_sha256": "77ff075768f76ce85829b18cde0c9684218f79e3d9245472e6088e69830fcf61",
+  "focused_validation": {
+    "paths": [
+      "tests/unit/test_canonical.py",
+      "tests/unit/test_personal_contract_semantics.py",
+      "tests/unit/test_personal_canonical_fragment_join.py",
+      "tests/unit/test_personal_canonical_deferred_dispatch.py",
+      "tests/unit/test_personal_codec.py",
+      "tests/unit/test_personal_canonical_tuple_dispatch.py",
+      "tests/unit/test_personal_detached_journal_dispatch.py",
+      "tests/unit/test_personal_semantic_dispatch.py",
+      "tests/unit/test_personal_codec_primitive_dispatch.py"
+    ],
+    "result": "pass",
+    "tests": 289,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "pytest_report_seconds": 1.6,
+    "artifact": "/private/tmp/aqt-autonomy-audit/canonical-leaf-focused.xml",
+    "artifact_sha256": "f935426a773709b6571a5bc5adb1806d7ecfcce6315b0c4d1cefc68af0a82767"
+  },
+  "checks": {
+    "ruff_format": "pass (2 files)",
+    "ruff_check": "pass (2 files)",
+    "mypy": "pass (1 source file, packages/domain/canonical.py)",
+    "architecture": "pass",
+    "git_diff_check": "pass"
+  },
+  "benchmark": {
+    "ratio_definition": "median candidate seconds / median current seconds (less than 1 means faster)",
+    "loops_per_repeat": 1500,
+    "repeats": 7,
+    "candidate_ast_matches_final_function": true,
+    "artifact": "canonical-fragment-probe.json",
+    "artifact_sha256": "611196e386eeddeed4469048929ecf8148576d29955c24c32fcf74e8333b2d17",
+    "ratios": {
+      "semantic_records": 0.9744457168617467,
+      "str_pair_fields": 0.947582457389259,
+      "mixed_pair_fields": 0.9615356778347754,
+      "scalar_tuple": 0.9144840502515049,
+      "nonpair_tuples": 0.9280078313625696,
+      "fallback": 0.9943366521714778,
+      "scalar_string": 0.96827098640715
+    }
+  },
+  "profile_basis": {
+    "revision": "b1156ba",
+    "_append_typed_text_calls": 3762932,
+    "_append_typed_text_self_seconds": 8.831,
+    "_append_typed_text_inclusive_seconds": 14.412,
+    "limitations": "Old bounded instrumented failure; overlapping inclusive time; not current retained-restore outcome."
+  },
+  "review": "architecture_audit approved; independently 142 canonical/fragment/deferred/tuple tests passed in 0.51s. No retained acceptance inferred.",
+  "limits": [
+    "No general startup improvement or Linux acceptance is claimed.",
+    "No pair/empty special cases, cache, check or ownership changes.",
+    "Resource exhaustion, exact recursion threshold and arbitrary monkeypatched-global equivalence not claimed.",
+    "No provider calls, credentials, process/runtime activation, or capital effects.",
+    "No commits by this subagent."
+  ]
+}

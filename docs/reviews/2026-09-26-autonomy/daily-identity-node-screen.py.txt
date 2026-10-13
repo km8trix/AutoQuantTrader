@@ -1,0 +1,124 @@
+"""Scalar resource rejection for one declared layout; no project imports/proof."""
+import hashlib
+import json
+import os
+from pathlib import Path
+
+AUDIT = Path('/private/tmp/aqt-autonomy-audit')
+ROOT = Path('/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development')
+MEASUREMENT = 'daily-identity-original-first.json'
+MEASUREMENT_SHA256 = '99789c8f6417efaf0650d11c1d4233556f9674300002bc1d67442e3d931d6ee9'
+MAX_BYTES = 32_768
+CAPS = {'containers': 16_384, 'bindings': 131_072}
+COMPONENTS = ('data', 'source_behavior', 'root_behavior', 'root_reserve', 'source_reserve')
+PROJECT_FILES = (
+    'apps/trader/continuous_simulation_factory.py',
+    'packages/persistence/_factory_attempt_behavior.py',
+    'packages/persistence/_factory_attempt_fingerprint.py',
+    'packages/persistence/continuous_integrity.py',
+    'packages/persistence/continuous_runtime_attempt_sources.py',
+    'packages/persistence/daily_runtime_risk.py',
+    'tests/integration/test_continuous_simulation_factory_outcome.py',
+)
+OBSERVER_FILES = ('aqt_daily_identity_cost.py', 'test_aqt_daily_identity_cost.py')
+FILES = ('daily_identity_node_screen.py', 'test_daily_identity_node_screen.py',
+         'daily-identity-node-layout.md')
+
+
+def bounded_count(value):
+    if type(value) is not int or not 0 <= value <= CAPS['bindings']:
+        raise ValueError('COUNT_PROFILE')
+    return value
+
+
+def lower_bound(*, node_count, edge_count, existing):
+    nodes, edges = bounded_count(node_count), bounded_count(edge_count)
+    if type(existing) is not dict or set(existing) != set(CAPS):
+        raise ValueError('EXISTING_USAGE_PROFILE')
+    used = {name: bounded_count(existing[name]) for name in CAPS}
+    if any(used[name] > CAPS[name] for name in CAPS):
+        raise ValueError('EXISTING_USAGE_OVER_CAP')
+    remaining = {name: CAPS[name] - used[name] for name in CAPS}
+    proposed = {'containers': nodes, 'bindings': 2 * nodes + edges}
+    total = {name: used[name] + proposed[name] for name in CAPS}
+    excess = {name: max(0, total[name] - CAPS[name]) for name in CAPS}
+    return dict(
+        outcome='rejected_this_per_node_layout' if any(excess.values()) else 'not_rejected_by_lower_bound',
+        admission=False, acceptance=False, universal_impossibility=False,
+        existing=used, caps=dict(CAPS), remaining=remaining,
+        measured_nodes=nodes, measured_edges=edges,
+        proposed_lower_bound=proposed, combined_lower_bound=total, excess=excess,
+        omitted_charges='Nonnegative accessor/schema/behavior/owner/context/construction/temporary charges; not implemented and not presumed zero.',
+    )
+
+
+def screen(measurement):
+    if (type(measurement) is not dict
+            or measurement.get('schema') != 'aqt-original-daily-identity-observation/1'
+            or measurement.get('capture_status') != 'valid'
+            or measurement.get('observation_extent') != 'complete_execute'
+            or type(measurement.get('test_exitstatus')) is not int
+            or measurement['test_exitstatus'] != 0
+            or measurement.get('diagnostic_faults') != []
+            or measurement.get('source_hashes_before') != measurement.get('source_hashes_after')):
+        raise ValueError('VALIDATED_OBSERVATION_REQUIRED')
+    vector = measurement.get('first_vector')
+    if (type(vector) is not dict or vector.get('validation') != 'public_returned'
+            or vector.get('shape_status') != 'bounded_exact_type_inventory'
+            or vector.get('vector_length') != vector.get('stored_original_length')):
+        raise ValueError('VALIDATED_VECTOR_REQUIRED')
+    edges, nodes = bounded_count(vector['vector_length']), bounded_count(vector['seen_size'])
+    proof = vector.get('attempt_proof')
+    if (type(proof) is not dict or proof.get('status') != 'active'
+            or proof.get('caps') != CAPS or type(proof.get('components')) is not dict
+            or set(proof['components']) != set(COMPONENTS)):
+        raise ValueError('SIMULTANEOUS_USAGE_REQUIRED')
+    totals = dict.fromkeys(CAPS, 0)
+    for part in proof['components'].values():
+        if type(part) is not dict or set(part) != set(CAPS):
+            raise ValueError('COMPONENT_PROFILE')
+        for name in CAPS:
+            totals[name] += bounded_count(part[name])
+    if (proof.get('total') != totals
+            or proof.get('remaining') != {name: CAPS[name] - totals[name] for name in CAPS}):
+        raise ValueError('INCONSISTENT_USAGE_TOTAL')
+    return lower_bound(node_count=nodes, edge_count=edges, existing=totals)
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main():
+    with (AUDIT / MEASUREMENT).open('rb') as handle:
+        raw = handle.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES or hashlib.sha256(raw).hexdigest() != MEASUREMENT_SHA256:
+        raise ValueError('FROZEN_MEASUREMENT_REQUIRED')
+    measurement = json.loads(raw)
+    hashes = measurement['source_hashes_before']
+    if set(hashes) != set((*PROJECT_FILES, *OBSERVER_FILES)):
+        raise ValueError('SOURCE_INVENTORY_REQUIRED')
+    current = {name: digest(ROOT / name) for name in PROJECT_FILES}
+    current.update({name: digest(AUDIT / name) for name in OBSERVER_FILES})
+    if current != hashes or measurement['source_hashes_after'] != hashes:
+        raise ValueError('UNCHANGED_ORIGINAL_SOURCE_REQUIRED')
+    result = dict(schema='aqt-daily-identity-per-node-resource-screen/1',
+                  scope='First scalar lower-bound screen of the declared established per-node layout only.',
+                  measurement_sha256=MEASUREMENT_SHA256, source_and_observer_hashes=current,
+                  prototype_hashes={name: digest(AUDIT / name) for name in FILES},
+                  original_success_log_sha256=digest(AUDIT / 'daily-identity-original-first.log'),
+                  independent_result_review_sha256=digest(AUDIT / 'daily-identity-original-result-assessment.md'),
+                  new_genuine_fixture=False, project_imports=False, new_graph_or_authority=False,
+                  resource_screen=screen(measurement))
+    output = (json.dumps(result, indent=2, sort_keys=True) + '\n').encode('ascii')
+    if len(output) > MAX_BYTES:
+        raise ValueError('METADATA_BOUND')
+    path = AUDIT / 'daily-identity-node-layout-resource-screen.json'
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'wb') as handle:
+        handle.write(output)
+    print(result['resource_screen']['outcome'])
+
+
+if __name__ == '__main__':
+    main()

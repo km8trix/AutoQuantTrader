@@ -227,7 +227,163 @@ class _ChildObservation:
     resident_bytes: int
 
 
+_MAX_LINUX_STATUS_BYTES = 16 * 1024
+
+
+def _parse_linux_child_status(payload: bytes, pid: int) -> _ChildObservation:
+    """Interpret one complete bounded status sample; missing files never prove exit."""
+    invalid = "continuous child observation unavailable"
+    if (
+        type(pid) is not int
+        or pid <= 0
+        or type(payload) is not bytes
+        or not 0 < len(payload) <= _MAX_LINUX_STATUS_BYTES
+        or not payload.endswith(b"\n")
+    ):
+        raise ValueError(invalid)
+    expected_pid = str(pid).encode("ascii")
+    seen_pid = seen_tgid = False
+    state: bytes | None = None
+    rss: int | None = None
+    memory_fields = False
+    seen_boundary = False
+    for line in payload.split(b"\n")[:-1]:
+        key, separator, value = line.partition(b":")
+        if (
+            not separator
+            or not key
+            or key[0] not in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_"
+            or any(
+                character not in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789"
+                for character in key[1:]
+            )
+        ):
+            raise ValueError(invalid)
+        memory_field = key.startswith((b"Vm", b"Rss")) or key in (
+            b"HugetlbPages",
+            b"CoreDumping",
+            b"THP_enabled",
+            b"untag_mask",
+        )
+        if seen_boundary and (key in (b"State", b"Pid", b"Tgid") or memory_field):
+            raise ValueError(invalid)
+        if key == b"Pid" or key == b"Tgid":
+            if value.split() != [expected_pid]:
+                raise ValueError(invalid)
+            if key == b"Pid":
+                if seen_pid:
+                    raise ValueError(invalid)
+                seen_pid = True
+            else:
+                if seen_tgid:
+                    raise ValueError(invalid)
+                seen_tgid = True
+        elif key == b"State":
+            fields = value.split(maxsplit=1)
+            if (
+                state is not None
+                or len(fields) != 2
+                or len(fields[0]) != 1
+                or fields[0] not in (b"D", b"I", b"R", b"S", b"T", b"U", b"W", b"Z")
+                or len(fields[1]) < 3
+                or not fields[1].startswith(b"(")
+                or not fields[1].endswith(b")")
+                or any(character < 32 or character > 126 for character in fields[1][1:-1])
+                or b"(" in fields[1][1:-1]
+                or b")" in fields[1][1:-1]
+            ):
+                raise ValueError(invalid)
+            state = fields[0]
+        elif key == b"VmRSS":
+            fields = value.split()
+            if (
+                rss is not None
+                or len(fields) != 2
+                or fields[1] != b"kB"
+                or not fields[0].isdigit()
+                or len(fields[0]) > 20
+            ):
+                raise ValueError(invalid)
+            rss = int(fields[0]) * 1024
+        elif key == b"nonvoluntary_ctxt_switches":
+            fields = value.split()
+            if (
+                seen_boundary
+                or not seen_pid
+                or not seen_tgid
+                or state is None
+                or len(fields) != 1
+                or not fields[0].isdigit()
+                or len(fields[0]) > 20
+            ):
+                raise ValueError(invalid)
+            # This mandatory post-memory row rejects a newline-ended prefix.
+            # Optional architecture fields can follow; the count grants no authority.
+            seen_boundary = True
+        if memory_field:
+            memory_fields = True
+    if not seen_boundary or (rss is None and memory_fields):
+        raise ValueError(invalid)
+    # The kernel omits the whole memory section when the task has no mm.
+    # procps starts RSS at zero in that case, including before state reaches Z.
+    return _ChildObservation(state == b"Z", 0 if rss is None else rss)
+
+
+def _observe_linux_child(pid: int, *, timeout: float) -> _ChildObservation:
+    """Observe only the sole owner's unreaped child, without launching or waiting."""
+    if (
+        type(pid) is not int
+        or pid <= 0
+        or type(timeout) not in (int, float)
+        or not math.isfinite(timeout)
+    ):
+        raise ValueError("continuous child observation unavailable")
+    deadline = time.monotonic() + timeout
+
+    def require_time() -> None:
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired("continuous child observation", timeout)
+
+    require_time()
+    descriptor = os.open(
+        f"/proc/{pid}/status", os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    )
+    failed = True
+    try:
+        require_time()
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("continuous child observation unavailable")
+        payload = bytearray()
+        while True:
+            require_time()
+            chunk = os.read(descriptor, _MAX_LINUX_STATUS_BYTES + 1 - len(payload))
+            require_time()
+            if not chunk:
+                break
+            payload.extend(chunk)
+            if len(payload) > _MAX_LINUX_STATUS_BYTES:
+                raise ValueError("continuous child observation unavailable")
+        observation = _parse_linux_child_status(bytes(payload), pid)
+        failed = False
+    finally:
+        if failed:
+            # Preserve the primary read/parser/timeout error while still closing.
+            with suppress(OSError):
+                os.close(descriptor)
+        else:
+            os.close(descriptor)
+    require_time()
+    return observation
+
+
 def _observe_child(pid: int, *, timeout: float = 0.1) -> _ChildObservation:
+    platform = sys.platform
+    if platform == "linux":
+        return _observe_linux_child(pid, timeout=timeout)
+    return _observe_ps_child(pid, timeout=timeout)
+
+
+def _observe_ps_child(pid: int, *, timeout: float = 0.1) -> _ChildObservation:
     # State and RSS only; ps does not reap our child. EOF alone is not exit.
     result = subprocess.run(
         ("/bin/ps", "-o", "state=,rss=", "-p", str(pid)),
@@ -516,7 +672,10 @@ class ContinuousProcessSupervisor:
                     observations.get_nowait()
                 with suppress(queue.Full):
                     observations.put_nowait((time.monotonic(), reason, phase, sampled_exit))
-                if reason is not None:
+                # The parent consumes this final sample before accepting a
+                # receipt. Do not start more callbacks after observed exit;
+                # they can race its bounded join without adding a required check.
+                if reason is not None or sampled_exit:
                     return
                 stopping.wait(0.05)
 

@@ -1,0 +1,211 @@
+{
+  "bounds": {
+    "depth": 64,
+    "events": 20000,
+    "metadata_bytes": 32768,
+    "spans": 4096
+  },
+  "capture_status": "valid",
+  "diagnostic_faults": [],
+  "economics_model": {
+    "approximate_incremental_model_ns": 1042580999.0,
+    "candidate_over_original_ratio": 0.44448408820794605,
+    "definition": "candidate modeled cost / original removed-fingerprint estimate; lower is faster",
+    "estimated_saved_ns": 1303017025.0,
+    "incremental_checks_ns": 869527583.0,
+    "limits": "Prefix subtraction uses original full checks from the same authentic graph, not a paired baseline run. Episode residual conservatively includes unchanged dispatch; a few added borrow branch/finally instructions cannot be isolated, while begin/end methods are included. Monitoring overhead and changing guard cost can bias the estimate. The new-span envelope includes unchanged private-method prefixes and is not a rigorous upper bound. No startup acceptance.",
+    "observed_issue_and_retirement_ns": 173053416,
+    "observed_new_span_envelope_ns": 6094311959,
+    "original_fingerprint_mean_ns": 32577750.333333332,
+    "original_prefix_mean_ns": 70162930.0,
+    "removed_fingerprint_estimate_ns": 2345598024.0
+  },
+  "event_count": 1386,
+  "genuine_nonempty_admitted": true,
+  "observation": "CPython local PY_START/PY_RETURN and global PY_UNWIND filtered to fixed codes; no changed source bindings, extra validation calls, permit consumption, provider calls or retained graph references",
+  "original_registries_retired": true,
+  "resources": {
+    "data_bindings": 55933,
+    "data_containers": 4854,
+    "root_behavior_bindings": 4452,
+    "root_behavior_containers": 1153,
+    "root_reserved_bindings": 512,
+    "root_reserved_containers": 32,
+    "source_behavior_bindings": 5110,
+    "source_behavior_containers": 1334,
+    "source_reserved_bindings": 256,
+    "source_reserved_containers": 16
+  },
+  "source_hashes_after": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_factory_complete_cost.py": "93a15bf6daf4d4cbe6f0769a0eafea7cf049bd2c1a555ad9466464554462c104",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "tests/integration/test_continuous_attempt_factory_proof.py": "a54dff3961aceb11684076a0883bf8e4a5f489a0d0dd5658359136a3656ada6e",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "6d3948a41d2bb216174cd6d6c5daf96bccb8702e817650152f522a8d29246751",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "tests/unit/test_continuous_attempt_fingerprint_behavior.py": "26556988b85fd56d9f409bd2ae9d54a67497074964d27930212928dd10849bef",
+    "tests/unit/test_continuous_attempt_fingerprint_method_profile.py": "716db019731fade27ca482b64c02297da58036af1eaafc68fd159fc450f3fbf6",
+    "tests/unit/test_continuous_attempt_fingerprint_proof.py": "e6d24ca1db3e1a8f859ce37265834177ebe880157a4a27e04cd60d45e8ce3b1a"
+  },
+  "source_hashes_before": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_factory_complete_cost.py": "93a15bf6daf4d4cbe6f0769a0eafea7cf049bd2c1a555ad9466464554462c104",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "tests/integration/test_continuous_attempt_factory_proof.py": "a54dff3961aceb11684076a0883bf8e4a5f489a0d0dd5658359136a3656ada6e",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "6d3948a41d2bb216174cd6d6c5daf96bccb8702e817650152f522a8d29246751",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "tests/unit/test_continuous_attempt_fingerprint_behavior.py": "26556988b85fd56d9f409bd2ae9d54a67497074964d27930212928dd10849bef",
+    "tests/unit/test_continuous_attempt_fingerprint_method_profile.py": "716db019731fade27ca482b64c02297da58036af1eaafc68fd159fc450f3fbf6",
+    "tests/unit/test_continuous_attempt_fingerprint_proof.py": "e6d24ca1db3e1a8f859ce37265834177ebe880157a4a27e04cd60d45e8ce3b1a"
+  },
+  "spans": {
+    "begin_borrow": {
+      "calls": 24,
+      "child_ns": {
+        "identity": 321875
+      },
+      "ns": 1516874,
+      "returned": 24,
+      "unwound": 0
+    },
+    "borrow": {
+      "calls": 24,
+      "child_ns": {
+        "begin_borrow": 1516874,
+        "end_borrow": 113004,
+        "episode": 8161981749
+      },
+      "ns": 16005690919,
+      "returned": 24,
+      "unwound": 0
+    },
+    "daily_graph": {
+      "calls": 74,
+      "child_ns": {
+        "private_require": 5914403501,
+        "public_require": 204275791
+      },
+      "ns": 8421873624,
+      "returned": 74,
+      "unwound": 0
+    },
+    "end_borrow": {
+      "calls": 24,
+      "child_ns": {},
+      "ns": 113004,
+      "returned": 24,
+      "unwound": 0
+    },
+    "episode": {
+      "calls": 73,
+      "child_ns": {
+        "daily_graph": 133107334,
+        "graph_wrapper": 8159867834,
+        "identity": 1216045
+      },
+      "ns": 8295124083,
+      "returned": 73,
+      "unwound": 0
+    },
+    "execute": {
+      "calls": 1,
+      "child_ns": {
+        "borrow": 16005690919,
+        "daily_graph": 133190750,
+        "episode": 133142334,
+        "identity": 23000,
+        "issue": 172542125,
+        "retire": 511291
+      },
+      "ns": 40585715042,
+      "returned": 1,
+      "unwound": 0
+    },
+    "fingerprint": {
+      "calls": 3,
+      "child_ns": {},
+      "ns": 97733251,
+      "returned": 3,
+      "unwound": 0
+    },
+    "graph_wrapper": {
+      "calls": 72,
+      "child_ns": {
+        "daily_graph": 8155575540,
+        "identity": 672457
+      },
+      "ns": 8159867834,
+      "returned": 72,
+      "unwound": 0
+    },
+    "identity": {
+      "calls": 318,
+      "child_ns": {},
+      "ns": 4153411,
+      "returned": 318,
+      "unwound": 0
+    },
+    "issue": {
+      "calls": 1,
+      "child_ns": {
+        "identity": 9125,
+        "source_issue": 172452500
+      },
+      "ns": 172542125,
+      "returned": 1,
+      "unwound": 0
+    },
+    "private_require": {
+      "calls": 72,
+      "child_ns": {
+        "identity": 1872951
+      },
+      "ns": 5914403501,
+      "returned": 72,
+      "unwound": 0
+    },
+    "public_require": {
+      "calls": 3,
+      "child_ns": {
+        "fingerprint": 97733251
+      },
+      "ns": 308222041,
+      "returned": 3,
+      "unwound": 0
+    },
+    "retire": {
+      "calls": 2,
+      "child_ns": {
+        "source_retire": 8625
+      },
+      "ns": 511291,
+      "returned": 2,
+      "unwound": 0
+    },
+    "source_issue": {
+      "calls": 1,
+      "child_ns": {
+        "identity": 37958,
+        "public_require": 103946250
+      },
+      "ns": 172452500,
+      "returned": 1,
+      "unwound": 0
+    },
+    "source_retire": {
+      "calls": 1,
+      "child_ns": {},
+      "ns": 8625,
+      "returned": 1,
+      "unwound": 0
+    }
+  },
+  "started_span_count": 693,
+  "test_exitstatus": 0
+}

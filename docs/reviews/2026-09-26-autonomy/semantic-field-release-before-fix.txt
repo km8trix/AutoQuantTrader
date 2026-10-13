@@ -1,0 +1,44 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_temporary_nested_record_is_released_before_reading_the_next_field ____
+
+    def test_temporary_nested_record_is_released_before_reading_the_next_field():
+        events = []
+    
+        @dataclass(frozen=True)
+        class Child:
+            value: str
+    
+            def __del__(self):
+                events.append("release-child")
+                object.__setattr__(record, "second", "changed by original child release")
+    
+        @dataclass(frozen=True)
+        class Record:
+            first: object
+            second: str
+    
+            def __getattribute__(self, name):
+                if name in ("first", "second"):
+                    events.append("read:" + name)
+                if name == "first":
+                    return Child("original ephemeral child")
+                return object.__getattribute__(self, name)
+    
+        record = Record(None, "original second")
+        observations = []
+        for convert in (_legacy_semantic_value, contracts.semantic_value):
+            object.__setattr__(record, "second", "original second")
+            events.clear()
+            observations.append((_encoded_outcome(convert, record), tuple(events)))
+>       assert observations[0] == observations[1]
+E       assert (('return', b...read:second')) == (('return', b...lease-child'))
+E         
+E         At index 0 diff: ('return', b'{"type":"tuple","value":[{"type":"string","value":"test_personal_semantic_dispatch.test_temporary_nested_record_is_released_before_reading_the_next_field.<locals>.Record"},{"type":"tuple","value":[{"type":"tuple","value":[{"type":"string","value":"first"},{"type":"tuple","value":[{"type":"string","value":"test_personal_semantic_dispatch.test_temporary_nested_record_is_released_before_reading_the_next_field.<locals>.Child"},{"type":"tuple","value":[{"type":"tuple","value":[{"type":"string","value":"value"},{"type":"string","value":"original ...
+E         
+E         ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests/unit/test_personal_semantic_dispatch.py:601: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_personal_semantic_dispatch.py::test_temporary_nested_record_is_released_before_reading_the_next_field
+1 failed in 0.19s

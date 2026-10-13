@@ -1,0 +1,115 @@
+{
+  "schema": "continuous-terminal-probe-evidence/1",
+  "date": "2026-09-26",
+  "source_base": "02a8ee6",
+  "scope": "Terminal producer lifecycle repair only; actual CI probe_stalled branch remains unattributed without original worker diagnosis.",
+  "changed_files_sha256": {
+    "packages/application/continuous_process.py": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+    "tests/unit/test_continuous_terminal_probe.py": "88c7d1e2cb179a744880e09753255a34e28f6f01354a029af4b9a53618b16fbb"
+  },
+  "before_source_sha256": "13df2e1e8c03326e161f782760e125265726a46bc4a462c5cf39d50773a3d00b",
+  "behavior": "After publishing a sample taken after the original observed-child-exit Event, the probe producer exits. It does not begin an extra callback/SQL read that can race the existing final join. Existing failure reasons return first and all parent acceptance/cleanup/result checks remain.",
+  "unchanged_bounds": [
+    "probe age0.5seconds",
+    "terminal/finally join maximum0.05seconds",
+    "Stop/control behavior before each actual probe",
+    "original child/lease/operation/resource and receipt bounds",
+    "parent work deadline and reserved cleanup"
+  ],
+  "failure_history": [
+    {
+      "kind": "deterministic modeled schedule against frozen original source",
+      "result": "probe_stalled with2post-exit calls despite completed original terminal sample; candidate completed with1",
+      "evidence": "probe-terminal-race.json",
+      "source": "probe-terminal-before-source.py"
+    },
+    {
+      "kind": "new regression against frozen original supervisor class",
+      "result": "1failed; expected completed outcome returned failed",
+      "evidence": "probe-terminal-regression-before-fix.txt",
+      "repair": "Sampled-exit producer return condition"
+    },
+    {
+      "scope": "Original bounded unit validation in the default filesystem/process sandbox; not the Linux CI failure.",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest -q -p no:cacheprovider tests/unit/test_continuous_terminal_probe.py tests/unit/test_continuous_process.py",
+      "result": {
+        "passed": 74,
+        "failed": 21,
+        "seconds": 4.64
+      },
+      "primary_returned_failure": "child_observation_failed in real-child cases; mocked child cases passed",
+      "isolated_environment_reproduction": "subprocess.run(['/bin/ps','-o','state=','-o','rss=','-p',str(os.getpid())], ...) raised PermissionError: [Errno 1] Operation not permitted: '/bin/ps' before process launch",
+      "resolution": "Reviewed escalation for exactly the same bounded suite permitted ps observation of owned fixture children. All95 tests passed. No source/test/timeout change was used to obtain the pass."
+    }
+  ],
+  "validation": {
+    "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+    "new_cases": 13,
+    "focused_unit": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest -q -p no:cacheprovider tests/unit/test_continuous_terminal_probe.py tests/unit/test_continuous_process.py",
+      "exit_code": 0,
+      "passed": 95,
+      "seconds": 14.66,
+      "log": "probe-terminal-process-unit-check.txt",
+      "environment": "Same sanitized runtime, reviewed permission for ps observing owned fixture children"
+    },
+    "architecture": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -I -B scripts/check_personal_architecture.py",
+      "result": "passed"
+    },
+    "format": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff format --check packages/application/continuous_process.py tests/unit/test_continuous_terminal_probe.py",
+      "result": "2 files already formatted"
+    },
+    "lint": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff check packages/application/continuous_process.py tests/unit/test_continuous_terminal_probe.py",
+      "result": "All checks passed"
+    },
+    "types": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m mypy packages/application/continuous_process.py",
+      "result": "Success: no issues found in1source file"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "result": "passed"
+    },
+    "root_review": "No actionable source/test finding; original worker/lifecycle integration19passes.",
+    "independent_review": {
+      "reviewer": "architecture_audit",
+      "result": "Read-only frozen source/test review: no additional actionable issue; original parent checks and all bounds retained. Reviewer did not rerun tests/processes."
+    },
+    "original_worker_and_lifecycle_integration": {
+      "command": "TESTING clean environment: python -B -m pytest -q -p no:cacheprovider tests/integration/test_continuous_simulation_worker.py tests/integration/test_continuous_process_lifecycle.py",
+      "owned_process_inspection": "Scoped escalation for /bin/ps, same sanitized fixture environment",
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 62.44,
+      "log": "probe-terminal-worker-integration.txt",
+      "assertions": "Original real HALTED restore, restart with identical financial history, result bytes, counts, lifecycle/fence and cleanup assertions retained."
+    }
+  },
+  "coverage": [
+    "valid terminal handoff ends producer before join",
+    "current terminal snapshot survives bounded EOF delay; stale snapshot rejects and cannot renew",
+    "terminal Stop/error retain failure and no receipt",
+    "only released phase can qualify; starting/leased/closing/invented phases reject",
+    "pre-exit-started callback finishing after exit never substitutes for actually sampled-exit callback",
+    "blocked terminal callback retains original age denial and blocks sequential reuse",
+    "existing real fixture process exit/EOF/failure/cleanup/resource/Stop/lock tests"
+  ],
+  "limitations": [
+    "This proves and fixes one terminal handoff race. CI log gives ambiguous shared reason and cannot yet attribute shard3failure to that branch.",
+    "Mock child tests model exit and cleanup; independent existing owned-fixture process tests also passed.",
+    "Original SQLite worker/lifecycle integration passed locally. Retained shard7 and exact-revision Linux CI remain required; CI shard3 internal branch remains unknown.",
+    "No stale-row cache, extra authority, lease renewal, late SQL, provider access or credential use."
+  ],
+  "artifacts_sha256": {
+    "probe-terminal-before-source.py": "13df2e1e8c03326e161f782760e125265726a46bc4a462c5cf39d50773a3d00b",
+    "probe-terminal-race.py": "7e57bebb8891edf2514b85aad45873244ea6bc5899788b3245c00a75b3ee83fc",
+    "probe-terminal-race.json": "fa6d1b397df16da937a7f85fe604df72f30e63c64ab723b29deb20e3f1d2a501",
+    "probe-terminal-regression-before-fix.txt": "8fe242e71cc35901365e1e5d797679b220791f83ff15d40b486efd0ef103e5b2",
+    "probe-terminal-process-unit-check.txt": "3a7706b7f810954a7e2a67a3f1e96e5a95c7523812cbf9e16fff3053d95e1218",
+    "probe-terminal-sandbox-failure.json": "48be89018b444e36c5c8e79d20751c7efc63bad100f69a6baed0ffdc0cfcd64c"
+  }
+}

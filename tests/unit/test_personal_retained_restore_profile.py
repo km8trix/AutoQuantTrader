@@ -379,7 +379,12 @@ def test_actual_integration_wrapper_keeps_original_failures_and_cleanup_with_fin
         assert not output.exists()
     else:
         monkeypatch.setenv("AQT_RETAINED_RESTORE_PROFILE_PATH", str(output))
-        monkeypatch.setattr(profile, "RetainedRestoreProfile", lambda _output: capture)
+
+        def optional_capture(_output, *, measure_execute):
+            assert _output == str(output) and measure_execute is True
+            return capture
+
+        monkeypatch.setattr(profile, "RetainedRestoreProfile", optional_capture)
         if scenario == "execute-cleanup-report-write":
             expected = ExceptionGroup
         elif scenario in {"success-disable", "assertion-report-write"}:

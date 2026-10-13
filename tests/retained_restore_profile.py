@@ -12,11 +12,23 @@ import json
 import os
 import re
 from pathlib import Path
+from time import perf_counter_ns as _native_perf_counter_ns
+from time import process_time_ns as _native_process_time_ns
+from time import thread_time_ns as _native_thread_time_ns
 from types import CodeType
 
 _TOP_ENTRIES = 128
 _MAX_ROWS = 4 * _TOP_ENTRIES
 _MAX_REPORT_BYTES = 1_000_000
+_CLOCK_CAP_NS = (1 << 63) - 1
+_ELAPSED_CAP_NS = 10**15
+_EXECUTE_TIMING_SCOPE = (
+    "Native staggered whole factory.execute wall/process/thread intervals inside cProfile; "
+    "clock and wrapper overhead included. Process CPU includes other process threads, "
+    "not child processes; thread CPU covers the calling thread. Setup, construction, "
+    "decoding, assertions, cleanup and report generation excluded. No subtraction, "
+    "cause attribution, profitability or deadline-fit evidence."
+)
 _SAFE_COMPONENT = re.compile(r"[A-Za-z0-9_.-]{1,100}\Z")
 _SAFE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,199}\Z")
 _PROJECT_DIRECTORIES = frozenset({"apps", "packages", "tests", "scripts", "migrations"})
@@ -126,8 +138,44 @@ def _report(profiler, project: Path, *, execute_started: bool, execute_returned:
     }
 
 
+def _release_execute_clock_error(
+    error, primary, traceback, cause, context, suppressed, *, restore_primary=True
+):
+    """Only a pending original operation error authorizes auxiliary fault isolation."""
+    try:
+        if error is not primary:
+            BaseException.__traceback__.__set__(error, None)
+            if BaseException.__context__.__get__(error) is primary:
+                BaseException.__context__.__set__(error, None)
+            if BaseException.__cause__.__get__(error) is primary:
+                auxiliary_suppressed = BaseException.__suppress_context__.__get__(error)
+                BaseException.__cause__.__set__(error, None)
+                BaseException.__suppress_context__.__set__(error, auxiliary_suppressed)
+        if restore_primary:
+            BaseException.__traceback__.__set__(primary, traceback)
+            BaseException.__cause__.__set__(primary, cause)
+            BaseException.__context__.__set__(primary, context)
+            BaseException.__suppress_context__.__set__(primary, suppressed)
+    except BaseException:
+        # Native cleanup faults cannot displace an already pending operation error.
+        pass
+    finally:
+        error = primary = traceback = cause = context = suppressed = None
+
+
 class RetainedRestoreProfile:
-    def __init__(self, output: str) -> None:
+    def __init__(self, output: str, *, measure_execute: bool = False) -> None:
+        if type(measure_execute) is not bool:
+            raise TypeError("RETAINED_PROFILE_MEASURE_EXECUTE_BOOL")
+        self._measure_execute = measure_execute
+        self._wall_clock_ns = _native_perf_counter_ns if measure_execute else None
+        self._process_clock_ns = _native_process_time_ns if measure_execute else None
+        self._thread_clock_ns = _native_thread_time_ns if measure_execute else None
+        self._timing_attempted = False
+        self._timing_status = "unavailable"
+        self._wall_elapsed_ns = None
+        self._process_cpu_elapsed_ns = None
+        self._thread_cpu_elapsed_ns = None
         self.output = Path(output)
         self.profiler = cProfile.Profile()
         self.execute_started = False
@@ -138,6 +186,8 @@ class RetainedRestoreProfile:
 
     def execute(self, operation, **arguments):
         """Keep the original operation exception authoritative over profiler faults."""
+        if self._measure_execute:
+            return self._execute_measured(operation, arguments)
         try:
             self.profiler.enable()
         except BaseException:
@@ -158,6 +208,148 @@ class RetainedRestoreProfile:
                 # Even if a later disable succeeds, timings after this fault
                 # cannot claim execute-only scope and will not be emitted.
                 self.diagnostic_faults.append("execute_disable_failed")
+
+    def _invalidate_execute_timing(self):
+        self._timing_status = "invalid"
+        self._wall_elapsed_ns = None
+        self._process_cpu_elapsed_ns = None
+        self._thread_cpu_elapsed_ns = None
+        if "execute_timing_invalid" not in self.diagnostic_faults:
+            self.diagnostic_faults.append("execute_timing_invalid")
+
+    def _read_execute_clock(self, clock, primary):
+        value = traceback = cause = context = suppressed = None
+        try:
+            if primary is not None:
+                traceback = BaseException.__traceback__.__get__(primary)
+                cause = BaseException.__cause__.__get__(primary)
+                context = BaseException.__context__.__get__(primary)
+                suppressed = BaseException.__suppress_context__.__get__(primary)
+            value = clock()
+            if type(value) is int and 0 <= value <= _CLOCK_CAP_NS:
+                return value
+            self._invalidate_execute_timing()
+            return None
+        except BaseException as error:
+            self._invalidate_execute_timing()
+            if primary is None:
+                if type(error) is not OSError:
+                    raise
+                BaseException.__traceback__.__set__(error, None)
+            else:
+                _release_execute_clock_error(error, primary, traceback, cause, context, suppressed)
+            return None
+        finally:
+            self = clock = primary = value = traceback = cause = context = suppressed = None
+
+    def _sample_execute_clocks(self, primary):
+        try:
+            return (
+                self._read_execute_clock(self._wall_clock_ns, primary),
+                self._read_execute_clock(self._process_clock_ns, primary),
+                self._read_execute_clock(self._thread_clock_ns, primary),
+            )
+        finally:
+            self = primary = None
+
+    def _finish_execute_timing(self, starts, ends):
+        try:
+            if self._timing_status == "invalid":
+                return
+            if any(value is None for value in starts + ends):
+                self._invalidate_execute_timing()
+                return
+            deltas = tuple(end - start for start, end in zip(starts, ends, strict=True))
+            if not all(0 <= value <= _ELAPSED_CAP_NS for value in deltas):
+                self._invalidate_execute_timing()
+                return
+            self._wall_elapsed_ns, self._process_cpu_elapsed_ns, self._thread_cpu_elapsed_ns = (
+                deltas
+            )
+            self._timing_status = "valid"
+        finally:
+            self = starts = ends = None
+
+    def _finish_pending_execute_timing(self, starts, primary):
+        """The complete end-metadata block is subordinate to an operation error."""
+        traceback = cause = context = suppressed = ends = None
+        snapshot_ready = False
+        try:
+            traceback = BaseException.__traceback__.__get__(primary)
+            cause = BaseException.__cause__.__get__(primary)
+            context = BaseException.__context__.__get__(primary)
+            suppressed = BaseException.__suppress_context__.__get__(primary)
+            snapshot_ready = True
+            ends = self._sample_execute_clocks(primary)
+            self._finish_execute_timing(starts, ends)
+        except BaseException as error:
+            self._invalidate_execute_timing()
+            _release_execute_clock_error(
+                error,
+                primary,
+                traceback,
+                cause,
+                context,
+                suppressed,
+                restore_primary=snapshot_ready,
+            )
+        finally:
+            self = starts = primary = traceback = cause = context = suppressed = ends = None
+
+    def _execute_measured(self, operation, arguments):
+        starts = ends = result = None
+        try:
+            measure_this_call = not self._timing_attempted
+            self._timing_attempted = True
+            if not measure_this_call:
+                self._invalidate_execute_timing()
+            try:
+                self.profiler.enable()
+            except BaseException:
+                self.diagnostic_faults.append("enable_failed")
+                raise
+            try:
+                if measure_this_call:
+                    try:
+                        starts = self._sample_execute_clocks(None)
+                    except BaseException:
+                        self._invalidate_execute_timing()
+                        raise
+                self.execute_started = True
+                try:
+                    result = operation(**arguments)
+                except BaseException as primary:
+                    if measure_this_call:
+                        self._finish_pending_execute_timing(starts, primary)
+                    raise
+                else:
+                    self.execute_returned = True
+                    if measure_this_call:
+                        # A handled ambient exception is not an operation failure.
+                        try:
+                            ends = self._sample_execute_clocks(None)
+                            self._finish_execute_timing(starts, ends)
+                        except BaseException:
+                            self._invalidate_execute_timing()
+                            raise
+                    return result
+            finally:
+                try:
+                    self.profiler.disable()
+                except BaseException:
+                    self.diagnostic_faults.append("execute_disable_failed")
+        finally:
+            # New wrapper frames must not add error/argument/callback ownership.
+            self = operation = arguments = starts = ends = result = None
+
+    def _execute_timing_report(self):
+        return {
+            "status": self._timing_status,
+            "wall_elapsed_ns": self._wall_elapsed_ns,
+            "process_cpu_elapsed_ns": self._process_cpu_elapsed_ns,
+            "thread_cpu_elapsed_ns": self._thread_cpu_elapsed_ns,
+            "scope": _EXECUTE_TIMING_SCOPE,
+        }
 
     def _invalid_report(self):
         return {
@@ -198,6 +390,9 @@ class RetainedRestoreProfile:
             report = self._invalid_report()
         descriptor = None
         try:
+            if self._measure_execute:
+                report["schema"] = "retained-factory-execute-static-cprofile/2"
+                report["execute_timing"] = self._execute_timing_report()
             raw = (json.dumps(report, allow_nan=False, indent=2) + "\n").encode("utf-8")
             if len(raw) > _MAX_REPORT_BYTES:
                 raise ValueError("RETAINED_PROFILE_BYTE_BOUND")

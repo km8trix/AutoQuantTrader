@@ -1,0 +1,81 @@
+{
+  "diagnostic_only": true,
+  "limitations": [
+    "Actual locally owned pending source from existing synthetic fixture, not signed factory history or active proof authority.",
+    "Optimistic pure-data lower bound: excludes source/root authentication, one-shot permits, complete transitive code/global/descriptor/schema pins, initial Mapping classification and original __class__ lookup guards, and factory poison/retirement validation, which are not implemented.",
+    "Helper prototype is not production-ready; preexisting Mapping registration and other review findings remain unresolved.",
+    "No source graph, values, fingerprint result, SQL, account identifiers or provider data recorded. Reporting occurs after test fixture cleanup.",
+    "Fixture setup is excluded. Fixed small sample, no retained factory or Linux/PostgreSQL acceptance inference."
+  ],
+  "pytest_exitstatus": 0,
+  "result": {
+    "admitted": true,
+    "bindings": 20500,
+    "concurrent_seals": "At most one seal at every point; require-only setup and release occur outside its measured interval, and lifecycle timing includes actual issue and final reference release.",
+    "containers": 2030,
+    "issue_check_drop_over_fingerprint": 2.0783985731005794,
+    "issue_plus_n_checks_over_n_fingerprints": {
+      "1": 2.01276799817149,
+      "12": 0.47210475464861,
+      "3": 0.892285639245759,
+      "30": 0.3880685777291803,
+      "6": 0.6121650495143264
+    },
+    "iterations_per_round": 3,
+    "limits": {
+      "max_bindings": 131072,
+      "max_containers": 16384
+    },
+    "median_ns_per_call": {
+      "fingerprint": 6609389.0,
+      "issue_and_drop": 11108555.666666666,
+      "issue_check_drop": 13736944.666666666,
+      "require": 2194611.0
+    },
+    "ratio_definition": "Ratios use median per-call times from3 alternating rounds of3 invocations; lower than1 is faster. Projection reuse ratios include measured issue/drop once plus N measured checks. Runtime GC remains enabled. Full source/factory context/permit/behavior-pin overhead is excluded.",
+    "require_over_fingerprint": 0.3320444597828937,
+    "rounds": 3,
+    "rounds_ns": [
+      {
+        "fingerprint": 19828167,
+        "issue_and_drop": 34499292,
+        "issue_check_drop": 41210834,
+        "require": 6564667
+      },
+      {
+        "fingerprint": 20472250,
+        "issue_and_drop": 32928792,
+        "issue_check_drop": 39843250,
+        "require": 6583833
+      },
+      {
+        "fingerprint": 19765458,
+        "issue_and_drop": 33325667,
+        "issue_check_drop": 42658917,
+        "require": 6625250
+      }
+    ]
+  },
+  "schema": "fixture-pending-pure-proof-economics/1",
+  "source_sha256_after": {
+    "aqt_pending_proof_economics.py": "209ac9fbe2d7026fad511945e95cf345a6f533546b20302d61c018d4ceb4d6ad",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/persistence/_factory_attempt_fingerprint.py": "558c12db81c59b11788f642676fab3d836644531caa2a158190b776546508382",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "test_aqt_pending_proof_economics.py": "44a9b2e0241965127055b45ec2edb462af56214a8fdfda5c5186c408b8290382",
+    "tests/integration/test_continuous_runtime_attempt_sources.py": "f724e29385c5eabf1b67a9e7a3cb45265a5e5f7b8b5649f6bb4f72b44eeb80bf"
+  },
+  "source_sha256_before": {
+    "aqt_pending_proof_economics.py": "209ac9fbe2d7026fad511945e95cf345a6f533546b20302d61c018d4ceb4d6ad",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/persistence/_factory_attempt_fingerprint.py": "558c12db81c59b11788f642676fab3d836644531caa2a158190b776546508382",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "test_aqt_pending_proof_economics.py": "44a9b2e0241965127055b45ec2edb462af56214a8fdfda5c5186c408b8290382",
+    "tests/integration/test_continuous_runtime_attempt_sources.py": "f724e29385c5eabf1b67a9e7a3cb45265a5e5f7b8b5649f6bb4f72b44eeb80bf"
+  },
+  "sources_unchanged": true
+}

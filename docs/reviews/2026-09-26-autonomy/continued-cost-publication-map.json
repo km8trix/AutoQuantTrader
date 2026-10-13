@@ -1,0 +1,101 @@
+{
+  "schema": "aqt-continued-cost-publication-map/1",
+  "date": "2026-09-27",
+  "scope": "Exact-byte preservation of ten reviewed bounded cost-screen artifacts; no experiment, test, source edit, operating-document edit or Git operation performed for publication.",
+  "file_count": 10,
+  "source_review": {
+    "result": "No secrets, provider payloads, or private session payloads identified in the reviewed artifacts.",
+    "method": "Read-only source/report review plus credential-signature scan of these ten files; JSON parsing; inspect synthetic code/data provenance.",
+    "allowed_context": "Workspace, verified interpreter, temporary evidence and source-provenance paths are retained exactly.",
+    "limit": "This bounded content review is not a universal secret-detection guarantee."
+  },
+  "interpretation_limits": [
+    "Primitive dispatch evidence is a finite original/candidate/project comparison and synthetic timing screen; no retained-startup, Linux acceptance or measured end-to-end saving follows.",
+    "Identity type-only reuse was rejected for immaterial shape-specific economics; native id reuse was rejected for a supported audit-event/error mismatch.",
+    "SQL review establishes no material behavior-preserving repair; any policy alternative described there remains an explicitly unapproved consequential decision.",
+    "Historical CI/status statements are preserved at their original review checkpoints; current operating status is maintained separately by the coordinating agent.",
+    "Python scripts are archival text copies, not newly executed tests. No new experiment or broader proof/cache/lease authority is created."
+  ],
+  "files": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/continued-pure-cost-review.md",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/continued-pure-cost-review.md",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/continued-pure-cost-review.md",
+      "sha256": "6caf4b21d2a4e86c5ebfe19bf69ff1450de6ba32b5ec1dbb4ffbe09cce621736",
+      "bytes": 11970,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/continued-sql-cost-review.md",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/continued-sql-cost-review.md",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/continued-sql-cost-review.md",
+      "sha256": "f4829253b6cdc1fc7024bc197d37600c4c393fbf906437c664de5992bebb56e2",
+      "bytes": 15692,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/continued-validation-scope.md",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/continued-validation-scope.md",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/continued-validation-scope.md",
+      "sha256": "8e8b11f367faa58d8ab78ae862a8b612df551398fbcd00e140312f1f487ff40b",
+      "bytes": 17844,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-primitive-probe.py",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/check-type-primitive-probe.py.txt",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/check-type-primitive-probe.py.txt",
+      "sha256": "f3240b03c41e90f09c4fab6782e2892d7c514e657d38a3ca2af4bb61cd632617",
+      "bytes": 11986,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-primitive-probe-first.json",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/check-type-primitive-probe-first.json",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/check-type-primitive-probe-first.json",
+      "sha256": "70d98c0d451bfae352f28d008379ab656164d2dd7749625f16976abf4792a064",
+      "bytes": 39841,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/identity-type-lookup-screen.py",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/identity-type-lookup-screen.py.txt",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/identity-type-lookup-screen.py.txt",
+      "sha256": "dbc6eec0be1724b0deab137862327b797f4abc1ab7a9679db354edfcdf428f3a",
+      "bytes": 3397,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/identity-type-lookup-screen.json",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/identity-type-lookup-screen.json",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/identity-type-lookup-screen.json",
+      "sha256": "b1e92ee990bf5198677a105e54f8dea02e2817e95493e52eeccb07734c8ec0dd",
+      "bytes": 4136,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/identity-type-lookup-independent-review.json",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/identity-type-lookup-independent-review.json",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/identity-type-lookup-independent-review.json",
+      "sha256": "59210539fa1e86c428e64e1898043f72e80db76099481b4cef056c7339958289",
+      "bytes": 3047,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/identity-id-audit-rejection.py",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/identity-id-audit-rejection.py.txt",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/identity-id-audit-rejection.py.txt",
+      "sha256": "8984acc4dcfaa038b5fb493036e48bdb2c81ef04e00d466f787949d9878e42e0",
+      "bytes": 2462,
+      "copy_verified_exact_bytes": true
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/identity-id-audit-rejection.json",
+      "published_path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/docs/reviews/2026-09-26-autonomy/identity-id-audit-rejection.json",
+      "repository_relative_path": "docs/reviews/2026-09-26-autonomy/identity-id-audit-rejection.json",
+      "sha256": "c27690b1bc16b431c16e5486c65092ee7f7c9e9308f9e86ccf54f95ee101b7bd",
+      "bytes": 764,
+      "copy_verified_exact_bytes": true
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "run_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36279615517",
+  "head_sha": "7c73cd669cf4bcc798a6827fb11882cb7d270114",
+  "job_id": 108509129463,
+  "job_conclusion": "failure",
+  "overall_run_at_observation": "in_progress",
+  "failure": "original signed retained-outcome restore expires the unchanged 60-second lease",
+  "restore_elapsed_seconds": 60.118,
+  "fixture_setup_seconds": 325.158,
+  "test_summary": {
+    "failed": 1,
+    "passed": 298,
+    "deselected": 4549,
+    "warnings": 1
+  },
+  "failure_chain": [
+    "OFFLINE_OPERATION_FAILED",
+    "DatabaseSchemaNotReady",
+    "CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+    "CONTINUOUS_RETAINED_INDEX_INVALID",
+    "AccountLeaseOwnershipLost"
+  ],
+  "expiry_observation": "continuous_integrity._borrow_original_daily -> account_coordinator.revalidate",
+  "cleanup_failure": "OFFLINE_LEASE_RELEASE_FAILED caused by AccountLeaseOwnershipLost",
+  "worker_restart_shard_3": "success",
+  "sanitized_job_log_sha256": "445871b99ee0387468baae30a9b70cee23b6f970f2a1249682716b7ba2a396c9",
+  "limitations": [
+    "The initial observation preceded completion; the final run failed, with 15 of 16 financial shards plus foundations and browser successful. The aggregate and separate diagnostic remained failed.",
+    "No rerun, cancellation, limit increase or production change was performed.",
+    "The unconnected proof prototype is absent from this exact source revision."
+  ],
+  "final_run_conclusion": "failure",
+  "successful_jobs": 17,
+  "successful_financial_shards": 15,
+  "diagnostic": {
+    "job_id": 108517406009,
+    "conclusion": "failure",
+    "restore_elapsed_seconds": 61.393,
+    "fixture_setup_seconds": 190.1,
+    "summary": "1 failed in 254.50s",
+    "sanitized_log_sha256": "0e25420bba5d8deea9b5740ca1f92dab1e60043bde8d039f8b39f6699daec42d"
+  }
+}

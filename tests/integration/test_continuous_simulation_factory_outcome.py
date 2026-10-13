@@ -340,7 +340,7 @@ def _execute_retained_factory(history, config, monkeypatch):
     if profile_output:
         from tests.retained_restore_profile import RetainedRestoreProfile
 
-        profile = RetainedRestoreProfile(profile_output)
+        profile = RetainedRestoreProfile(profile_output, measure_execute=True)
 
     pair, _runtime, original, previous_daily, old_batch, independent, _requests = history
     financial = pair.counts()

@@ -1,0 +1,464 @@
+{
+  "schema": "aqt-ci-partial-financial-matrix/1",
+  "run_id": 36297439151,
+  "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36297439151",
+  "run_status": "in_progress",
+  "run_conclusion": null,
+  "run_attempt": 1,
+  "observed_at_utc": "2026-09-27T06:30:47.956157+00:00",
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "source_binding_provenance": {
+    "path": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-initial.json",
+    "sha256": "9c98497e535f24c33af7005dc203ed3fd35fefcb53cf8f670c624a812e4fd4ba",
+    "bytes": 6766
+  },
+  "matrix_complete": false,
+  "completed_financial_shards": 14,
+  "financial_job_counts": {
+    "success": 11,
+    "failure": 3,
+    "in_progress": 2
+  },
+  "completed_selected": 4352,
+  "completed_counts": {
+    "passed": 4349,
+    "failed": 3,
+    "skipped": 0
+  },
+  "nonfinancial_jobs": [
+    {
+      "id": 108558785272,
+      "name": "Standard Python foundations and installed-wheel checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 108558785368,
+      "name": "Browser regressions",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "shards": [
+    {
+      "shard": 0,
+      "id": 108558977322,
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 289,
+      "counts": {
+        "passed": 289,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4678,
+        "warnings": 1,
+        "seconds": 987.45
+      },
+      "summary": "2026-09-27T05:49:37.1664557Z 289 passed, 4678 deselected, 1 warning in 987.45s (0:16:27)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard0-raw.log",
+        "sha256": "dd773dded0bc9509363afeaa09efe9dce761d1a9c9c64d251cd8966abd756792",
+        "bytes": 40038
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 1,
+      "id": 108558977336,
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 304,
+      "counts": {
+        "passed": 304,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4663,
+        "warnings": 1,
+        "seconds": 932.69
+      },
+      "summary": "2026-09-27T05:48:37.8193319Z 304 passed, 4663 deselected, 1 warning in 932.69s (0:15:32)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard1-raw.log",
+        "sha256": "6b3aa6d7c22369177edb6c6d168146138358634da54ad9444e35c1e0780cd90f",
+        "bytes": 40031
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 2,
+      "id": 108558977399,
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 327,
+      "counts": {
+        "passed": 327,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4640,
+        "warnings": 1,
+        "seconds": 980.9
+      },
+      "summary": "2026-09-27T05:49:30.3941153Z 327 passed, 4640 deselected, 1 warning in 980.90s (0:16:20)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard2-raw.log",
+        "sha256": "3f0ed3da2559aef6e61fdf1d8b45504347f246c0bc27aa0ad35ea391d62aa01c",
+        "bytes": 40394
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 3,
+      "id": 108558977357,
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "status": "completed",
+      "conclusion": "failure",
+      "selected": 327,
+      "counts": {
+        "passed": 326,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4640,
+        "warnings": 1,
+        "seconds": 823.69
+      },
+      "summary": "2026-09-27T05:46:55.5158481Z 1 failed, 326 passed, 4640 deselected, 1 warning in 823.69s (0:13:43)",
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history"
+      ],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-raw.log",
+        "sha256": "b1a77aeae13356faaa34c723f2e67ee03c54e07be752ec48986369dcf8d6b9d5",
+        "bytes": 51951
+      },
+      "log_reused": true
+    },
+    {
+      "shard": 4,
+      "id": 108558977480,
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "status": "completed",
+      "conclusion": "failure",
+      "selected": 341,
+      "counts": {
+        "passed": 340,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4626,
+        "warnings": 1,
+        "seconds": 789.46
+      },
+      "summary": "2026-09-27T06:01:07.3963903Z 1 failed, 340 passed, 4626 deselected, 1 warning in 789.46s (0:13:09)",
+      "failed_nodes": [
+        "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]"
+      ],
+      "private_entry_markers": [
+        {
+          "case": "original",
+          "private_entry_seen": true
+        }
+      ],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard4-raw.log",
+        "sha256": "f3e99f748a1c1e7a1ac067b5154b6de220e8c24356c3dbd0fc01b0b35e69dd18",
+        "bytes": 56094
+      },
+      "log_reused": true
+    },
+    {
+      "shard": 5,
+      "id": 108558977356,
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 299,
+      "counts": {
+        "passed": 299,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4668,
+        "warnings": 1,
+        "seconds": 675.73
+      },
+      "summary": "2026-09-27T06:00:37.1958919Z 299 passed, 4668 deselected, 1 warning in 675.73s (0:11:15)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard5-raw.log",
+        "sha256": "b8082bc7b87a445e54454276c08d7d0e2cb3db63409a4c532aa9411dcd2e3ae2",
+        "bytes": 45713
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 6,
+      "id": 108558977397,
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 339,
+      "counts": {
+        "passed": 339,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4628,
+        "warnings": 1,
+        "seconds": 652.37
+      },
+      "summary": "2026-09-27T06:00:52.0925513Z 339 passed, 4628 deselected, 1 warning in 652.37s (0:10:52)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard6-raw.log",
+        "sha256": "1230b72ed2659d0ad3e941148f07893badc8725f68cbb85ab8422d0e516b3caf",
+        "bytes": 40100
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 7,
+      "id": 108558977403,
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "status": "completed",
+      "conclusion": "failure",
+      "selected": 304,
+      "counts": {
+        "passed": 303,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4663,
+        "warnings": 1,
+        "seconds": 995.97
+      },
+      "summary": "2026-09-27T06:06:38.0730608Z 1 failed, 303 passed, 4663 deselected, 1 warning in 995.97s (0:16:35)",
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+      ],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard7-raw.log",
+        "sha256": "ce3027fa83866f24e39c9de3c81c7377a0217dffcd424b037af7730e36d6a4b1",
+        "bytes": 55726
+      },
+      "log_reused": true
+    },
+    {
+      "shard": 8,
+      "id": 108558977404,
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 273,
+      "counts": {
+        "passed": 273,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4694,
+        "warnings": 1,
+        "seconds": 570.38
+      },
+      "summary": "2026-09-27T06:10:36.8306808Z 273 passed, 4694 deselected, 1 warning in 570.38s (0:09:30)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard8-raw.log",
+        "sha256": "d3d37c49a1fe08f9cec87429e9fb5f01d7ceb36430b16c28906436fb2706ed15",
+        "bytes": 40279
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 9,
+      "id": 108558977363,
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 310,
+      "counts": {
+        "passed": 310,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4657,
+        "warnings": 1,
+        "seconds": 477.37
+      },
+      "summary": "2026-09-27T06:09:15.8992568Z 310 passed, 4657 deselected, 1 warning in 477.37s (0:07:57)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard9-raw.log",
+        "sha256": "f234f2d058a48a73070100eeedd3bafed28e1cbcd598609a8a2377b427370c33",
+        "bytes": 39907
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 10,
+      "id": 108558977400,
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 323,
+      "counts": {
+        "passed": 323,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4644,
+        "warnings": 1,
+        "seconds": 499.07
+      },
+      "summary": "2026-09-27T06:09:59.7730533Z 323 passed, 4644 deselected, 1 warning in 499.07s (0:08:19)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard10-raw.log",
+        "sha256": "c64dfbb8b2006d7b9590d022c3ff6ab8cfdacb0185a6a0a3a90534a255ae5cf6",
+        "bytes": 40453
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 11,
+      "id": 108558977389,
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 304,
+      "counts": {
+        "passed": 304,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4663,
+        "warnings": 1,
+        "seconds": 406.37
+      },
+      "summary": "2026-09-27T06:13:50.5241281Z 304 passed, 4663 deselected, 1 warning in 406.37s (0:06:46)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard11-raw.log",
+        "sha256": "b0302a7d5a106fdec12156e9511ea5a573c0caa6b8eea685a53d112a07967d17",
+        "bytes": 40041
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 12,
+      "id": 108558977496,
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "shard": 13,
+      "id": 108558977406,
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 272,
+      "counts": {
+        "passed": 272,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4695,
+        "warnings": 1,
+        "seconds": 944.35
+      },
+      "summary": "2026-09-27T06:26:16.7055666Z 272 passed, 4695 deselected, 1 warning in 944.35s (0:15:44)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard13-raw.log",
+        "sha256": "45967d4f9abc4ebdb04cabf1a5973d51ebc353eaa43a907d5ad3c5cea60763fb",
+        "bytes": 39932
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 14,
+      "id": 108558977903,
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "status": "completed",
+      "conclusion": "success",
+      "selected": 340,
+      "counts": {
+        "passed": 340,
+        "failed": 0,
+        "skipped": 0,
+        "deselected": 4627,
+        "warnings": 1,
+        "seconds": 534.3
+      },
+      "summary": "2026-09-27T06:20:02.9677540Z 340 passed, 4627 deselected, 1 warning in 534.30s (0:08:54)",
+      "failed_nodes": [],
+      "private_entry_markers": [],
+      "checkout_merge_verified": true,
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard14-raw.log",
+        "sha256": "3cc69fd101de8c2ad7113853170742529a3bae3781bc994ec80f847ba8319caf",
+        "bytes": 39996
+      },
+      "log_reused": false
+    },
+    {
+      "shard": 15,
+      "id": 108558977959,
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "status": "in_progress",
+      "conclusion": null
+    }
+  ],
+  "raw_status_evidence": [
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-final-run-read.json",
+      "sha256": "719245797ac937e1777fa175d91667b1f360ca9bdb4ec3988c483de658af1c3f",
+      "bytes": 12884
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-final-jobs-read.json",
+      "sha256": "778caa12ca06f8080c5c4417425a986581e14cd2deee461605863fd9b025d67d",
+      "bytes": 53861
+    }
+  ],
+  "limitations": [
+    "One run-status read and one jobs read; no polling, rerun, cancel, dispatch or workflow mutation.",
+    "Run and matrix incomplete: shards12 and15 were running; no full-matrix conclusion or diagnostic/profile/artifact retrieval.",
+    "Only completed job logs collected. Existing shard3/4/7 raw logs reused; all other raw logs remain private temporary evidence bound by hash.",
+    "Completed zero-skip counts follow complete summaries; completed selected+individual deselected equals4967 for each completed shard.",
+    "Exact old head071dd5c and same-tree generated merge only: newer local9f9cd72 and current uncommitted native observer changes are outside this run.",
+    "Run and jobs are bounded sequential API reads, not an atomic GitHub snapshot."
+  ]
+}

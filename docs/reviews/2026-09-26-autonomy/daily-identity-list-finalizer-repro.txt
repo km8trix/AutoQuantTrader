@@ -1,0 +1,4 @@
+prior at catch: ['read a', 'read b', 'drop value', 'caught']
+prior after catch: ['read a', 'read b', 'drop value', 'caught', 'drop a', 'drop b']
+candidate at catch: ['read a', 'read b', 'drop a', 'drop value', 'drop b', 'caught']
+candidate after catch: ['read a', 'read b', 'drop a', 'drop value', 'drop b', 'caught']

@@ -1,0 +1,170 @@
+{
+  "schema": "semantic-dataclass-field-evidence/1",
+  "date": "2026-09-26",
+  "files_sha256": {
+    "packages/domain/personal_contracts.py": "0525ffa5ac23c22c2c266ab7e62efe7d22663f1b572d04f56d6f0ac7160578e6",
+    "tests/unit/test_personal_semantic_dispatch.py": "39427fdfe7f39bc7b209904ebbc44d9a6cee0e0ab7a1b9559ebd09d2da99621f"
+  },
+  "source_before_sha256": "bb2bb0b5bd6d3a695d59e378129ffe80e8a36c45f79bdcd8965831a485537816",
+  "change": "Inline only exact None/str/int/bool/bytes dataclass field values. All other fields recurse; drop nonexact child/type temporaries at the original release boundary before the next field read. No cache, ownership, canonical-format, lease, fence, schema or limit change.",
+  "compatibility": [
+    "module + qualname evaluated before fields lookup",
+    "f.name read twice, first output label then original getattr name",
+    "getattr, recursion, reflection, error type/message/cause and original mutation order",
+    "new dataclass result/pair/field tuples and fresh nested tuple allocations on every original alias visit",
+    "subclass and dataclass subclass fallback retained",
+    "ephemeral nested record destruction can mutate next field; exact original release/read order retained"
+  ],
+  "validation": {
+    "runtime": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+    "architecture": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -I -B scripts/check_personal_architecture.py",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    "focused_suite": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest -q -p no:cacheprovider tests/unit/test_personal_semantic_dispatch.py tests/unit/test_personal_contract_semantics.py tests/unit/test_personal_canonical_tuple_dispatch.py tests/unit/test_personal_canonical_deferred_dispatch.py tests/unit/test_personal_canonical_fragment_join.py tests/unit/test_personal_codec_primitive_dispatch.py tests/unit/test_personal_codec.py",
+      "exit_code": 0,
+      "passed": 262,
+      "seconds": 0.84,
+      "new_dataclass_cases": 21,
+      "scope": "233 existing cases plus 21 new semantic cases and 8 concurrently implemented canonical emission cases"
+    },
+    "ruff_format": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff format packages/domain/personal_contracts.py tests/unit/test_personal_semantic_dispatch.py",
+      "exit_code": 0,
+      "result": "2 files left unchanged"
+    },
+    "ruff_check": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff check packages/domain/personal_contracts.py tests/unit/test_personal_semantic_dispatch.py",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    "mypy": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m mypy packages/domain/personal_contracts.py",
+      "exit_code": 0,
+      "result": "Success: no issues found in 1 source file"
+    },
+    "temporary_candidate_oracle": {
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B /private/tmp/aqt-autonomy-audit/semantic-field-probe.py --implemented --pytest",
+      "exit_code": 0,
+      "result": "final candidate AST matches repository algorithm; literal pre-change oracle remains independent; 93 semantic/golden cases passed with in-memory candidate"
+    },
+    "independent_review": {
+      "reviewer": "architecture_audit",
+      "result": "corrected source approved; prefix/field-name count, fallback and temporary-release order preserved",
+      "tests": "133 semantic/contracts/codec tests passed in0.63s"
+    }
+  },
+  "failure_history": [
+    {
+      "check": "independent deterministic temporary-record lifetime regression",
+      "result": "failed before correction: original child destructor runs before second getter and changes serialized second value; initial candidate read original second value first",
+      "pre_fix_source_sha256": "f1309d8e022f78ba323441d6f77a74776d6bcb03b17d9d9e889376c86dcdc9ce",
+      "source_snapshot": "Temporary full pre-fix source was retained outside Git under /private/tmp/aqt-autonomy-audit/semantic-field-before-source.py; digest above identifies it.",
+      "reproduction": "semantic-field-release-before-fix.txt",
+      "reviewer_reproduction": "semantic-field-lifetime-repro.txt",
+      "repair": "Release item_type before recursion and item immediately after conversion, before append/next getter. New regression and full focused gate pass."
+    }
+  ],
+  "benchmark": {
+    "file": "semantic-field-implemented-benchmark.json",
+    "ratio_definition": "median(candidate_seconds) / median(original_seconds) for identical workload+iterations over seven alternating-order samples; below1 means less elapsed converter time",
+    "summary": {
+      "scalar-records": 0.6726259742363027,
+      "actual-contract-records": 0.8015119346616314,
+      "non-scalar-records": 1.008281447335331,
+      "tuple-field-records": 1.0449547648830948,
+      "single-version-pin": 0.7426190667784744,
+      "single-causal-mark": 0.8768192514994282,
+      "empty-record": 0.782279886815209,
+      "unchanged-tuple": 0.9650239400831394
+    },
+    "scope": "Converter-only finite synthetic/actual-contract fixtures, seven alternating-order samples. Separate call-count instrumentation is diagnostic and not used for time ratios. Tuple-only fields slowed about4.5%; non-scalar-only about0.8% slower. No retained-end-to-end or Linux speedup claim."
+  },
+  "profile_context": {
+    "profile": "existing b1156ba failure-only Linux diagnostic, before tuple-scalar repair and current candidate",
+    "rows": [
+      {
+        "stats_entry_ordinal": 498,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 20,
+        "function": "semantic_value",
+        "calls": 2428384,
+        "recursive_calls": 2410815,
+        "inclusive_seconds": 5.468608013000001,
+        "self_seconds": 3.0239400510000003
+      },
+      {
+        "stats_entry_ordinal": 3670,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 24,
+        "function": "<genexpr>",
+        "calls": 1009151,
+        "recursive_calls": 946346,
+        "inclusive_seconds": 5.412098418,
+        "self_seconds": 0.223979228
+      },
+      {
+        "stats_entry_ordinal": 3715,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 36,
+        "function": "<genexpr>",
+        "calls": 1996226,
+        "recursive_calls": 1821755,
+        "inclusive_seconds": 4.952349357,
+        "self_seconds": 0.7943125360000001
+      },
+      {
+        "stats_entry_ordinal": 4735,
+        "group": "runtime",
+        "file": "dataclasses.py",
+        "line": 1278,
+        "function": "fields",
+        "calls": 970126,
+        "recursive_calls": 0,
+        "inclusive_seconds": 2.607753412,
+        "self_seconds": 1.520973935
+      },
+      {
+        "stats_entry_ordinal": 4618,
+        "group": "runtime",
+        "file": "dataclasses.py",
+        "line": 1301,
+        "function": "is_dataclass",
+        "calls": 1650593,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.0798501900000002,
+        "self_seconds": 0.6559689700000001
+      },
+      {
+        "stats_entry_ordinal": 3617,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 106,
+        "function": "<genexpr>",
+        "calls": 94901,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.028146428,
+        "self_seconds": 0.028146428
+      }
+    ],
+    "limits": "Inclusive timings overlap and cannot be added; instrumentation changes runtime. Dataclasses.fields/reflection remains present with identical fixture call counts; exact scalar recursion is removed. Current b6e4815 required unprofiled restore failed61.200s at final integrity fence under original60-second lease; that failure remains unresolved by unit/microbenchmark passes."
+  },
+  "artifacts_sha256": {
+    "semantic-field-probe.py": "a8bd6ea0521377c1d786e6fa23a226dc33135beacb6f08992b6902a98f44b32e",
+    "semantic-field-implemented-benchmark.json": "8ad298c4ab7d2e1eb89e9b5691c0940e7196091b8d4b120b5b0882aa657e13ae",
+    "semantic-field-release-before-fix.txt": "bb1c6d23750189ef375dfb55eb1da0410cdb592af641cac1b23771b255c4c0b5",
+    "semantic-field-before-source.py": "f1309d8e022f78ba323441d6f77a74776d6bcb03b17d9d9e889376c86dcdc9ce",
+    "semantic-field-lifetime-repro.txt": "523439439a0280b15af5c02e50844b0dfdee66941f501f15672c188e59cb5021"
+  },
+  "limitations": [
+    "No provider, credentials, brokerage, actual host service, full suite, PostgreSQL or native qualification performed.",
+    "No lease, operation/parent timeout or final integrity fence changed.",
+    "Root owns original unprofiled retained acceptance after both independent pure-helper changes are stable.",
+    "Cooperating Python behavior preserved; no hostile frame, GC or allocation equivalence claim."
+  ]
+}

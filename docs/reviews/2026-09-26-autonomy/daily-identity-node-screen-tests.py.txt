@@ -1,0 +1,102 @@
+"""Scalar metadata/accounting mechanics; no project imports or owner fixtures."""
+from copy import deepcopy
+import json
+import sys
+
+import pytest
+
+import daily_identity_node_screen as screen
+
+
+@pytest.fixture
+def observation():
+    return json.loads((screen.AUDIT / screen.MEASUREMENT).read_text())
+
+
+def test_authentic_frozen_observation_rejects_stated_layout(observation):
+    assert screen.digest(screen.AUDIT / screen.MEASUREMENT) == screen.MEASUREMENT_SHA256
+    result = screen.screen(observation)
+    assert result['outcome'] == 'rejected_this_per_node_layout'
+    assert result['proposed_lower_bound'] == dict(containers=9356, bindings=73402)
+    assert result['combined_lower_bound'] == dict(containers=16743, bindings=139661)
+    assert result['excess'] == dict(containers=359, bindings=8589)
+    assert result['admission'] is result['acceptance'] is result['universal_impossibility'] is False
+    assert not any(name.startswith(('apps.', 'packages.')) for name in sys.modules)
+
+
+def test_exact_cap_equality_is_only_not_rejected_by_lower_bound():
+    result = screen.lower_bound(node_count=5, edge_count=7,
+        existing=dict(containers=screen.CAPS['containers']-5, bindings=screen.CAPS['bindings']-17))
+    assert result['excess'] == dict(containers=0, bindings=0)
+    assert result['outcome'] == 'not_rejected_by_lower_bound'
+    assert result['admission'] is result['acceptance'] is False
+    assert 'not presumed zero' in result['omitted_charges']
+
+
+@pytest.mark.parametrize('dimension', ['containers', 'bindings'])
+def test_one_over_either_shared_cap_rejects(dimension):
+    existing = dict(containers=screen.CAPS['containers']-5, bindings=screen.CAPS['bindings']-17)
+    existing[dimension] += 1
+    result = screen.lower_bound(node_count=5, edge_count=7, existing=existing)
+    assert result['outcome'] == 'rejected_this_per_node_layout'
+    assert result['excess'][dimension] == 1
+    assert result['excess']['bindings' if dimension == 'containers' else 'containers'] == 0
+
+
+@pytest.mark.parametrize('value', [-1, True, False, None, 1.0, '1', screen.CAPS['bindings']+1])
+def test_invalid_node_or_edge_counts_raise_without_inventing_usage(value):
+    with pytest.raises(ValueError, match='COUNT_PROFILE'):
+        screen.lower_bound(node_count=value, edge_count=0, existing=dict(containers=0,bindings=0))
+    with pytest.raises(ValueError, match='COUNT_PROFILE'):
+        screen.lower_bound(node_count=0, edge_count=value, existing=dict(containers=0,bindings=0))
+
+
+@pytest.mark.parametrize('existing', [None, {}, {'containers':0}, {'containers':0,'bindings':-1},
+    {'containers':True,'bindings':0}, {'containers':screen.CAPS['containers']+1,'bindings':0}])
+def test_invalid_existing_accounting_raises(existing):
+    with pytest.raises(ValueError):
+        screen.lower_bound(node_count=1,edge_count=1,existing=existing)
+
+
+@pytest.mark.parametrize('path,value', [
+    (('capture_status',), 'invalid'),
+    (('observation_extent',), 'partial_original_unwind'),
+    (('test_exitstatus',), 1),
+    (('test_exitstatus',), False),
+    (('diagnostic_faults',), ['incomplete_spans']),
+    (('source_hashes_after',), {}),
+    (('first_vector',), None),
+    (('first_vector','validation'), 'provisional'),
+    (('first_vector','validation'), 'public_unwound'),
+    (('first_vector','shape_status'), 'shape_over_bound'),
+    (('first_vector','stored_original_length'), 54689),
+    (('first_vector','seen_size'), True),
+    (('first_vector','attempt_proof','status'), 'inactive'),
+    (('first_vector','attempt_proof','status'), 'unavailable'),
+    (('first_vector','attempt_proof','caps','containers'), 16385),
+    (('first_vector','attempt_proof','total','bindings'), 66260),
+    (('first_vector','attempt_proof','remaining','containers'), 8998),
+    (('first_vector','attempt_proof','components','data','bindings'), -1),
+])
+def test_partial_provisional_or_inconsistent_observations_are_not_classified(observation,path,value):
+    changed = deepcopy(observation)
+    owner = changed
+    for key in path[:-1]:
+        owner = owner[key]
+    owner[path[-1]] = value
+    with pytest.raises(ValueError):
+        screen.screen(changed)
+
+
+def test_missing_components_are_not_treated_as_zero(observation):
+    changed = deepcopy(observation)
+    del changed['first_vector']['attempt_proof']['components']['root_behavior']
+    with pytest.raises(ValueError, match='SIMULTANEOUS_USAGE_REQUIRED'):
+        screen.screen(changed)
+
+
+def test_screen_does_not_mutate_original_scalar_evidence(observation):
+    before = deepcopy(observation)
+    screen.screen(observation)
+    assert observation == before
+    assert len(json.dumps(screen.screen(observation)).encode('ascii')) < screen.MAX_BYTES

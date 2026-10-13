@@ -1,0 +1,284 @@
+{
+  "schema": "aqt-exact-head-diagnostic-completed/1",
+  "captured_at_utc": "2026-09-27T06:50:58.900395+00:00",
+  "run_id": 36297439151,
+  "job_id": 108567934752,
+  "conclusion": "failure",
+  "source_binding": {
+    "candidate": "071dd5c5624b35bef114275d4431823c9c82edeb",
+    "candidate_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "actions_merge": "9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d",
+    "merge_tree": "25304ef8e284092cf7e685ff5ce46e3769188be6",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "071dd5c5624b35bef114275d4431823c9c82edeb"
+    ],
+    "same_tree": true,
+    "checkout_sha_verified_in_completed_foundations_log": true
+  },
+  "checkout_merge_verified_in_this_job_log": true,
+  "test": {
+    "node": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+    "failed": 1,
+    "passed": 0,
+    "elapsed_seconds": 388.34,
+    "restore_elapsed_seconds": 61.29,
+    "execute_origin": "AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "execute_path": "continuous_account.resolve_index \u2192 continuous_composition.prepare_capture/_historical_current \u2192 continuous_integrity._borrow_original_daily \u2192 account_coordinator.revalidate/revalidate_in_transaction/_receipt",
+    "cleanup_origin": "AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "cleanup_path": "factory.close \u2192 account_coordinator.release \u2192 _receipt",
+    "pytest_exit_code": 1
+  },
+  "artifact": {
+    "id": 10925273145,
+    "name": "retained-restore-profile-36297439151-1",
+    "github_size_in_bytes": 12386,
+    "github_digest": "sha256:e498dea4eeb0212bbc114ff104a30ccc9d232e7dd70ca3104370f045251bef2c",
+    "archive_digest_verified": true,
+    "archive": {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-artifact-10925273145.zip",
+      "bytes": 12386,
+      "sha256": "e498dea4eeb0212bbc114ff104a30ccc9d232e7dd70ca3104370f045251bef2c"
+    },
+    "extracted_files": [
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-profile/profile.json",
+        "bytes": 98865,
+        "sha256": "e08fe96b5d907cb7c818358f42f3d1507ef2696d69bc7a0512b4c478fb159894"
+      },
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-profile/test-exit.json",
+        "bytes": 89,
+        "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25"
+      }
+    ]
+  },
+  "profile": {
+    "schema": "retained-factory-execute-static-cprofile/1",
+    "diagnostic_only": true,
+    "scope": "Instrumented factory.execute only; fixture setup, factory construction, result decoding/assertions, cleanup and report generation are excluded. A returned execute call is not a passing restore test or startup acceptance.",
+    "factory_execute_started": true,
+    "factory_execute_returned": false,
+    "stats_entries_considered": 4852,
+    "selection": "Union of top128 inclusive and self-time entries, overall and project-only; up to512 rows. Unselected entries are omitted. Inclusive times overlap. Ordinals distinguish captured entries with identical static labels. These limits bound emitted data, not cProfile internal storage.",
+    "profile_status": "valid",
+    "diagnostic_faults": []
+  },
+  "selected_row_count": 313,
+  "relevant_selected_rows": [
+    {
+      "stats_entry_ordinal": 412,
+      "group": "project",
+      "file": "apps/trader/continuous_simulation_factory.py",
+      "line": 579,
+      "function": "execute",
+      "calls": 1,
+      "recursive_calls": 0,
+      "inclusive_seconds": 61.256734523000006,
+      "self_seconds": 1.6259e-05
+    },
+    {
+      "stats_entry_ordinal": 1020,
+      "group": "project",
+      "file": "packages/persistence/continuous_integrity.py",
+      "line": 1841,
+      "function": "_borrow_original_daily",
+      "calls": 10,
+      "recursive_calls": 0,
+      "inclusive_seconds": 29.503488518,
+      "self_seconds": 0.00048006100000000005
+    },
+    {
+      "stats_entry_ordinal": 550,
+      "group": "project",
+      "file": "packages/domain/canonical.py",
+      "line": 152,
+      "function": "_append_typed_text",
+      "calls": 3361178,
+      "recursive_calls": 3337834,
+      "inclusive_seconds": 13.155855451,
+      "self_seconds": 7.645771556000001
+    },
+    {
+      "stats_entry_ordinal": 904,
+      "group": "project",
+      "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+      "line": 2684,
+      "function": "_require_resolved_for_factory",
+      "calls": 28,
+      "recursive_calls": 0,
+      "inclusive_seconds": 12.141289475,
+      "self_seconds": 0.001153703
+    },
+    {
+      "stats_entry_ordinal": 681,
+      "group": "project",
+      "file": "packages/persistence/durable_journal.py",
+      "line": 111,
+      "function": "_columns",
+      "calls": 11665,
+      "recursive_calls": 0,
+      "inclusive_seconds": 7.005680991,
+      "self_seconds": 0.298899684
+    },
+    {
+      "stats_entry_ordinal": 832,
+      "group": "project",
+      "file": "packages/persistence/daily_runtime_risk.py",
+      "line": 991,
+      "function": "_assignment_identity_fields",
+      "calls": 63,
+      "recursive_calls": 0,
+      "inclusive_seconds": 6.085595057000001,
+      "self_seconds": 2.762872503
+    },
+    {
+      "stats_entry_ordinal": 743,
+      "group": "project",
+      "file": "packages/application/personal_codec.py",
+      "line": 199,
+      "function": "decode_record",
+      "calls": 1479,
+      "recursive_calls": 0,
+      "inclusive_seconds": 4.824907727,
+      "self_seconds": 0.007263919000000001
+    },
+    {
+      "stats_entry_ordinal": 501,
+      "group": "project",
+      "file": "packages/domain/personal_contracts.py",
+      "line": 20,
+      "function": "semantic_value",
+      "calls": 2655138,
+      "recursive_calls": 2636585,
+      "inclusive_seconds": 4.357047358,
+      "self_seconds": 1.7763716410000001
+    },
+    {
+      "stats_entry_ordinal": 542,
+      "group": "project",
+      "file": "packages/domain/personal_contracts.py",
+      "line": 94,
+      "function": "_check_type",
+      "calls": 309629,
+      "recursive_calls": 77907,
+      "inclusive_seconds": 1.140663062,
+      "self_seconds": 0.491468991
+    },
+    {
+      "stats_entry_ordinal": 978,
+      "group": "project",
+      "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+      "line": 2571,
+      "function": "_issue_factory_fingerprint",
+      "calls": 1,
+      "recursive_calls": 0,
+      "inclusive_seconds": 0.824518724,
+      "self_seconds": 0.00022990800000000002
+    },
+    {
+      "stats_entry_ordinal": 932,
+      "group": "project",
+      "file": "packages/persistence/_factory_attempt_fingerprint.py",
+      "line": 201,
+      "function": "require",
+      "calls": 31,
+      "recursive_calls": 0,
+      "inclusive_seconds": 0.810395081,
+      "self_seconds": 0.20349929400000002
+    },
+    {
+      "stats_entry_ordinal": 920,
+      "group": "project",
+      "file": "packages/persistence/_factory_attempt_fingerprint.py",
+      "line": 239,
+      "function": "_try_seal_attempt_data",
+      "calls": 1,
+      "recursive_calls": 0,
+      "inclusive_seconds": 0.23706616900000002,
+      "self_seconds": 0.042840972000000005
+    }
+  ],
+  "bounded_sanitized_failure_extracts": [
+    {
+      "start_line": 339,
+      "end_line": 378,
+      "lines": [
+        "2026-09-27T06:47:19.1044144Z actual factory graph ready: 0.033s",
+        "2026-09-27T06:47:19.1044451Z actual factory restore result: failed; elapsed=61.290s",
+        "2026-09-27T06:47:19.1044931Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T06:47:19.1045663Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:381:_execute_retained_factory",
+        "2026-09-27T06:47:19.1046629Z actual factory execute frame: tests/retained_restore_profile.py:150:execute",
+        "2026-09-27T06:47:19.1047164Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T06:47:19.1047806Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T06:47:19.1048443Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T06:47:19.1049031Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T06:47:19.1049693Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T06:47:19.1050339Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T06:47:19.1050906Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T06:47:19.1051419Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T06:47:19.1051985Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T06:47:19.1052545Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T06:47:19.1053117Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T06:47:19.1053773Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T06:47:19.1054409Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T06:47:19.1055018Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T06:47:19.1055635Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T06:47:19.1056725Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+        "2026-09-27T06:47:19.1057379Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+        "2026-09-27T06:47:19.1057993Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T06:47:19.1058730Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T06:47:19.1059373Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T06:47:19.1060040Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T06:47:19.1060721Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T06:47:19.1061363Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T06:47:19.1061950Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T06:47:19.1062590Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T06:47:19.1063295Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T06:47:19.1063937Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T06:47:19.1064537Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T06:47:19.1065265Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T06:47:19.1066134Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T06:47:19.1066734Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T06:47:19.1067341Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T06:47:19.1067894Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T06:47:19.1068452Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T06:47:19.1069011Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+      ]
+    },
+    {
+      "start_line": 423,
+      "end_line": 424,
+      "lines": [
+        "2026-09-27T06:47:22.5180971Z FAILED tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+        "2026-09-27T06:47:22.5181916Z 1 failed in 388.34s (0:06:28)"
+      ]
+    }
+  ],
+  "raw_log": {
+    "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-diagnostic-raw.log",
+    "bytes": 47833,
+    "sha256": "21ac283d3da946e1a58b5ced7b31713adac84a9c338d712d5b20e7fadd27125a"
+  },
+  "metadata_files": [
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-artifacts-final.json",
+      "bytes": 767,
+      "sha256": "726e983a3455129903517abf928d912a047175beb3520fe0f11d6933fc8b174c"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-completed-run-read.json",
+      "bytes": 45397,
+      "sha256": "dace98112d79010ef54579c85c3499f7d75173e4c5512f493a3b2798de07c8d4"
+    }
+  ],
+  "limitations": [
+    "This instrumented, failed and partial execution is not startup acceptance or an uninstrumented timing estimate.",
+    "Function-entry counts include calls that raise; private-entry rows do not establish completed issuance, successful proof uses or retirement.",
+    "Selected cProfile rows omit other entries; absence from this313-row selection does not establish no execution or fallback.",
+    "Inclusive times overlap and must not be summed.",
+    "The profile covers only original factory.execute; fixture setup, construction, decode/assertions, cleanup and report generation are outside this measured window.",
+    "This071dd5c evidence predates published e15f8b4 and cannot qualify its behavior or predict a speedup.",
+    "No raw payload, credentials, process values or source query outputs were added; extracted profile rows contain only the fixed static metadata keys and relative file labels."
+  ]
+}

@@ -46,6 +46,7 @@ def network(monkeypatch):
 
         def close(self):
             state["events"].append("socket_closed")
+            callback("on_socket_close")
 
     class Context:
         def wrap_socket(self, raw, *, server_hostname):
@@ -93,6 +94,7 @@ def network(monkeypatch):
 
         def close(self):
             state["events"].append("connection_closed")
+            callback("on_connection_close")
 
     def addresses(hostname, port, **kwargs):
         state["events"].append(("dns", hostname, port))
@@ -706,4 +708,118 @@ def test_etrade_plain_response_encoding_defaults_remain_compatible(network, enco
         network["encoding"] = encoding
     assert (
         session.read_quote_response(("SPY",), deadline_monotonic=time.monotonic() + 1).body == b"{}"
+    )
+
+
+@pytest.mark.parametrize(
+    "stage", ["loader", "tls", "body", "response_close", "connection_close", "socket_close"]
+)
+def test_tiingo_loader_changed_during_dependency_never_returns_success(network, stage):
+    holder = {}
+
+    def mutate():
+        holder["transport"]._token_loader = lambda: "fixture-replacement-token"
+        return "fixture-token-only"
+
+    request, transport = tiingo(
+        loader=mutate if stage == "loader" else lambda: "fixture-token-only"
+    )
+    holder["transport"] = transport
+    if stage != "loader":
+        network["on_" + stage] = mutate
+    with pytest.raises(
+        capture.ForwardCaptureHTTPError, match="ORIGINAL_CAPTURE_HTTP_REQUEST_REQUIRED"
+    ):
+        transport.get(request, deadline_ms=1000)
+    calls = [e for e in network["events"] if isinstance(e, tuple) and e[0] == "request"]
+    assert len(calls) == (0 if stage in ("loader", "tls") else 1)
+    if stage == "loader":
+        assert not network["events"]
+    else:
+        assert "socket_closed" in network["events"]
+        assert "connection_closed" in network["events"]
+    if stage not in ("loader", "tls"):
+        assert "response_closed" in network["events"]
+    original_events = tuple(network["events"])
+    with pytest.raises(capture.ForwardCaptureHTTPError):
+        transport.get(request, deadline_ms=1000)
+    assert transport._used and tuple(network["events"]) == original_events
+
+
+@pytest.mark.parametrize(
+    "mutation", ["request", "loader", "original_deadline", "effective_deadline"]
+)
+@pytest.mark.parametrize("cleanup", ["response_close", "connection_close", "socket_close"])
+def test_tiingo_success_requires_original_binding_and_effective_deadline_after_cleanup(
+    network, monkeypatch, mutation, cleanup
+):
+    now = [100.0]
+    monkeypatch.setattr(capture.time, "monotonic", lambda: now[0])
+    request, transport = tiingo(seconds=2)
+    deadline_ms = 250
+
+    def mutate():
+        if mutation == "request":
+            object.__setattr__(request.source, "rights_reference", "changed-after-body")
+        elif mutation == "loader":
+            transport._token_loader = lambda: "fixture-replacement-token"
+        elif mutation == "original_deadline":
+            now[0] = transport._original_deadline
+        else:
+            now[0] = 100.0 + deadline_ms / 1000
+
+    network["on_" + cleanup] = mutate
+    reason = "ORIGINAL_CAPTURE" if mutation in ("request", "loader") else "DEADLINE_EXCEEDED"
+    with pytest.raises(capture.ForwardCaptureHTTPError, match=reason):
+        transport.get(request, deadline_ms=deadline_ms)
+    assert all(
+        item in network["events"]
+        for item in ("response_closed", "connection_closed", "socket_closed")
+    )
+    assert transport._used and transport._deadline == transport._original_deadline == 102.0
+
+
+@pytest.mark.parametrize("failed_close", [False, True])
+def test_tiingo_cleanup_preserves_prior_error_unless_cleanup_itself_fails(
+    network, monkeypatch, failed_close
+):
+    network["encoding"] = "gzip"
+    request, transport = tiingo()
+
+    def mutate():
+        object.__setattr__(request.source, "rights_reference", "private-mutated-reference")
+        monkeypatch.setattr(capture.time, "monotonic", lambda: transport._original_deadline)
+        if failed_close:
+            raise OSError("private-cleanup-failure")
+
+    network["on_response_close"] = mutate
+    reason = "CAPTURE_HTTP_CLEANUP_FAILED" if failed_close else "CAPTURE_HTTP_ENCODING_UNSUPPORTED"
+    with pytest.raises(capture.ForwardCaptureHTTPError) as error:
+        transport.get(request, deadline_ms=1000)
+    assert str(error.value) == reason and "private" not in str(error.value)
+    assert all(
+        item in network["events"]
+        for item in ("response_closed", "connection_closed", "socket_closed")
+    )
+
+
+@pytest.mark.parametrize("cleanup", ["response_close", "connection_close", "socket_close"])
+def test_tiingo_final_validation_exception_is_static_and_cannot_escape_after_cleanup(
+    network, monkeypatch, cleanup
+):
+    request, transport = tiingo()
+
+    def broken_binding(*args):
+        raise RuntimeError("private-final-binding-error")
+
+    network["on_" + cleanup] = lambda: monkeypatch.setattr(
+        transport, "require_original_capture_binding", broken_binding
+    )
+    with pytest.raises(capture.ForwardCaptureHTTPError) as error:
+        transport.get(request, deadline_ms=1000)
+    assert str(error.value) == "CAPTURE_HTTP_TRANSPORT_FAILED"
+    assert error.value.__cause__ is None
+    assert all(
+        item in network["events"]
+        for item in ("response_closed", "connection_closed", "socket_closed")
     )

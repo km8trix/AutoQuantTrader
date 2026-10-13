@@ -159,15 +159,150 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
         items = (value,)
         tuple_node = False
     for index, item in enumerate(items):
+        if type(item) is str:
+            if index:
+                parts.append(
+                    f',{{"type":"string","value":{json.encoder.encode_basestring_ascii(item)}}}'
+                )
+            else:
+                parts.append(
+                    f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item)}}}'
+                )
+            continue
+        if type(item) is tuple:
+            # Exact string pairs can avoid recursion. Keep each item's formatting
+            # result released before the next dynamic encoder lookup.
+            if len(item) == 2 and type(item[0]) is str:
+                if type(item[1]) is str:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[1])}}}'
+                        "]}"
+                    )
+                    continue
+                elif type(item[1]) is tuple:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    _append_typed_text(item[1], parts, deferred)
+                    parts.append("]}")
+                    continue
+                elif item[1] is None:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append('{"type":"null","value":null}]}')
+                    continue
+                elif type(item[1]) is bool:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        '{"type":"bool","value":true}]}'
+                        if item[1]
+                        else '{"type":"bool","value":false}]}'
+                    )
+                    continue
+                elif type(item[1]) is int:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        f'{{"type":"int","value":{json.encoder.encode_basestring_ascii(str(item[1]))}}}'
+                        "]}"
+                    )
+                    continue
+                elif type(item[1]) is bytes:
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    parts.append(
+                        f'{{"type":"bytes","value":{json.encoder.encode_basestring_ascii(item[1].hex())}}}'
+                        "]}"
+                    )
+                    continue
+                else:
+                    # This statement must finish before fresh fallback conversion.
+                    if index:
+                        parts.append(
+                            ',{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    else:
+                        parts.append(
+                            '{"type":"tuple","value":['
+                            f'{{"type":"string","value":{json.encoder.encode_basestring_ascii(item[0])}}}'
+                            ","
+                        )
+                    converted = _typed_node(item[1])
+                    deferred.append((len(parts), converted))
+                    parts.append("")
+                    parts.append("]}")
+                    continue
+            if index:
+                parts.append(",")
+            _append_typed_text(item, parts, deferred)
+            continue
         if index:
             parts.append(",")
-        if type(item) is str:
-            parts.append(
-                '{"type":"string","value":' + json.encoder.encode_basestring_ascii(item) + "}"
-            )
-        elif type(item) is tuple:
-            _append_typed_text(item, parts, deferred)
-        elif item is None:
+        if item is None:
             parts.append('{"type":"null","value":null}')
         elif type(item) is bool:
             parts.append(
@@ -175,11 +310,11 @@ def _append_typed_text(value: object, parts: list[str], deferred: list[tuple[int
             )
         elif type(item) is int:
             parts.append(
-                '{"type":"int","value":' + json.encoder.encode_basestring_ascii(str(item)) + "}"
+                f'{{"type":"int","value":{json.encoder.encode_basestring_ascii(str(item))}}}'
             )
         elif type(item) is bytes:
             parts.append(
-                '{"type":"bytes","value":' + json.encoder.encode_basestring_ascii(item.hex()) + "}"
+                f'{{"type":"bytes","value":{json.encoder.encode_basestring_ascii(item.hex())}}}'
             )
         else:
             # Complete conversion hooks in traversal order before serializing

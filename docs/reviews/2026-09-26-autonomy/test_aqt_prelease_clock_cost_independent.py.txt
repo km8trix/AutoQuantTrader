@@ -1,0 +1,210 @@
+"""Independent finite synthetic CLOCK observer mechanics; no project imports."""
+import gc
+import hashlib
+import json
+import sys
+from types import SimpleNamespace
+import weakref
+
+import pytest
+
+import aqt_prelease_clock_cost as p
+import test_aqt_prelease_clock_cost as h
+
+
+@pytest.fixture(autouse=True)
+def clean_hooks_and_stubs():
+    assert sys.monitoring.get_tool(p.TOOL) is None
+    old_error, old_outer, old_inside = h.NEXT_ERROR, h.OUTER_ERROR, h.IN_DECODE
+    yield
+    h.NEXT_ERROR, h.OUTER_ERROR, h.IN_DECODE = old_error, old_outer, old_inside
+    assert sys.monitoring.get_tool(p.TOOL) is None
+
+
+def test_success_failure_success_keeps_only_two_parent_successes():
+    def action(factory):
+        journal = factory.runtime_sources.operating.journal
+        record = factory.records[0]
+        journal._validate_record(record)
+        h.OUTER_ERROR = failure = ValueError('private diagnostic test text')
+        try:
+            journal._validate_record(record)
+        except ValueError as caught:
+            assert caught is failure
+        finally:
+            h.OUTER_ERROR = None
+        journal._validate_record(record)
+    factory, capture = h.Factory(), h.capture()
+    factory.action = action
+    h.run(factory, capture)
+    assert capture.rows['clock_validator']['returned'] == 2
+    assert capture.rows['clock_validator']['unwound'] == 1
+    assert capture.rows['clock_decode']['returned'] == 3
+    assert capture.success['decode_calls'] == capture.success['outer_encode_calls'] == 2
+    assert capture.first_success_ns + capture.repeated_success_ns == (
+        capture.success['decode_ns'] + capture.success['outer_encode_ns'])
+    report = capture.report(0, {}, {}, {'call': 'passed'})
+    assert report['capture_status'] == 'valid'
+    assert report['grouping']['repeated_success_calls'] == 1
+    assert report['grouping']['failed_only_groups'] == 0
+    assert 'private diagnostic test text' not in json.dumps(report)
+
+
+def test_same_payload_different_record_ids_are_distinct_observational_groups():
+    factory = h.Factory()
+    factory.records[0].record_id = 'FIRST-PRIVATE-RECORD'
+    factory.records[1].record_id = 'SECOND-PRIVATE-RECORD'
+    capture = h.run(factory)
+    report = capture.report(0, {}, {}, {})
+    assert report['grouping']['record_groups'] == 2
+    assert report['grouping']['payload_groups'] == 1
+    assert report['grouping']['unique_payload_bytes'] == len(b'bytes')
+    assert report['grouping']['total_payload_bytes'] == 2 * len(b'bytes')
+    assert report['grouping']['repeated_success_calls'] == 0
+    assert capture.repeated_success_ns == 0
+    text = json.dumps(report)
+    for record in factory.records:
+        assert record.record_id not in text
+        assert hashlib.sha256(record.record_id.encode()).hexdigest() not in text
+    assert hashlib.sha256(b'bytes').hexdigest() not in text
+
+
+def test_failed_only_group_is_not_a_reusable_first_success():
+    def action(factory):
+        h.NEXT_ERROR = ValueError('failed-only')
+        try:
+            factory.runtime_sources.operating.journal._validate_record(factory.records[0])
+        except ValueError:
+            pass
+        finally:
+            h.NEXT_ERROR = None
+    factory = h.Factory()
+    factory.action = action
+    capture = h.run(factory)
+    report = capture.report(0, {}, {}, {})
+    assert report['capture_status'] == 'valid'
+    assert report['grouping']['failed_only_groups'] == 1
+    assert report['grouping']['max_success_repetition'] == 0
+    assert capture.first_success_ns == capture.repeated_success_ns == 0
+    assert capture.success == dict(decode_ns=0, outer_encode_ns=0, decode_calls=0, outer_encode_calls=0)
+
+
+def test_decoded_values_are_not_retained_after_parent_returns(monkeypatch):
+    seen = []
+    monkeypatch.setattr(h.Clock, '__init__', lambda value: seen.append(weakref.ref(value)))
+    capture = h.run()
+    gc.collect()
+    assert len(seen) == 2 and all(ref() is None for ref in seen)
+    assert capture.success['decode_calls'] == 2
+    assert not capture.live and capture.factory_ref is None
+
+
+def test_second_execute_runs_original_but_invalidates_single_run_observation():
+    capture, factory = h.capture(), h.Factory()
+    capture.start()
+    try:
+        assert factory.execute(operation_id=p.OPERATION) == b'result'
+        assert factory.execute(operation_id=p.OPERATION) == b'result'
+    finally:
+        capture.stop(preserve=sys.exc_info()[0] is not None)
+    report = capture.report(0, {}, {}, {})
+    assert report['capture_status'] == 'invalid'
+    assert 'multiple_execute' in report['diagnostic_faults']
+    assert capture.rows['execute']['returned'] == 1
+    assert capture.rows['clock_validator']['returned'] == 2
+
+
+def test_partial_install_failure_releases_slot_and_registered_callbacks(monkeypatch):
+    capture = h.capture()
+    monitor = sys.monitoring
+    register = monitor.register_callback
+    failure = RuntimeError('installation')
+    seen = []
+    def callback(tool, event, value):
+        seen.append((event, value is None))
+        if event == monitor.events.PY_RETURN and value is not None:
+            raise failure
+        return register(tool, event, value)
+    monkeypatch.setattr(monitor, 'register_callback', callback)
+    with pytest.raises(RuntimeError) as caught:
+        capture.start()
+    assert caught.value is failure
+    assert not capture.installed and monitor.get_tool(p.TOOL) is None
+    assert {(monitor.events.PY_START, True), (monitor.events.PY_RETURN, True),
+            (monitor.events.PY_UNWIND, True)} <= set(seen)
+    assert not capture.live and capture.factory_ref is None
+
+
+@pytest.mark.parametrize('original', [TimeoutError('original'), KeyboardInterrupt(), SystemExit(19)])
+def test_unwind_observer_baseexception_does_not_replace_original(monkeypatch, original):
+    h.NEXT_ERROR = original
+    capture = h.capture()
+    observe = capture.observe
+    def broken(event, code, frame):
+        if event == 'unwind' and code is capture.codes['decode']:
+            raise SystemExit(42)
+        return observe(event, code, frame)
+    monkeypatch.setattr(capture, 'observe', broken)
+    with pytest.raises(type(original)) as caught:
+        h.run(observer=capture)
+    assert caught.value is original
+    assert 'observer_failure_during_original_unwind' in capture.faults
+    assert capture.report(1, {}, {}, {})['capture_status'] == 'invalid'
+    assert not capture.installed and not capture.live
+
+
+def test_original_failure_wins_over_cleanup_failure_on_execute_unwind(monkeypatch):
+    capture = h.capture()
+    h.NEXT_ERROR = original = KeyboardInterrupt()
+    set_events = sys.monitoring.set_events
+    def fail_disable(tool, events):
+        if events == 0:
+            raise RuntimeError('cleanup')
+        return set_events(tool, events)
+    monkeypatch.setattr(sys.monitoring, 'set_events', fail_disable)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        h.run(observer=capture)
+    assert caught.value is original
+    assert 'monitor_cleanup_failure' in capture.faults
+    assert 'observer_failure_during_original_unwind' in capture.faults
+    assert not capture.installed and sys.monitoring.get_tool(p.TOOL) is None
+
+
+def test_source_manifest_contains_all_declared_files_and_binds_modified_bytes(tmp_path, monkeypatch):
+    root, audit = tmp_path / 'root', tmp_path / 'audit'
+    audit.mkdir()
+    for index, name in enumerate(p.FILES):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f'synthetic-source-{index}'.encode())
+    for name in ('aqt_prelease_clock_cost.py', 'test_aqt_prelease_clock_cost.py'):
+        (audit / name).write_bytes(b'synthetic-observer')
+    monkeypatch.setattr(p, 'AUDIT', audit)
+    before = p.source_hashes(root)
+    assert len(before) == len(p.FILES) + 2
+    assert all(type(value) is str and len(value) == 64 for value in before.values())
+    changed = 'packages/application/personal_codec.py'
+    (root / changed).write_bytes(b'changed-synthetic-source')
+    after = p.source_hashes(root)
+    assert {name for name in before if before[name] != after[name]} == {changed}
+    report = h.run().report(0, before, after, {})
+    assert report['capture_status'] == 'invalid'
+    assert 'source_hashes_changed' in report['diagnostic_faults']
+
+
+def test_output_bound_rejects_before_creating_a_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(p, 'MAX_OUTPUT', 10)
+    path = tmp_path / 'not-created.json'
+    with pytest.raises(ValueError, match='REPORT_BOUND'):
+        p.emit(path, {'large': 'x' * 100})
+    assert not path.exists()
+
+
+def test_report_execute_return_does_not_claim_failed_teardown_acceptance():
+    capture = h.run()
+    report = capture.report(1, {}, {}, {'call': 'passed', 'teardown': 'failed'})
+    assert report['capture_status'] == 'valid'
+    assert report['observation_extent'] == 'complete_execute'
+    assert report['test_exitstatus'] == 1
+    assert report['test_phases']['teardown'] == 'failed'
+    assert report['acceptance'] is False

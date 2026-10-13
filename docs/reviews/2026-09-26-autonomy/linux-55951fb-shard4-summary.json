@@ -1,0 +1,81 @@
+{
+  "schema": "aqt-ci-completed-shard-evidence/1",
+  "run_id": 36293614203,
+  "run_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203",
+  "captured_at_utc": "2026-09-27T04:49:17.202239+00:00",
+  "source_binding": {
+    "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+    "candidate_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "actions_merge_sha": "5f5cd54bdad7baa95c71eb7169457b6a690569c1",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "55951fb2870f5776b1b89302bccf0092725387fd"
+    ],
+    "merge_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "same_tree": true
+  },
+  "job": {
+    "id": 108548506619,
+    "name": "Retained financial regressions (shard index 4 of 16)",
+    "status": "completed",
+    "conclusion": "failure",
+    "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+    "started_at": "2026-09-27T04:24:42Z",
+    "completed_at": "2026-09-27T04:37:21Z",
+    "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203/job/108548506619"
+  },
+  "result": {
+    "passed": 340,
+    "failed": 1,
+    "skipped": 0,
+    "deselected": 4626,
+    "warnings": 1,
+    "seconds": 727.24,
+    "failure_node": "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]",
+    "restore_elapsed_seconds": 61.25,
+    "execute_failure": "AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "execute_origin_path": [
+      "continuous_composition.py:1439:prepare_capture",
+      "continuous_composition.py:621:_historical_current",
+      "continuous_integrity.py:1859:_borrow_original_daily",
+      "account_coordinator.py:1308:revalidate",
+      "account_coordinator.py:822:_receipt"
+    ],
+    "cleanup_failure": "Separate AccountLeaseOwnershipLost through ContinuousSimulationFactory.close/coordinator.release/_receipt; combined ExceptionGroup preserves execute and cleanup failures.",
+    "private_entry_markers": [
+      {
+        "case": "original",
+        "private_entry_seen": true
+      }
+    ],
+    "marker_count": 1
+  },
+  "files": {
+    "ci-55951fb-shard4.log": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4.log",
+      "sha256": "12097180be97fdf508900b632ec6dfb306e22dc0905e58a0c440f2212618132a",
+      "bytes": 55926
+    },
+    "ci-55951fb-merge-commit.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-merge-commit.json",
+      "sha256": "a919b7c747a694c59a547e9b989461c23c2cac6f330efd817c562765ee011832",
+      "bytes": 2694
+    },
+    "ci-55951fb-candidate-commit.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-candidate-commit.json",
+      "sha256": "a8b75b32f945f09f2613b563fb4cbc49cdb8c13fd1a7f7c6819270bdcdd669bf",
+      "bytes": 1167
+    },
+    "ci-55951fb-shard4-check-jobs.json": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4-check-jobs.json",
+      "sha256": "290a0683c960818081c771b866bb133845d04ef94539d404766883aa8d31a34d",
+      "bytes": 44949
+    }
+  },
+  "limitations": [
+    "Only completed shard4 was downloaded; run final state and financial totals are pending.",
+    "One read-only jobs snapshot, no long monitor, rerun/cancel/dispatch, repository edits or local tests.",
+    "private_entry_seen reports an observed original private method entry, not proof issuance/use completion, successful restoration or admission.",
+    "No inference that new CLOCK observation or future reuse changes this CI result."
+  ]
+}

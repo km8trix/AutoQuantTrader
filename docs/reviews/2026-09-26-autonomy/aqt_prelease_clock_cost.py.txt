@@ -1,0 +1,539 @@
+"""Temporary bounded original CLOCK observation. No application imports or substitution."""
+import gc
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import threading
+from time import perf_counter_ns
+from types import GetSetDescriptorType, MappingProxyType, MemberDescriptorType
+import weakref
+
+import pytest
+
+AUDIT = Path('/private/tmp/aqt-autonomy-audit')
+TARGET = ('tests/integration/test_continuous_simulation_factory_outcome.py::'
+          'test_actual_signed_retained_outcome_restores_with_original_utc_and_lease')
+OPERATION = 'restore-original-retained-outcome'
+ENV = 'AQT_PRELEASE_CLOCK_OBSERVATION_PATH'
+CLOCK = 'runtime-clock-observation/1'
+TOOL = 5
+MAX_SPANS = 16384
+MAX_EVENTS = 65536
+MAX_DEPTH = 8
+MAX_ANCESTRY = 64
+MAX_KEYS = 4096  # combined record-group and payload-group keys
+MAX_BYTES = 64 * 1024 * 1024
+MAX_PAYLOAD = 256 * 1024
+MAX_OUTPUT = 64 * 1024
+TYPE_DICT = type.__dict__['__dict__']
+FILES = (
+    'apps/trader/continuous_simulation_factory.py',
+    'packages/persistence/durable_journal.py',
+    'packages/application/personal_codec.py',
+    'packages/domain/personal_contracts.py',
+    'packages/domain/runtime_operating_contracts.py',
+    'packages/domain/continuous_persistence_contracts.py',
+    'packages/domain/durable_journal_contracts.py',
+    'packages/persistence/continuous_integrity.py',
+    'packages/persistence/account_coordinator.py',
+    'packages/persistence/continuous_runtime_sources.py',
+    'packages/persistence/runtime_operating_evidence.py',
+    TARGET.split('::')[0],
+)
+
+
+def namespace(cls):
+    return TYPE_DICT.__get__(cls, type(cls))
+
+
+def row():
+    return dict(entered=0, returned=0, unwound=0, returned_ns=0, unwound_ns=0)
+
+
+class Capture:
+    def __init__(self, *, factory, reader, sources, operating, journal, record, clock, codec):
+        self.types = dict(factory=factory, reader=reader, sources=sources,
+                          operating=operating, journal=journal)
+        self.dicts = {}
+        for name, cls in self.types.items():
+            descriptor = namespace(cls)['__dict__']
+            if type(descriptor) is not GetSetDescriptorType:
+                raise TypeError('INSTANCE_STORAGE_PROFILE')
+            self.dicts[name] = descriptor
+        self.record_type, self.clock_type, self.codec = record, clock, codec
+        self.slots = {name: namespace(record)[name] for name in ('schema_id', 'record_id', 'payload')}
+        if any(type(value) is not MemberDescriptorType for value in self.slots.values()):
+            raise TypeError('RECORD_SLOT_PROFILE')
+        self.codes = dict(execute=namespace(factory)['execute'].__code__,
+                          validate=namespace(journal)['_validate_record'].__code__,
+                          decode=codec.decode_record.__code__, encode=codec.encode_record.__code__)
+        self.kinds = {value: key for key, value in self.codes.items()}
+        self.rows = {name: row() for name in ('execute', 'clock_validator',
+                     'other_owner_validator', 'other_validator', 'clock_decode', 'clock_outer_encode')}
+        self.success = dict(decode_ns=0, outer_encode_ns=0, decode_calls=0, outer_encode_calls=0)
+        self.first_success_ns = self.repeated_success_ns = 0
+        self.live = {}
+        self.groups, self.payloads = {}, {}
+        self.events = self.spans = self.peak_depth = self.hash_bytes = self.hash_ns = 0
+        self.foreign_thread = self.incomplete = 0
+        self.faults = set()
+        self.selected = self.installed = self.active = self.truncated = False
+        self.thread = self.execute_id = None
+        self.factory_ref = self.clock_ref = None
+        self.journal_refs = ()
+
+    def storage(self, role, value):
+        if type(value) is not self.types[role]:
+            raise TypeError('EXACT_INSTANCE_PROFILE')
+        result = self.dicts[role].__get__(value, self.types[role])
+        if type(result) is not dict or len(result) > 128 or any(type(k) is not str for k in result):
+            raise TypeError('BOUNDED_INSTANCE_STORAGE')
+        return result
+
+    def select(self, frame):
+        values = frame.f_locals
+        factory = values.get('self')
+        operation = values.get('operation_id')
+        if type(factory) is not self.types['factory'] or type(operation) is not str or operation != OPERATION:
+            return False
+        if self.selected:
+            self.faults.add('multiple_execute')
+            return False
+        f = self.storage('factory', factory)
+        r = self.storage('reader', f['integrity'])
+        s = self.storage('sources', f['runtime_sources'])
+        operating = self.storage('operating', s['operating'])
+        dedicated = operating['journal']
+        journals = r['journals']
+        if type(journals) is not tuple or len(journals) != 8 or not any(j is dedicated for j in journals):
+            raise TypeError('EIGHT_ORIGINAL_JOURNALS_REQUIRED')
+        for owner in journals:
+            j = self.storage('journal', owner)
+            if j['_engine'] is not f['engine'] or j['_codec'] is not self.codec:
+                raise TypeError('ORIGINAL_JOURNAL_CONFIGURATION')
+        allowlist = self.storage('journal', dedicated)['_types']
+        if type(allowlist) is not MappingProxyType:
+            raise TypeError('ALLOWLIST_PROFILE')
+        referents = gc.get_referents(allowlist)
+        if len(referents) != 1 or type(referents[0]) is not dict:
+            raise TypeError('ALLOWLIST_NATIVE_BACKING')
+        backing = referents[0]
+        if (len(backing) > 32 or any(type(k) is not str for k in backing)
+                or dict.get(backing, CLOCK) is not self.clock_type):
+            raise TypeError('CLOCK_ALLOWLIST_PROFILE')
+        self.factory_ref = weakref.ref(factory)
+        self.clock_ref = weakref.ref(dedicated)
+        self.journal_refs = tuple(weakref.ref(j) for j in journals)
+        self.execute_id, self.thread = id(frame), threading.get_ident()
+        self.selected = self.active = True
+        return True
+
+    def ancestor(self, frame):
+        parent = frame.f_back
+        try:
+            for _ in range(MAX_ANCESTRY):
+                if parent is None:
+                    return False
+                if id(parent) == self.execute_id and parent.f_code is self.codes['execute']:
+                    return parent.f_locals.get('self') is self.factory_ref()
+                parent = parent.f_back
+            self.faults.add('ancestry_bound')
+            return False
+        finally:
+            del parent
+
+    def start(self):
+        m = sys.monitoring
+        if m.get_tool(TOOL) is not None or sys.getprofile() is not None:
+            raise pytest.UsageError('unused monitoring slot 5 and no profiler required')
+        m.use_tool_id(TOOL, 'aqt-original-clock-cost')
+        self.installed = True
+        try:
+            for event, callback in ((m.events.PY_START, self.on_start),
+                                    (m.events.PY_RETURN, self.on_return),
+                                    (m.events.PY_UNWIND, self.on_unwind)):
+                m.register_callback(TOOL, event, callback)
+            m.set_local_events(TOOL, self.codes['execute'], m.events.PY_START | m.events.PY_RETURN)
+        except BaseException:
+            self.stop(preserve=True)
+            raise
+
+    def arm(self):
+        m = sys.monitoring
+        m.set_events(TOOL, m.events.PY_UNWIND)
+        for name in ('validate', 'decode', 'encode'):
+            m.set_local_events(TOOL, self.codes[name], m.events.PY_START | m.events.PY_RETURN)
+
+    def cleanup_actions(self, actions, *, preserve=False):
+        first = None
+        for action in actions:
+            try:
+                action()
+            except BaseException as error:
+                self.faults.add('monitor_cleanup_failure')
+                if first is None:
+                    first = error
+        if first is not None and not preserve:
+            raise first
+
+    def disarm(self):
+        m = sys.monitoring
+        self.cleanup_actions([
+            *(lambda code=self.codes[name]: m.set_local_events(TOOL, code, 0)
+              for name in ('validate', 'decode', 'encode')),
+            lambda: m.set_events(TOOL, 0),
+        ])
+
+    def clear_scope(self):
+        self.incomplete += len(self.live)
+        self.live.clear()
+        self.active = False
+        self.factory_ref = self.clock_ref = None
+        self.journal_refs = ()
+        self.thread = self.execute_id = None
+
+    def stop(self, *, preserve=False):
+        try:
+            if self.installed:
+                m = sys.monitoring
+                def free():
+                    m.free_tool_id(TOOL)
+                    self.installed = False
+                self.cleanup_actions([
+                    *(lambda code=code: m.set_local_events(TOOL, code, 0)
+                      for code in self.codes.values()),
+                    lambda: m.set_events(TOOL, 0),
+                    *(lambda event=event: m.register_callback(TOOL, event, None)
+                      for event in (m.events.PY_START, m.events.PY_RETURN, m.events.PY_UNWIND)),
+                    free,
+                ], preserve=preserve)
+        finally:
+            self.clear_scope()
+
+    def cap(self, reason):
+        self.faults.add(reason)
+        self.truncated = True
+        self.disarm()
+        # Execute return remains armed. Global unwind is needed to close it.
+        sys.monitoring.set_events(TOOL, sys.monitoring.events.PY_UNWIND)
+        self.incomplete += len(self.live) - int(self.execute_id in self.live)
+        self.live = {k: v for k, v in self.live.items() if k == self.execute_id}
+
+    def on_start(self, code, offset):
+        frame = sys._getframe(1)
+        try:
+            self.observe('start', code, frame)
+        except BaseException:
+            self.faults.add('observer_failure')
+            raise
+        finally:
+            del frame
+
+    def on_return(self, code, offset, result):
+        frame = sys._getframe(1)
+        try:
+            self.observe('return', code, frame)
+        except BaseException:
+            self.faults.add('observer_failure')
+            raise
+        finally:
+            del frame, result
+
+    def on_unwind(self, code, offset, error):
+        if code not in self.kinds:
+            return
+        frame = sys._getframe(1)
+        try:
+            self.observe('unwind', code, frame)
+        except BaseException:
+            self.faults.add('observer_failure_during_original_unwind')
+        finally:
+            del frame, error
+
+    def group(self, record):
+        started = perf_counter_ns()
+        try:
+            payload = self.slots['payload'].__get__(record, self.record_type)
+            record_id = self.slots['record_id'].__get__(record, self.record_type)
+            if (type(payload) is not bytes or not 0 < len(payload) <= MAX_PAYLOAD
+                    or type(record_id) is not str or not 0 < len(record_id) <= 128):
+                self.cap('record_shape_bound')
+                return None
+            encoded_id = record_id.encode('utf-8', 'surrogatepass')
+            count = len(payload) + len(encoded_id)
+            if len(encoded_id) > 512 or self.hash_bytes + count > MAX_BYTES:
+                self.cap('hash_byte_bound')
+                return None
+            payload_key = (hashlib.sha256(payload).digest(), len(payload))
+            key = (hashlib.sha256(encoded_id).digest(), *payload_key)
+            self.hash_bytes += count
+            added = int(key not in self.groups) + int(payload_key not in self.payloads)
+            if len(self.groups) + len(self.payloads) + added > MAX_KEYS:
+                self.cap('distinct_key_bound')
+                return None
+            self.payloads.setdefault(payload_key, 0)
+            self.payloads[payload_key] += 1
+            counts = self.groups.setdefault(key, dict(entered=0, returned=0, unwound=0))
+            counts['entered'] += 1
+            return key
+        finally:
+            self.hash_ns += perf_counter_ns() - started
+
+    def observe(self, event, code, frame):
+        kind = self.kinds.get(code)
+        if kind is None:
+            return
+        if event == 'start' and kind == 'execute':
+            if not self.select(frame):
+                return
+            self.arm()
+        if not self.active:
+            return
+        if threading.get_ident() != self.thread:
+            self.foreign_thread = min(self.foreign_thread + 1, MAX_EVENTS)
+            return
+        frame_id = id(frame)
+        if event != 'start':
+            span = self.live.pop(frame_id, None)
+            if span is None:
+                return
+            ended = perf_counter_ns()
+            self.events += 1
+            elapsed = ended - span['started']
+            if elapsed < 0:
+                raise ValueError('NEGATIVE_DURATION')
+            values = self.rows[span['role']]
+            outcome = 'returned' if event == 'return' else 'unwound'
+            values[outcome] += 1
+            values[outcome + '_ns'] += elapsed
+            if span['role'] in ('clock_decode', 'clock_outer_encode'):
+                parent = self.live.get(span['parent'])
+                if parent is None:
+                    self.faults.add('missing_codec_parent')
+                elif event == 'return':
+                    field = 'decode' if span['role'] == 'clock_decode' else 'outer_encode'
+                    parent[field + '_ns'] += elapsed
+                    parent[field + '_calls'] += 1
+            elif span['role'] == 'clock_validator':
+                self.groups[span['key']][outcome] += 1
+                if event == 'return':
+                    child_ns = span['decode_ns'] + span['outer_encode_ns']
+                    if self.groups[span['key']]['returned'] == 1:
+                        self.first_success_ns += child_ns
+                    else:
+                        self.repeated_success_ns += child_ns
+                    if span['decode_calls'] != 1 or span['outer_encode_calls'] != 1:
+                        self.faults.add('returned_clock_child_count')
+                    for field in self.success:
+                        self.success[field] += span[field]
+            if kind == 'execute':
+                try:
+                    self.disarm()
+                finally:
+                    self.clear_scope()
+            return
+        if self.truncated and kind != 'execute':
+            return
+        if self.events + len(self.live) + 2 > MAX_EVENTS or self.spans >= MAX_SPANS or len(self.live) >= MAX_DEPTH:
+            self.cap('event_span_or_depth_bound')
+            return
+        if kind != 'execute' and not self.ancestor(frame):
+            return
+        role, key, parent_id = 'execute', None, None
+        if kind == 'validate':
+            owner, record = frame.f_locals.get('self'), frame.f_locals.get('record')
+            owned = any(ref() is owner for ref in self.journal_refs)
+            role = 'other_owner_validator' if owned else 'other_validator'
+            if owner is self.clock_ref():
+                if type(record) is not self.record_type:
+                    self.cap('record_exact_type')
+                    return
+                schema = self.slots['schema_id'].__get__(record, self.record_type)
+                if type(schema) is not str:
+                    self.cap('schema_exact_type')
+                    return
+                if schema == CLOCK:
+                    role = 'clock_validator'
+                    key = self.group(record)
+                    if key is None:
+                        return
+        elif kind in ('decode', 'encode'):
+            parent = frame.f_back
+            try:
+                parent_id = id(parent)
+                span = self.live.get(parent_id)
+                if parent is None or parent.f_code is not self.codes['validate'] or span is None or span['role'] != 'clock_validator':
+                    return
+                current = frame.f_locals
+                original = parent.f_locals
+                if kind == 'decode':
+                    record = original.get('record')
+                    if (original.get('expected') is not self.clock_type
+                            or current.get('expected_type') is not self.clock_type
+                            or current.get('payload') is not self.slots['payload'].__get__(record, self.record_type)):
+                        self.cap('decode_child_profile')
+                        return
+                    role = 'clock_decode'
+                else:
+                    if 'value' not in original or current.get('value') is not original['value']:
+                        self.cap('encode_child_profile')
+                        return
+                    role = 'clock_outer_encode'
+            finally:
+                del parent
+        self.events += 1
+        self.spans += 1
+        self.rows[role]['entered'] += 1
+        self.live[frame_id] = dict(role=role, key=key, parent=parent_id,
+            decode_ns=0, outer_encode_ns=0, decode_calls=0, outer_encode_calls=0,
+            started=perf_counter_ns())
+        self.peak_depth = max(self.peak_depth, len(self.live))
+
+    def report(self, exitstatus, before, after, phases):
+        if before != after:
+            self.faults.add('source_hashes_changed')
+        execute = self.rows['execute']
+        if execute['entered'] != 1 or execute['returned'] + execute['unwound'] != 1 or self.incomplete:
+            self.faults.add('incomplete_observation')
+        successes = [value['returned'] for value in self.groups.values()]
+        return dict(schema='aqt-prelease-clock-original-observation/1', acceptance=False,
+            capture_status='invalid' if self.faults else 'valid',
+            observation_extent=('incomplete_observation' if self.faults else
+                'partial_original_unwind' if execute['unwound'] else 'complete_execute'),
+            test_exitstatus=int(exitstatus), test_phases=phases, diagnostic_faults=sorted(self.faults),
+            source_hashes_before=before, source_hashes_after=after,
+            python=dict(implementation=sys.implementation.name, version=list(sys.version_info[:3])),
+            bounds=dict(spans=MAX_SPANS, events=MAX_EVENTS, depth=MAX_DEPTH, ancestry=MAX_ANCESTRY,
+                combined_keys=MAX_KEYS, hash_bytes=MAX_BYTES, payload_bytes=MAX_PAYLOAD, output_bytes=MAX_OUTPUT),
+            counters=dict(events=self.events, spans=self.spans, peak_depth=self.peak_depth,
+                incomplete=self.incomplete, foreign_thread=self.foreign_thread),
+            timings=self.rows, successful_parent_codec_work=self.success,
+            first_success_codec_ns=self.first_success_ns,
+            repeated_success_codec_ns=self.repeated_success_ns,
+            grouping=dict(record_groups=len(self.groups), payload_groups=len(self.payloads),
+                unique_payload_bytes=sum(key[1] for key in self.payloads),
+                total_payload_bytes=sum(key[1] * count for key, count in self.payloads.items()),
+                repeated_success_groups=sum(value > 1 for value in successes),
+                repeated_success_calls=sum(max(value - 1, 0) for value in successes),
+                max_success_repetition=max(successes, default=0),
+                failed_only_groups=sum(not value['returned'] and bool(value['unwound']) for value in self.groups.values()),
+                hash_input_bytes=self.hash_bytes, hash_and_summary_ns=self.hash_ns),
+            limits=[
+                'Original calls only; no preparation, acquisition changes, validators, authority or substitution.',
+                'Whole validator includes preserved post-init/allowlist work; disjoint direct codec children are not added to parent time.',
+                'Successful child costs count as eligible only after their original CLOCK parent returns.',
+                'Digest/length/record-ID grouping is observational, collision-limited, not byte equality, row origin or authority.',
+                'Execute includes callback/hash overhead; local span start excludes its entry bookkeeping; nested callback overhead remains.',
+                'Global filtered PY_UNWIND overhead is not bounded by selected counters. No unprofiled or Linux speedup claim.',
+                'Setup/construction/prelease capture and outside-execute cleanup are not timed; final test/teardown status remains authoritative.',
+                'A failed original execution is partial evidence only. None of these counts establishes a qualifying reuse predicate.',
+            ])
+
+
+def source_hashes(root):
+    result = {path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in FILES}
+    for name in ('aqt_prelease_clock_cost.py', 'test_aqt_prelease_clock_cost.py'):
+        result[name] = hashlib.sha256((AUDIT / name).read_bytes()).hexdigest()
+    return result
+
+
+def emit(path, report):
+    raw = (json.dumps(report, sort_keys=True, indent=2) + '\n').encode('ascii')
+    if len(raw) > MAX_OUTPUT:
+        raise ValueError('REPORT_BOUND')
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(raw)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    output = os.environ.get(ENV)
+    if (not output or sys.implementation.name != 'cpython' or sys.version_info[:3] != (3, 12, 13)
+            or not hasattr(sys, 'monitoring')):
+        raise pytest.UsageError('new audit path and CPython3.12.13 required')
+    if os.environ.get('AQT_RETAINED_RESTORE_PROFILE_PATH') or sys.getprofile() is not None:
+        raise pytest.UsageError('do not combine observation and profiling')
+    path = Path(output)
+    if not path.is_absolute() or path.parent.resolve() != AUDIT or path.suffix != '.json' or path.exists():
+        raise pytest.UsageError('exclusive new direct audit JSON required')
+    config._aqt_prelease_clock = dict(path=path, root=Path(str(config.rootpath)).resolve(),
+        before=source_hashes(Path(str(config.rootpath)).resolve()), capture=None, phases={})
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    if [item.nodeid for item in items] != [TARGET]:
+        raise pytest.UsageError('exact original retained node required')
+
+
+def real_capture():
+    names = ('apps.trader.continuous_simulation_factory', 'packages.persistence.continuous_integrity',
+        'packages.persistence.continuous_runtime_sources', 'packages.persistence.runtime_operating_evidence',
+        'packages.persistence.durable_journal', 'packages.domain.durable_journal_contracts',
+        'packages.domain.runtime_operating_contracts', 'packages.application.personal_codec')
+    if any(name not in sys.modules for name in names):
+        raise pytest.UsageError('ordinary original imports must already have completed')
+    f, i, s, o, j, r, c, codec = (sys.modules[name] for name in names)
+    return Capture(factory=f.ContinuousSimulationFactory, reader=i.SqlContinuousIntegrityReader,
+        sources=s.SqlContinuousRuntimeSources, operating=o.SqlRuntimeOperatingEvidence,
+        journal=j.SqlDurableJournal, record=r.JournalRecord, clock=c.RuntimeClockObservation, codec=codec)
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_call(item):
+    if item.nodeid != TARGET:
+        yield
+        return
+    state = item.config._aqt_prelease_clock
+    capture = real_capture()
+    state['capture'] = capture
+    capture.start()
+    outcome = None
+    try:
+        outcome = yield
+    finally:
+        capture.stop(preserve=sys.exc_info()[0] is not None or
+                     (outcome is not None and outcome.excinfo is not None))
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if item.nodeid == TARGET:
+        state = getattr(item.config, '_aqt_prelease_clock', None)
+        if state is not None:
+            result = outcome.get_result()
+            state['phases'][result.when] = result.outcome
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    state = getattr(session.config, '_aqt_prelease_clock', None)
+    if state is None or session.config.option.collectonly:
+        return
+    try:
+        capture = state['capture']
+        after = source_hashes(state['root'])
+        if capture is None:
+            report = dict(schema='aqt-prelease-clock-original-observation/1', acceptance=False,
+                capture_status='invalid', diagnostic_faults=['target_not_started'],
+                test_exitstatus=int(exitstatus), test_phases=state['phases'],
+                source_hashes_before=state['before'], source_hashes_after=after)
+        else:
+            capture.stop(preserve=int(exitstatus) != 0)
+            report = capture.report(exitstatus, state['before'], after, state['phases'])
+        emit(state['path'], report)
+        if report['capture_status'] != 'valid' and int(exitstatus) == 0:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    except BaseException:
+        if int(exitstatus) == 0:
+            raise
+        # Original failed/cancelled status is primary; report failure cannot replace it.
+        try:
+            os.write(2, b'AQT_CLOCK_OBSERVER_REPORT_FAILED; original failed exit preserved\n')
+        except BaseException:
+            pass
+        session.exitstatus = exitstatus

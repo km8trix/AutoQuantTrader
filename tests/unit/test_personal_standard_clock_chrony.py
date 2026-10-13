@@ -1,6 +1,10 @@
 """Offline personal bridge tests; original Chrony parser fixtures remain synthetic."""
 
-from dataclasses import replace
+import copy
+import gc
+import pickle
+import weakref
+from dataclasses import fields, replace
 from datetime import datetime, timedelta, tzinfo
 from decimal import Decimal, Inexact, localcontext
 
@@ -8,6 +12,7 @@ import pytest
 
 from packages.adapters.standard_clock import StandardClock
 from packages.adapters.standard_clock_chrony import (
+    ChronyStandardObservation,
     ChronyStandardTimeError,
     ChronyStandardTimeSource,
 )
@@ -305,3 +310,324 @@ def test_bridge_does_not_skip_startup_or_clear_a_latched_fault(
     assert calls == [
         (11 + second) * 1_000_000_000 for second in (0, 10, 20, 30, 40, 50, 60, 61, 62)
     ]
+
+
+def test_opt_in_observation_retains_exact_reading_and_unchanged_conversion(monkeypatch):
+    original = reading()
+    bridge, calls = stub_read(monkeypatch, original)
+    assert calls == []
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    assert observation.reading is original
+    assert observation.reading.source_evidence_sha256 == "b" * 64
+    assert observation.measurement == bridge(BASE, 10_000_000_000)
+    assert calls == [11_000_000_000, 11_000_000_000]
+    assert len(bridge._owned) == len(bridge._original) == 1
+    bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000, 11_000_000_000]
+
+
+def test_legacy_call_does_not_register_or_inspect_opt_in_owners(monkeypatch):
+    from packages.adapters import standard_clock_chrony as module
+
+    bridge, calls = stub_read(monkeypatch, reading())
+
+    def forbidden(*args):
+        pytest.fail("legacy conversion must not inspect opt-in owners")
+
+    monkeypatch.setattr(module, "_source_owners", forbidden)
+    result = bridge(BASE, 10_000_000_000)
+    assert result.offset_ns == 2_001_000 and result.uncertainty_ns == 2
+    assert calls == [11_000_000_000]
+    assert not bridge._owned and not bridge._original
+
+
+def test_parser_fixture_observation_matches_legacy_output_without_extra_read():
+    source, runner = _source()
+    legacy_source, legacy_runner = _source()
+    bridge = ChronyStandardTimeSource(source)
+    assert runner.calls == 0
+    observation = bridge.read_observation(BASE, 1_000)
+    expected = ChronyStandardTimeSource(legacy_source)(BASE, 1_000)
+    assert observation.measurement == expected
+    assert observation.reading.local_observed_at_utc == expected.observed_at_utc
+    assert observation.reading.observed_at_monotonic_ns == expected.observed_monotonic_ns
+    assert len(observation.reading.source_evidence_sha256) == 64
+    bridge.require_original_observation(observation)
+    assert runner.calls == legacy_runner.calls == 1
+    assert runner.deadline_monotonic_ns == legacy_runner.deadline_monotonic_ns == 1_000_001_000
+
+
+def test_registry_preserves_dataclass_construction_repr_equality_and_hash(monkeypatch):
+    bridge, calls = stub_read(monkeypatch, reading())
+    other = replace(bridge)
+    before_repr, before_hash = repr(bridge), hash(bridge)
+    assert bridge == other
+    assert [item.name for item in fields(bridge) if item.init] == ["source"]
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    assert bridge == other and hash(bridge) == hash(other) == before_hash
+    assert repr(bridge) == before_repr
+    assert "_owned" not in before_repr and "_original" not in before_repr
+    assert repr(observation) == "ChronyStandardObservation()"
+    assert calls == [11_000_000_000]
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        other.require_original_observation(observation)
+
+
+@pytest.mark.parametrize(
+    "clone",
+    [
+        copy.copy,
+        copy.deepcopy,
+        replace,
+        lambda observation: pickle.loads(pickle.dumps(observation)),
+        lambda observation: ChronyStandardObservation(observation.reading, observation.measurement),
+        lambda observation: object(),
+    ],
+)
+def test_only_original_registered_observation_is_accepted(monkeypatch, clone):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(clone(observation))
+    bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+@pytest.mark.parametrize("clone", [copy.copy, replace])
+def test_copied_owner_cannot_verify_original_observation(monkeypatch, clone):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    copied_owner = clone(bridge)
+    assert copied_owner == bridge
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        copied_owner.require_original_observation(observation)
+    bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_copied_registry_cannot_outlive_and_replace_original_owner(monkeypatch):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    copied_owner = copy.copy(bridge)
+    original_owner = weakref.ref(bridge)
+    del bridge
+    gc.collect()
+    assert original_owner() is None
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        copied_owner.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+    del observation
+    gc.collect()
+    assert not copied_owner._owned and not copied_owner._original
+
+
+@pytest.mark.parametrize("member", ["reading", "measurement"])
+def test_equal_reconstructed_nested_record_is_not_original(monkeypatch, member):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    object.__setattr__(observation, member, replace(getattr(observation, member)))
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+@pytest.mark.parametrize("member", ["reading", "measurement"])
+def test_each_original_record_field_is_bound_without_rehash_or_clock_reads(monkeypatch, member):
+    from packages.adapters import standard_clock_chrony as module
+
+    for record_field in fields(
+        TrustedTimeSourceReading if member == "reading" else module.TimeSourceMeasurement
+    ):
+        bridge, calls = stub_read(monkeypatch, reading())
+        observation = bridge.read_observation(BASE, 10_000_000_000)
+        object.__setattr__(getattr(observation, member), record_field.name, object())
+        with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+            bridge.require_original_observation(observation)
+        assert calls == [11_000_000_000]
+
+
+@pytest.mark.parametrize("name", ["source", "authority", "utc_clock", "monotonic_clock", "runner"])
+def test_equal_source_or_authority_and_callback_substitution_are_rejected(monkeypatch, name):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    if name == "source":
+        object.__setattr__(bridge, name, replace(bridge.source))
+    elif name == "authority":
+        object.__setattr__(bridge.source, name, replace(bridge.source.authority))
+    else:
+        object.__setattr__(bridge.source, name, lambda *args, **kwargs: pytest.fail("no effects"))
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_source_read_method_rebinding_is_rejected_without_calling_it(monkeypatch):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("verification cannot perform another source read")
+
+    monkeypatch.setattr(ChronyNtsTrustedTimeSource, "read_trusted_time", forbidden)
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+@pytest.mark.parametrize("owner", [ChronyNtsTrustedTimeSource, chrony_nts.ChronyNtsAuthority])
+def test_source_validation_rebinding_is_rejected_before_callback(monkeypatch, owner):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("verification cannot invoke substituted source validation")
+
+    monkeypatch.setattr(owner, "__post_init__", forbidden)
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_callback_behavior_rebinding_is_rejected_without_invoking_it(monkeypatch):
+    source, runner = _source()
+    bridge = ChronyStandardTimeSource(source)
+    observation = bridge.read_observation(BASE, 1_000)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("verification cannot invoke a runner")
+
+    monkeypatch.setattr(type(runner), "__call__", forbidden)
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert runner.calls == 1
+
+
+@pytest.mark.parametrize("name", ["semantic_sha256", "argv"])
+def test_authority_descriptor_rebinding_is_rejected_before_invocation(monkeypatch, name):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("verification cannot invoke a substituted authority descriptor")
+
+    monkeypatch.setattr(chrony_nts.ChronyNtsAuthority, name, property(forbidden))
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_source_owner_change_during_read_never_registers_observation(monkeypatch):
+    source, _ = _source()
+    bridge = ChronyStandardTimeSource(source)
+    calls = []
+
+    def read(self, *, deadline_monotonic_ns):
+        calls.append(deadline_monotonic_ns)
+        object.__setattr__(self, "authority", replace(self.authority))
+        return reading()
+
+    monkeypatch.setattr(ChronyNtsTrustedTimeSource, "read_trusted_time", read)
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.read_observation(BASE, 10_000_000_000)
+    assert calls == [11_000_000_000]
+    assert not bridge._owned and not bridge._original
+
+
+@pytest.mark.parametrize("field", ["_authority_binding", "_measurement_source_id"])
+@pytest.mark.parametrize("during_read", [False, True])
+def test_bridge_binding_replacement_cannot_become_original(monkeypatch, field, during_read):
+    source, _ = _source()
+    bridge = ChronyStandardTimeSource(source)
+    calls = []
+
+    def replace_binding():
+        value = (
+            tuple(list(bridge._authority_binding))
+            if field == "_authority_binding"
+            else "chrony-standard:substituted"
+        )
+        object.__setattr__(bridge, field, value)
+
+    def read(self, *, deadline_monotonic_ns):
+        calls.append(deadline_monotonic_ns)
+        if during_read:
+            replace_binding()
+        return reading()
+
+    monkeypatch.setattr(ChronyNtsTrustedTimeSource, "read_trusted_time", read)
+    if during_read:
+        with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+            bridge.read_observation(BASE, 10_000_000_000)
+        assert not bridge._owned and not bridge._original
+    else:
+        observation = bridge.read_observation(BASE, 10_000_000_000)
+        replace_binding()
+        with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+            bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_owned_source_authority_value_mutation_is_rejected(monkeypatch):
+    bridge, calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    object.__setattr__(bridge.source.authority, "socket_path", "/run/chrony/changed.sock")
+    with pytest.raises(ChronyStandardTimeError, match="CHRONY_STANDARD_OBSERVATION_INVALID"):
+        bridge.require_original_observation(observation)
+    assert calls == [11_000_000_000]
+
+
+def test_observation_verification_has_no_freshness_or_health_claim(monkeypatch):
+    original = reading(
+        local_observed_at_utc=BASE - timedelta(days=1),
+        trusted_at_utc=BASE - timedelta(days=1),
+        observed_at_monotonic_ns=0,
+    )
+    bridge, calls = stub_read(monkeypatch, original)
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    bridge.require_original_observation(observation)
+    assert observation.reading is original
+    assert observation.measurement.observed_at_utc == BASE - timedelta(days=1)
+    assert observation.measurement.observed_monotonic_ns == 0
+    assert not hasattr(observation, "status") and not hasattr(observation, "valid_until")
+    assert calls == [11_000_000_000]
+
+
+def test_observation_collection_releases_registry_and_retained_records(monkeypatch):
+    bridge, _calls = stub_read(monkeypatch, reading())
+    observation = bridge.read_observation(BASE, 10_000_000_000)
+    retained = bridge.read_observation(BASE, 10_000_000_000)
+    reference = weakref.ref(observation)
+    assert len(bridge._owned) == len(bridge._original) == 2
+    del observation
+    gc.collect()
+    assert reference() is None
+    assert len(bridge._owned) == len(bridge._original) == 1
+    bridge.require_original_observation(retained)
+    del retained
+    gc.collect()
+    assert not bridge._owned and not bridge._original
+
+
+@pytest.mark.parametrize(
+    ("value", "at", "mono", "error", "expected_calls"),
+    [
+        (reading(), BASE, -1, "CHRONY_STANDARD_CALL_INVALID", []),
+        (
+            RuntimeError("private process detail"),
+            BASE,
+            0,
+            "CHRONY_STANDARD_READ_UNAVAILABLE",
+            [1_000_000_000],
+        ),
+        (None, BASE, 0, "CHRONY_STANDARD_READING_INVALID", [1_000_000_000]),
+    ],
+)
+def test_opt_in_read_preserves_original_errors_and_deadlines(
+    monkeypatch, value, at, mono, error, expected_calls
+):
+    bridge, calls = stub_read(monkeypatch, value)
+    with pytest.raises(ChronyStandardTimeError, match=f"^{error}$") as raised:
+        bridge.read_observation(at, mono)
+    assert raised.value.__suppress_context__
+    assert calls == expected_calls
+    assert not bridge._owned and not bridge._original

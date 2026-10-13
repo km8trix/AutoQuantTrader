@@ -1,0 +1,34 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_final_clock_callback_cannot_substitute_previous_equal_measurement ____
+
+factory = <function factory.<locals>.create at 0x10bbcf4c0>
+
+    def test_final_clock_callback_cannot_substitute_previous_equal_measurement(factory):
+        owner, scenario, _ = factory()
+        first = owner.sample_health()
+        original_read = scenario.read
+    
+        def same_coordinates_new_reading(source, *, deadline_monotonic_ns):
+            reading = original_read(source, deadline_monotonic_ns=deadline_monotonic_ns)
+            previous = first.source_observation.reading
+            for field in ("local_observed_at_utc", "trusted_at_utc", "observed_at_monotonic_ns"):
+                object.__setattr__(reading, field, getattr(previous, field))
+            object.__setattr__(reading, "source_evidence_sha256", "c" * 64)
+            return reading
+    
+        def substitute(name):
+            if name == "utc" and scenario.utc_count == 3:
+                assert owner._pending is not first.source_observation
+                owner._pending = first.source_observation
+    
+        scenario.read = same_coordinates_new_reading
+        scenario.hook = substitute
+>       with pytest.raises(MeasuredClockError, match="OWNERSHIP_CHANGED"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'packages.adapters.personal_measured_clock.MeasuredClockError'>
+
+tests/unit/test_personal_measured_clock.py:279: Failed
+=========================== short test summary info ============================
+FAILED tests/unit/test_personal_measured_clock.py::test_final_clock_callback_cannot_substitute_previous_equal_measurement
+1 failed in 0.39s

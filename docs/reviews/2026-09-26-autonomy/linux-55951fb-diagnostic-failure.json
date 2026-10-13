@@ -1,0 +1,300 @@
+{
+  "schema": "aqt-ci-diagnostic-static-evidence/1",
+  "run_id": 36293614203,
+  "source_binding": {
+    "candidate_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+    "candidate_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "actions_merge_sha": "5f5cd54bdad7baa95c71eb7169457b6a690569c1",
+    "actions_merge_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "55951fb2870f5776b1b89302bccf0092725387fd"
+    ],
+    "same_tree": true
+  },
+  "job_id": 108557369263,
+  "counts": {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "deselected": 0,
+    "warnings": 0,
+    "seconds": 390.3
+  },
+  "failed_nodes": [
+    "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+  ],
+  "restore_elapsed_seconds": 61.227,
+  "static_failure_trace": [
+    "actual factory restore result: failed; elapsed=61.227s",
+    "actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+    "actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:381:_execute_retained_factory",
+    "actual factory execute frame: tests/retained_restore_profile.py:150:execute",
+    "actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+    "actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+    "actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+    "actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+    "actual factory execute frame: packages/persistence/database.py:219:validate",
+    "actual factory execute frame: packages/persistence/database.py:381:validate",
+    "actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+    "actual factory execute frame: packages/persistence/database.py:379:validate",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+    "actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+    "actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+    "actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+    "actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+    "actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+    "actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+    "actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+    "actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+    "actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+    "actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+    "actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+    "actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+    "actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+    "actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+    "actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+    "actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+    "actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+    "actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+  ],
+  "trace_truncated": false,
+  "raw_log": {
+    "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-job-108557369263.log",
+    "sha256": "5fb1102c82f76dd81fb75ba7a440b8d4abab25678d6966dafc726c70fd6b2b39",
+    "bytes": 47832
+  },
+  "profile": {
+    "file": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/profile.json",
+      "sha256": "22d6e05571620a7170938a59f0881b848e176317cf128cb5766bf44f5b1fb52f",
+      "bytes": 99440
+    },
+    "schema": "retained-factory-execute-static-cprofile/1",
+    "diagnostic_only": true,
+    "scope": "Instrumented factory.execute only; fixture setup, factory construction, result decoding/assertions, cleanup and report generation are excluded. A returned execute call is not a passing restore test or startup acceptance.",
+    "profile_status": "valid",
+    "diagnostic_faults": [],
+    "factory_execute_started": true,
+    "factory_execute_returned": false,
+    "stats_entries_considered": 4852,
+    "selected_rows": 315,
+    "selection": "Union of top128 inclusive and self-time entries, overall and project-only; up to512 rows. Unselected entries are omitted. Inclusive times overlap. Ordinals distinguish captured entries with identical static labels. These limits bound emitted data, not cProfile internal storage.",
+    "selected_relevant_rows": [
+      {
+        "stats_entry_ordinal": 405,
+        "group": "project",
+        "file": "apps/trader/continuous_simulation_factory.py",
+        "line": 579,
+        "function": "execute",
+        "calls": 1,
+        "recursive_calls": 0,
+        "inclusive_seconds": 61.19388133,
+        "self_seconds": 1.6451000000000002e-05
+      },
+      {
+        "stats_entry_ordinal": 1013,
+        "group": "project",
+        "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+        "line": 2684,
+        "function": "_require_resolved_for_factory",
+        "calls": 28,
+        "recursive_calls": 0,
+        "inclusive_seconds": 11.047143519,
+        "self_seconds": 0.0012029310000000002
+      },
+      {
+        "stats_entry_ordinal": 4547,
+        "group": "dependency",
+        "file": "sqlalchemy/engine/base.py",
+        "line": 1377,
+        "function": "execute",
+        "calls": 13548,
+        "recursive_calls": 0,
+        "inclusive_seconds": 5.896353657000001,
+        "self_seconds": 0.028097618
+      },
+      {
+        "stats_entry_ordinal": 3150,
+        "group": "project",
+        "file": "packages/persistence/continuous_attempt_outcome_sources.py",
+        "line": 731,
+        "function": "require_resolved",
+        "calls": 32,
+        "recursive_calls": 0,
+        "inclusive_seconds": 3.8338150950000003,
+        "self_seconds": 0.00030841900000000004
+      },
+      {
+        "stats_entry_ordinal": 798,
+        "group": "project",
+        "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+        "line": 2783,
+        "function": "require_resolved",
+        "calls": 4,
+        "recursive_calls": 0,
+        "inclusive_seconds": 2.1322676240000003,
+        "self_seconds": 0.003057639
+      },
+      {
+        "stats_entry_ordinal": 2911,
+        "group": "project",
+        "file": "packages/persistence/continuous_venue_sources.py",
+        "line": 153,
+        "function": "_fingerprint",
+        "calls": 94,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.079383553,
+        "self_seconds": 0.0025021460000000002
+      },
+      {
+        "stats_entry_ordinal": 4334,
+        "group": "project",
+        "file": "packages/persistence/continuous_venue_sources.py",
+        "line": 324,
+        "function": "require_resolved",
+        "calls": 81,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.940254683,
+        "self_seconds": 0.000363129
+      },
+      {
+        "stats_entry_ordinal": 825,
+        "group": "project",
+        "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+        "line": 669,
+        "function": "_fingerprint",
+        "calls": 5,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.8866445340000001,
+        "self_seconds": 6.9563e-05
+      },
+      {
+        "stats_entry_ordinal": 856,
+        "group": "project",
+        "file": "packages/persistence/continuous_runtime_attempt_sources.py",
+        "line": 2571,
+        "function": "_issue_factory_fingerprint",
+        "calls": 1,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.826629374,
+        "self_seconds": 0.00026625
+      },
+      {
+        "stats_entry_ordinal": 930,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_fingerprint.py",
+        "line": 201,
+        "function": "require",
+        "calls": 31,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.802850575,
+        "self_seconds": 0.203929668
+      },
+      {
+        "stats_entry_ordinal": 4375,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_behavior.py",
+        "line": 228,
+        "function": "require",
+        "calls": 118,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.14234170100000001,
+        "self_seconds": 0.0061377160000000005
+      },
+      {
+        "stats_entry_ordinal": 799,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_behavior.py",
+        "line": 123,
+        "function": "require",
+        "calls": 6195,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.055433583,
+        "self_seconds": 0.024433803
+      },
+      {
+        "stats_entry_ordinal": 826,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_behavior.py",
+        "line": 171,
+        "function": "require",
+        "calls": 2065,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.039503549000000006,
+        "self_seconds": 0.011888869000000002
+      },
+      {
+        "stats_entry_ordinal": 3127,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_behavior.py",
+        "line": 192,
+        "function": "require",
+        "calls": 1121,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.019871385000000002,
+        "self_seconds": 0.013831318
+      },
+      {
+        "stats_entry_ordinal": 4330,
+        "group": "project",
+        "file": "packages/persistence/_factory_attempt_behavior.py",
+        "line": 104,
+        "function": "require",
+        "calls": 7906,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.018695494,
+        "self_seconds": 0.017942585
+      }
+    ],
+    "limitations": [
+      "Calls are function entries, not successful proof issuance, use, return or retirement counts.",
+      "Rows are a selected top-N union; an absent function is not evidence of absence, zero cost or fallback.",
+      "Inclusive rows overlap and must not be added together.",
+      "Instrumented execute excludes setup, construction, result assertions and cleanup; failed execution is partial."
+    ]
+  },
+  "artifact": {
+    "id": 10923314952,
+    "name": "retained-restore-profile-36293614203-1",
+    "size_in_bytes": 12467,
+    "digest": "sha256:75b5a4fe9d1bbc05bc6d4f54629eac854c71f69ab4e174d7c7b7b958ff270a83",
+    "expired": false,
+    "created_at": "2026-09-27T05:27:22Z",
+    "zip": {
+      "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952.zip",
+      "sha256": "75b5a4fe9d1bbc05bc6d4f54629eac854c71f69ab4e174d7c7b7b958ff270a83",
+      "bytes": 12467
+    },
+    "digest_matches": true,
+    "files": [
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/profile.json",
+        "sha256": "22d6e05571620a7170938a59f0881b848e176317cf128cb5766bf44f5b1fb52f",
+        "bytes": 99440
+      },
+      {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-artifact-10923314952/test-exit.json",
+        "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25",
+        "bytes": 89
+      }
+    ],
+    "diagnostic_test_exit": {
+      "schema": "retained-diagnostic-test-exit/1",
+      "diagnostic_only": true,
+      "pytest_exit_code": 1
+    }
+  },
+  "limitations": [
+    "Diagnostic failed after partial instrumented execution; required matrix remains4965passed2failed0skipped.",
+    "Entry counts cannot establish completed proof use, issuance, retirement or fallback; absent top-N rows cannot establish zero calls."
+  ]
+}

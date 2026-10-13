@@ -203,6 +203,7 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
         response: http.client.HTTPResponse | None = None
         stream: socket.socket | None = None
         timer: threading.Timer | None = None
+        result: CaptureResponse | None = None
         try:
             deadline = self._check(request, deadline_ms)
             with self._attempt_lock:
@@ -210,7 +211,7 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
                     raise ForwardCaptureHTTPError("CAPTURE_HTTP_ATTEMPT_ALREADY_USED")
                 self._used = True
             token = self._load_token(deadline)
-            self._require_original(request)
+            self.require_original_capture_binding(request)
             _remaining(deadline)
             context = ssl.create_default_context()
             connection = http.client.HTTPSConnection(
@@ -245,7 +246,8 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
             timer = threading.Timer(_remaining(deadline), _expire, args=(stream,))
             timer.daemon = True
             timer.start()
-            self._require_original(request)
+            self.require_original_capture_binding(request)
+            _remaining(deadline)
             connection.request(
                 "GET",
                 self._path,
@@ -274,14 +276,15 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
                     raise ForwardCaptureHTTPError("CAPTURE_HTTP_RESPONSE_TOO_LARGE")
                 chunks.append(chunk)
             _remaining(deadline)
-            self._require_original(request)
-            return CaptureResponse(
+            self.require_original_capture_binding(request)
+            result = CaptureResponse(
                 self._http_request_sha256,
                 response.status,
                 content_type,
                 b"".join(chunks),
                 "provider_https_read",
             )
+            return result
         except ForwardCaptureHTTPError:
             raise
         except Exception:
@@ -298,6 +301,17 @@ class TiingoForwardHTTPSGetTransport(_BoundRequest):
                         cleanup_failed = True
             if cleanup_failed:
                 raise ForwardCaptureHTTPError("CAPTURE_HTTP_CLEANUP_FAILED") from None
+            if result is not None:
+                # The pending return completes only after all cleanup callbacks.
+                # Do not overwrite an earlier failure with this success-only
+                # check; cleanup failures retain their existing precedence.
+                try:
+                    self.require_original_capture_binding(request)
+                    _remaining(deadline)
+                except ForwardCaptureHTTPError:
+                    raise
+                except Exception:
+                    raise ForwardCaptureHTTPError("CAPTURE_HTTP_TRANSPORT_FAILED") from None
 
 
 class EtradeForwardCaptureTransport(_BoundRequest):

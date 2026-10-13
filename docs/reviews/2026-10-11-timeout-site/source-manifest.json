@@ -1,0 +1,21 @@
+{
+  "schema": "focused-source-manifest-v1",
+  "base": "138275285b1d8dc076e66f153ccec823e267e963",
+  "files": [
+    {
+      "path": "tests/fixtures/continuous_process_observation.py",
+      "sha256": "5f43f6d87f739e8d2757b112968ab03896272b9cb7ea218e12167f56d18a49c4",
+      "bytes": 6891
+    },
+    {
+      "path": "tests/integration/test_continuous_simulation_worker.py",
+      "sha256": "895eb683e1d5f7311478d68f7f9b5545e9d4537c36e1e06d0bc95da67a2e8164",
+      "bytes": 3088
+    },
+    {
+      "path": "tests/unit/test_continuous_observation_timeout_site.py",
+      "sha256": "6a0b0dc0e060d6819fbe6fbfe000f2153283ecf8589c7bd730e4b4b3d8100b33",
+      "bytes": 18496
+    }
+  ]
+}

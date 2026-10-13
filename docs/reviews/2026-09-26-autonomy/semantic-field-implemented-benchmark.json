@@ -1,0 +1,394 @@
+{
+  "scope": "Finite local converter-only experiment. No repo source edits, result cache, lease/fence changes or retained acceptance claim.",
+  "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+  "source_sha256": "0525ffa5ac23c22c2c266ab7e62efe7d22663f1b572d04f56d6f0ac7160578e6",
+  "verified_algorithm_ast_equal_to_current_source": "candidate",
+  "original_literal_prechange_source_sha256": "bb2bb0b5bd6d3a695d59e378129ffe80e8a36c45f79bdcd8965831a485537816",
+  "ratio_definition": "median(candidate_seconds) / median(original_seconds) for identical workload+iterations over seven alternating-order samples; below1 means less elapsed converter time",
+  "checks": [
+    "actual-pin",
+    "actual-mark",
+    "actual-append",
+    "actual-broker_event",
+    "actual-control",
+    {
+      "hook_case": "none",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first",
+        "instance:second"
+      ]
+    },
+    {
+      "hook_case": "first",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first"
+      ]
+    },
+    {
+      "hook_case": "second",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first",
+        "instance:second"
+      ]
+    },
+    {
+      "hook_case": "mutate",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first",
+        "instance:second"
+      ]
+    },
+    {
+      "hook_case": "prefix_mutate",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first",
+        "instance:second"
+      ]
+    },
+    {
+      "hook_case": "invalid",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__",
+        "instance:__dataclass_fields__",
+        "instance:first",
+        "instance:second"
+      ]
+    },
+    {
+      "hook_case": "__module__",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__"
+      ]
+    },
+    {
+      "hook_case": "__qualname__",
+      "events": [
+        "class:__dataclass_fields__",
+        "class:__module__",
+        "class:__qualname__"
+      ]
+    },
+    {
+      "hook_case": "__dataclass_fields__",
+      "events": [
+        "class:__dataclass_fields__"
+      ]
+    },
+    {
+      "field_name_two_reads": [
+        "field-name:1",
+        "field-name:2"
+      ]
+    },
+    "same-original-nested-mutation-is-retraversed"
+  ],
+  "workloads": [
+    {
+      "name": "scalar-records",
+      "iterations_per_sample": 600,
+      "original_seconds": [
+        0.10907541599590331,
+        0.10918999998830259,
+        0.10860195802524686,
+        0.10880554199684411,
+        0.10955729195848107,
+        0.10930129105690867,
+        0.10896583297289908
+      ],
+      "candidate_seconds": [
+        0.07367454189807177,
+        0.0731623750180006,
+        0.07370966696180403,
+        0.07408379204571247,
+        0.07309995905961841,
+        0.07300445798318833,
+        0.07336695794947445
+      ],
+      "candidate_over_original_medians": 0.6726259742363027,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 64,
+          "semantic_converter_calls": 833
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 64,
+          "semantic_converter_calls": 65
+        }
+      }
+    },
+    {
+      "name": "actual-contract-records",
+      "iterations_per_sample": 300,
+      "original_seconds": [
+        0.07724679203238338,
+        0.07664824998937547,
+        0.0768222080077976,
+        0.07681150001008064,
+        0.07680029200855643,
+        0.07703787495847791,
+        0.07676241698209196
+      ],
+      "candidate_seconds": [
+        0.061550208018161356,
+        0.061682416941039264,
+        0.061345874913968146,
+        0.06211295793764293,
+        0.06183266604784876,
+        0.06141395797021687,
+        0.06156533397734165
+      ],
+      "candidate_over_original_medians": 0.8015119346616314,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 160,
+          "is_dataclass_calls": 272,
+          "semantic_converter_calls": 849
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 160,
+          "is_dataclass_calls": 272,
+          "semantic_converter_calls": 289
+        }
+      }
+    },
+    {
+      "name": "non-scalar-records",
+      "iterations_per_sample": 300,
+      "original_seconds": [
+        0.056386042037047446,
+        0.05640587501693517,
+        0.05630816693883389,
+        0.057001749984920025,
+        0.056474250042811036,
+        0.05635550001170486,
+        0.0562827920075506
+      ],
+      "candidate_seconds": [
+        0.05705937510356307,
+        0.05690866708755493,
+        0.05683445802424103,
+        0.05679554189555347,
+        0.056853000074625015,
+        0.05670624994672835,
+        0.05686566710937768
+      ],
+      "candidate_over_original_medians": 1.008281447335331,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 576,
+          "semantic_converter_calls": 577
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 576,
+          "semantic_converter_calls": 577
+        }
+      }
+    },
+    {
+      "name": "tuple-field-records",
+      "iterations_per_sample": 300,
+      "original_seconds": [
+        0.05930479196831584,
+        0.05971520801540464,
+        0.059431042056530714,
+        0.059480000054463744,
+        0.059227416990324855,
+        0.05935041594784707,
+        0.059271959005855024
+      ],
+      "candidate_seconds": [
+        0.062043791054748,
+        0.062122375005856156,
+        0.06265424995217472,
+        0.06201849994249642,
+        0.06188508297782391,
+        0.061867374926805496,
+        0.06186225009150803
+      ],
+      "candidate_over_original_medians": 1.0449547648830948,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 64,
+          "semantic_converter_calls": 577
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 64,
+          "is_dataclass_calls": 64,
+          "semantic_converter_calls": 577
+        }
+      }
+    },
+    {
+      "name": "single-version-pin",
+      "iterations_per_sample": 15000,
+      "original_seconds": [
+        0.017475374974310398,
+        0.017414874979294837,
+        0.017348875058814883,
+        0.017419709009118378,
+        0.017373041016981006,
+        0.017574458965100348,
+        0.017423583078198135
+      ],
+      "candidate_seconds": [
+        0.01289524999447167,
+        0.012936208047904074,
+        0.012909416924230754,
+        0.012907875003293157,
+        0.01321283308789134,
+        0.012986792018637061,
+        0.01301754207815975
+      ],
+      "candidate_over_original_medians": 0.7426190667784744,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 1,
+          "semantic_converter_calls": 4
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 1,
+          "semantic_converter_calls": 1
+        }
+      }
+    },
+    {
+      "name": "single-causal-mark",
+      "iterations_per_sample": 8000,
+      "original_seconds": [
+        0.021343540982343256,
+        0.021303917048498988,
+        0.02129966695792973,
+        0.02120270801242441,
+        0.021159459021873772,
+        0.021283708978444338,
+        0.02130191703327
+      ],
+      "candidate_seconds": [
+        0.018663792056031525,
+        0.01860824995674193,
+        0.018711666925810277,
+        0.01867595803923905,
+        0.018703542067669332,
+        0.018622040981426835,
+        0.018725833971984684
+      ],
+      "candidate_over_original_medians": 0.8768192514994282,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 5,
+          "semantic_converter_calls": 11
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 5,
+          "semantic_converter_calls": 5
+        }
+      }
+    },
+    {
+      "name": "empty-record",
+      "iterations_per_sample": 30000,
+      "original_seconds": [
+        0.019480374990962446,
+        0.019571625045500696,
+        0.01948029105551541,
+        0.01957725000102073,
+        0.01955762505531311,
+        0.019569457974284887,
+        0.019569083000533283
+      ],
+      "candidate_seconds": [
+        0.015294958022423089,
+        0.015343750012107193,
+        0.01526650006417185,
+        0.015308500034734607,
+        0.015254000085406005,
+        0.01537824992556125,
+        0.015309707960113883
+      ],
+      "candidate_over_original_medians": 0.782279886815209,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 1,
+          "semantic_converter_calls": 1
+        },
+        "candidate": {
+          "dataclasses_fields_calls": 1,
+          "is_dataclass_calls": 1,
+          "semantic_converter_calls": 1
+        }
+      }
+    },
+    {
+      "name": "unchanged-tuple",
+      "iterations_per_sample": 40000,
+      "original_seconds": [
+        0.012261957977898419,
+        0.012252875021658838,
+        0.012227833038195968,
+        0.012287624995224178,
+        0.012267874903045595,
+        0.012290499988012016,
+        0.012255667010322213
+      ],
+      "candidate_seconds": [
+        0.011841083993203938,
+        0.011773208971135318,
+        0.01185150002129376,
+        0.011833083000965416,
+        0.01188866700977087,
+        0.011773834004998207,
+        0.0118183329468593
+      ],
+      "candidate_over_original_medians": 0.9650239400831394,
+      "value_canonical_bytes_equal": true,
+      "separate_single_conversion_call_counts_only": {
+        "original": {
+          "semantic_converter_calls": 1
+        },
+        "candidate": {
+          "semantic_converter_calls": 1
+        }
+      }
+    }
+  ]
+}

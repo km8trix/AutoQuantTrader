@@ -1,0 +1,42 @@
+..................................F..................................... [ 87%]
+..........                                                               [100%]
+=================================== FAILURES ===================================
+_ test_alias_union_literal_and_tuple_recursion_remain_original[value11-tuple-True] _
+
+value = (7, False, 'x', None), annotation = tuple[int, bool, str, None]
+valid = True
+
+    @pytest.mark.parametrize(
+        ("value", "annotation", "valid"),
+        [
+            (7, _CountAlias, True),
+            (True, _CountAlias, False),
+            (None, _MaybeText, True),
+            ("label", _MaybeText, True),
+            (False, _MaybeText, False),
+            (True, int | bool, True),
+            (False, Union[str, int], False),
+            (True, Literal[True], True),
+            (1, Literal[True], False),
+            (False, Literal[0], False),
+            ("plain", Literal["plain", "other"], True),
+            ((7, False, "x", None), tuple[int, bool, str, None], True),
+            ((True, False, "x", None), tuple[int, bool, str, None], False),
+            ((), tuple[int, ...], True),
+            ((1, 2), tuple[int, ...], True),
+            ((1, False), tuple[int, ...], False),
+            ([1], tuple[int, ...], False),
+            ((1,), tuple[int, bool], False),
+            (((1, True), (2, False)), tuple[tuple[_CountAlias, bool], ...], True),
+            (((1, True), (False, False)), tuple[tuple[_CountAlias, bool], ...], False),
+        ],
+    )
+    def test_alias_union_literal_and_tuple_recursion_remain_original(value, annotation, valid):
+        expected = _outcome(_original_check_type, value, annotation)
+>       assert (expected is None) is valid
+E       AssertionError: assert ((<class 'ValueError'>, ('field has an unsupported value type',), None, None, False) is None) is True
+
+tests/unit/test_personal_contract_type_dispatch.py:191: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_personal_contract_type_dispatch.py::test_alias_union_literal_and_tuple_recursion_remain_original[value11-tuple-True]
+1 failed, 81 passed in 0.21s

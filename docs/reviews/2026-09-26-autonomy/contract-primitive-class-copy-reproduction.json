@@ -1,0 +1,16 @@
+{
+  "scope": "import, object.__new__, stdlib copy only; no constructors, database, fixture, proof issuance or effects",
+  "baseline_require": "passed",
+  "copied_distinct": true,
+  "added_keys": [
+    "__slotnames__"
+  ],
+  "added_slotnames_exact_empty_list": true,
+  "removed_keys": [],
+  "changed_bindings": [],
+  "after_copy": {
+    "type": "_AttemptBehaviorChanged",
+    "code": "FACTORY_BEHAVIOR_CLASS_NAMESPACE_CHANGED"
+  },
+  "after_restoration_require": "passed"
+}

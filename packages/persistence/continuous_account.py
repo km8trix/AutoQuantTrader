@@ -6,7 +6,7 @@ admissions. This store owns no financial reducer or exposure permission.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
 from datetime import datetime
@@ -780,13 +780,46 @@ class SqlContinuousAccount:
         )
 
     def _own(self, value: OwnedT) -> OwnedT:
-        self._owned[id(value)] = value
-        self._owned_fields[id(value)] = tuple(
-            getattr(value, f.name) for f in fields(cast(Any, value))
+        key, missing = id(value), object()
+        registries: tuple[MutableMapping[int, Any], ...] = (
+            self._owned,
+            self._owned_fields,
+            self._metadata_fingerprints,
         )
-        self._metadata_fingerprints[id(value)] = self._metadata_fingerprint(value)
-        finalize(value, self._owned_fields.pop, id(value), None)
-        finalize(value, self._metadata_fingerprints.pop, id(value), None)
+        previous = tuple(registry.get(key, missing) for registry in registries)
+        fields_cleanup: finalize[..., OwnedT] | None = None
+        fingerprint_cleanup: finalize[..., OwnedT] | None = None
+        try:
+            self._owned[key] = value
+            self._owned_fields[key] = tuple(
+                getattr(value, f.name) for f in fields(cast(Any, value))
+            )
+            self._metadata_fingerprints[key] = self._metadata_fingerprint(value)
+            fields_cleanup = finalize(value, self._owned_fields.pop, key, None)
+            fingerprint_cleanup = finalize(value, self._metadata_fingerprints.pop, key, None)
+        except BaseException as error:
+            cleanup_errors: list[BaseException] = []
+            for cleanup in (fields_cleanup, fingerprint_cleanup):
+                if cleanup is not None:
+                    try:
+                        cleanup.detach()
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+            # Restore this issuance key only; preserve earlier ownership and
+            # any unrelated value issued while metadata was being evaluated.
+            for registry, original in zip(registries, previous, strict=True):
+                try:
+                    if original is missing:
+                        registry.pop(key, None)
+                    else:
+                        registry[key] = original
+                except BaseException as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            if cleanup_errors:
+                raise BaseExceptionGroup(
+                    "Continuous ownership issuance and rollback failed", [error, *cleanup_errors]
+                ) from None
+            raise
         return value
 
     def _require(self, value: Any, expected: type[Any]) -> None:
@@ -1177,9 +1210,34 @@ class SqlContinuousAccount:
             if source_lease_sha256 is None
             else _capture_lease(connection, source_lease_sha256),
         )
-        self._reference_captures[id(raw)] = raw
-        self._reference_capture_fields[id(raw)] = tuple(getattr(raw, f.name) for f in fields(raw))
-        finalize(raw, self._reference_capture_fields.pop, id(raw), None)
+        capture_identity, missing = id(raw), object()
+        registries: tuple[MutableMapping[int, Any], ...] = (
+            self._reference_captures,
+            self._reference_capture_fields,
+        )
+        previous_entries = tuple(registry.get(capture_identity, missing) for registry in registries)
+        try:
+            self._reference_captures[capture_identity] = raw
+            self._reference_capture_fields[capture_identity] = tuple(
+                getattr(raw, f.name) for f in fields(raw)
+            )
+            finalize(raw, self._reference_capture_fields.pop, capture_identity, None)
+        except BaseException as error:
+            cleanup_errors: list[BaseException] = []
+            for registry, original in zip(registries, previous_entries, strict=True):
+                try:
+                    if original is missing:
+                        registry.pop(capture_identity, None)
+                    else:
+                        registry[capture_identity] = original
+                except BaseException as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            if cleanup_errors:
+                raise BaseExceptionGroup(
+                    "Continuous reference capture issuance and rollback failed",
+                    [error, *cleanup_errors],
+                ) from None
+            raise
         return raw
 
     def _require_reference_capture(self, raw: ContinuousReferenceSnapshot) -> None:
@@ -1289,15 +1347,41 @@ class SqlContinuousAccount:
                     raise ValueError("reference source lease scope")
             elif snapshot.source_lease is not None:
                 raise ValueError("reference extra lease")
-            value = self._own(
-                ResolvedContinuousReference(
-                    snapshot, receipt, prior, journal, prior_journal, source_lease, self._seal
+            value = ResolvedContinuousReference(
+                snapshot, receipt, prior, journal, prior_journal, source_lease, self._seal
+            )
+            reference_identity, missing = id(value), object()
+            registries: tuple[MutableMapping[int, Any], ...] = (
+                self._owned,
+                self._owned_fields,
+                self._metadata_fingerprints,
+                self._reference_fingerprints,
+            )
+            previous_entries = tuple(
+                registry.get(reference_identity, missing) for registry in registries
+            )
+            value = self._own(value)
+            try:
+                self._reference_fingerprints[reference_identity] = _reference_fingerprint(
+                    snapshot, journal, prior_journal
                 )
-            )
-            self._reference_fingerprints[id(value)] = _reference_fingerprint(
-                snapshot, journal, prior_journal
-            )
-            finalize(value, self._reference_fingerprints.pop, id(value), None)
+                finalize(value, self._reference_fingerprints.pop, reference_identity, None)
+            except BaseException as error:
+                cleanup_errors: list[BaseException] = []
+                for registry, original in zip(registries, previous_entries, strict=True):
+                    try:
+                        if original is missing:
+                            registry.pop(reference_identity, None)
+                        else:
+                            registry[reference_identity] = original
+                    except BaseException as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+                if cleanup_errors:
+                    raise BaseExceptionGroup(
+                        "Continuous reference resolution and rollback failed",
+                        [error, *cleanup_errors],
+                    ) from None
+                raise
             return value
         except (ValueError, TypeError, KeyError, UnicodeError):
             raise ContinuousAccountConflict("CONTINUOUS_RETAINED_REFERENCE_INVALID") from None

@@ -1,0 +1,78 @@
+........................................................................ [ 41%]
+........................................................................ [ 82%]
+..............FF..............                                           [100%]
+=================================== FAILURES ===================================
+___ test_deep_provenance_change_reaches_the_original_final_fingerprint_guard ___
+
+attempt_case = (<tests.integration.test_continuous_composition.Case object at 0x1104d0e00>, <packages.persistence.continuous_runtime_...ersion='personal-daily-runtime-risk/1', sha256='a911e0fbc20e9ad0a346b95d4f19c7c384af06f2a48f63bb539c32897b96ea35')),)))
+
+    def test_deep_provenance_change_reaches_the_original_final_fingerprint_guard(attempt_case):
+        owner, resolved = _resolved_pending(attempt_case)
+        if _QUALIFIED_NATIVE_PROFILE:
+>           _require_actual_pending_data_profile(owner, resolved)
+
+tests/integration/test_continuous_attempt_factory_proof.py:95:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/integration/test_continuous_attempt_factory_proof.py:117: in _require_actual_pending_data_profile
+    source_behavior, root_behavior, _module = attempt_sources._factory_fingerprint_behaviors()
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+packages/persistence/continuous_runtime_attempt_sources.py:387: in _factory_fingerprint_behaviors
+    root.require()
+packages/persistence/_factory_attempt_behavior.py:230: in require
+    record.require()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = _ClassBinding(kind=<class 'packages.persistence.continuous_integrity.SqlContinuousIntegrityReader'>, metatype=<class '...ntinuousIntegrityReader' objects>, '__weakref__', <attribute '__weakref__' of 'SqlContinuousIntegrityReader' objects>))
+
+    def require(self) -> None:
+        if (
+            _TYPE(self.kind) is not self.metatype
+            or _TYPE_MRO.__get__(self.kind, _TYPE) is not self.original_mro
+        ):
+            raise _AttemptBehaviorChanged("FACTORY_BEHAVIOR_CLASS_CHANGED")
+        namespace = _TYPE_NAMESPACE.__get__(self.kind, _TYPE)
+        if 2 * _LEN(namespace) != _LEN(self.namespace):
+>           raise _AttemptBehaviorChanged("FACTORY_BEHAVIOR_CLASS_NAMESPACE_CHANGED")
+E           packages.persistence._factory_attempt_behavior._AttemptBehaviorChanged: FACTORY_BEHAVIOR_CLASS_NAMESPACE_CHANGED
+
+packages/persistence/_factory_attempt_behavior.py:179: _AttemptBehaviorChanged
+_ test_actual_owned_pending_source_cannot_issue_factory_proof_from_an_opaque_claim _
+
+attempt_case = (<tests.integration.test_continuous_composition.Case object at 0x1149e9af0>, <packages.persistence.continuous_runtime_...ersion='personal-daily-runtime-risk/1', sha256='a911e0fbc20e9ad0a346b95d4f19c7c384af06f2a48f63bb539c32897b96ea35')),)))
+
+    def test_actual_owned_pending_source_cannot_issue_factory_proof_from_an_opaque_claim(attempt_case):
+        owner, resolved = _resolved_pending(attempt_case)
+        # Actual source tokens are necessary but cannot qualify an unregistered
+        # factory operation, episode, or caller-supplied context by themselves.
+        original_contexts = tuple(integrity._FACTORY_FINGERPRINTS.items())
+        unregistered_context = integrity._FactoryFingerprintContext()
+        contexts = (
+            object(),
+            unregistered_context,
+            _copy_preserving_class_inventory(unregistered_context),
+        )
+        candidates = (
+            (owner, resolved),
+            (_copy_preserving_class_inventory(owner), resolved),
+            (owner, _copy_preserving_class_inventory(resolved)),
+        )
+        for source, value in candidates:
+            for context in contexts:
+                try:
+                    issued = source._issue_factory_fingerprint(
+                        value,
+                        context=context,
+                        max_containers=16_384,
+                        max_bindings=131_072,
+                    )
+                except ValueError:
+                    pass
+                else:
+>                   assert not _QUALIFIED_NATIVE_PROFILE and issued is None
+E                   assert (not True)
+
+tests/integration/test_continuous_attempt_factory_proof.py:177: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_continuous_attempt_factory_proof.py::test_deep_provenance_change_reaches_the_original_final_fingerprint_guard
+FAILED tests/integration/test_continuous_attempt_factory_proof.py::test_actual_owned_pending_source_cannot_issue_factory_proof_from_an_opaque_claim
+2 failed, 172 passed in 808.46s (0:13:28)

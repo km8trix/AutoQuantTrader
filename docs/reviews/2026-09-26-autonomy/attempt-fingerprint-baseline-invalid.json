@@ -1,0 +1,59 @@
+{
+  "capture_status": "invalid",
+  "diagnostic_faults": [
+    "call_bound"
+  ],
+  "diagnostic_only": true,
+  "execute_elapsed_ns": 47100121458,
+  "execute_returned": 1,
+  "execute_started": 1,
+  "fingerprint_calls": 30,
+  "limitations": [
+    "Instrumentation adds stack frames and elapsed overhead. This is not an unprofiled acceptance gate.",
+    "Counts cover prepared/resolved exact source types only. Inclusive times may overlap on reentrant fingerprint calls.",
+    "No argument graph, return value, exception value/text, account identifier, SQL, provider data or runtime path is stored.",
+    "Reports are written only at pytest session finish, after original test and fixture cleanup. Original exceptions and results are preserved.",
+    "Only the explicit synthetic offline retained fixture is permitted; do not use on provider/runtime datasets."
+  ],
+  "limits": {
+    "max_calls": 30,
+    "max_elapsed_ns": 3600000000000,
+    "max_metadata_bytes": 16384
+  },
+  "pytest_exitstatus": 0,
+  "schema": "fixture-attempt-fingerprint-profile/1",
+  "scope": "Only target factory.execute operation on its calling thread; excludes setup, construction, assertions, factory close and fixture cleanup.",
+  "source_sha256_after": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "diagnostic_plugin": "3ee245f0e1e3baf80653c143621e9379e734ae75dab6c7d4f610de50c844e94e",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "source_sha256_before": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "diagnostic_plugin": "3ee245f0e1e3baf80653c143621e9379e734ae75dab6c7d4f610de50c844e94e",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "target": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "types": {
+    "prepared": {
+      "calls": 0,
+      "failed_calls": 0,
+      "inclusive_elapsed_ns": 0
+    },
+    "resolved": {
+      "calls": 30,
+      "failed_calls": 0,
+      "inclusive_elapsed_ns": 1138793582
+    }
+  }
+}

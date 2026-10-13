@@ -1,0 +1,43 @@
+{
+  "schema": "tiingo-selection-offline-evidence/1",
+  "base_head": "b6e481547b0f2de63d56961e91ddf7c487ecdc84",
+  "changed_files": [
+    {
+      "path": "packages/application/personal_tiingo_capture_selection.py",
+      "sha256": "ea37eff1638a8e12c7f9ebad975ff70e89c531ddf1a432e525d5dd79f22c1929"
+    },
+    {
+      "path": "tests/unit/test_personal_tiingo_capture_selection.py",
+      "sha256": "fcb55ad66e2e5b537bd4faee2022e7d805bd8e8dffca0bea5c1bfedaace3ab5a"
+    }
+  ],
+  "behavior": "Pure existing-record scope matcher using Tiingo bounded parsers/authorization/calendar checks and existing research-calendar convention. Returns None; no ownership/clock/transport/source-token/collector changes.",
+  "validation": {
+    "runtime": "verified persistent Python 3.12.13 under env -i",
+    "focused_pytest": {
+      "files": [
+        "tests/unit/test_personal_tiingo_capture_selection.py",
+        "tests/unit/test_personal_capture_calendar_binding.py",
+        "tests/unit/test_tiingo_eod_capture.py",
+        "tests/unit/test_personal_forward_capture.py"
+      ],
+      "passed": 216,
+      "elapsed_seconds": 2.09,
+      "failures": 0,
+      "skips": 0
+    },
+    "new_cases": 49,
+    "ruff_format": "2 files already formatted",
+    "ruff_lint": "All checks passed",
+    "mypy": "Success: no issues found in 418 source files",
+    "architecture": "Personal architecture check passed (layers, pure code, simulation import closure)",
+    "independent_review": "architecture_audit read-only source/test review: no actionable finding; peer-reported focused test results, no independent rerun."
+  },
+  "limits": [
+    "No source-reference-to-original-evidence convention is invented. Identity/rights/entitlement strings are required declarations, not proven evidence ownership.",
+    "Calendar/profile/authorization content matching does not authenticate reviewer approvals, account/currency/clock provenance or genuine source authority.",
+    "Authorization effective dates retain existing data-scope meaning; not a request-time expiry.",
+    "Equal copies pass mechanical matching; successful genuine-shaped selection still fails unchanged collector genuine-source guard with zero clock/transport/artifact effects.",
+    "No credential, provider, launcher, account/financial/control mutation, documentation change or commit."
+  ]
+}

@@ -14,6 +14,7 @@ from packages.persistence.continuous_integrity import ContinuousIntegrityError, 
 from packages.persistence.daily_runtime_risk import ResolvedDailyRuntimeSnapshot
 from packages.persistence.daily_runtime_risk_schema import daily_runtime_assignments
 from packages.persistence.schema import phase2_account_lease_heads
+from tests.fixtures.copy_isolation import copy_preserving_class_inventory
 from tests.integration import test_continuous_integrity as original_fixture
 from tests.integration import test_continuous_observed_financial_publication as observed_fixture
 from tests.integration.test_continuous_runtime_attempt_sources import attempt_case as attempt_case
@@ -125,9 +126,11 @@ def test_original_episode_rejects_copies_foreign_consumers_threads_and_reentry(
         if change == "token":
             return borrow(copy(episode), consumer=consumer)
         if change == "reader":
-            return copy(reader)._borrow_original_daily(episode, consumer=consumer)
+            return copy_preserving_class_inventory(reader)._borrow_original_daily(
+                episode, consumer=consumer
+            )
         if change == "consumer":
-            return borrow(episode, consumer=copy(consumer))
+            return borrow(episode, consumer=copy_preserving_class_inventory(consumer))
         if change == "thread":
             with ThreadPoolExecutor(max_workers=1) as pool:
                 return pool.submit(borrow, episode, consumer=consumer).result(timeout=5)

@@ -1,0 +1,32 @@
+{
+  "schema": "prelease-clock-original-result/1",
+  "date": "2026-09-27",
+  "head": "e83d0ac9eaf730eded8d4d2408ce1382a74f3180",
+  "production_test_source_unchanged_from": "26631c66854c754533f5d6d82749e1fb8b5e3dcf",
+  "process_exit_code": 0,
+  "test_passed": 1,
+  "test_seconds": 242.12,
+  "files": [
+    {
+      "source_name": "prelease-clock-original-first.json",
+      "published_name": "prelease-clock-original-first.json",
+      "sha256": "e6100ad083df91acaa79edc6958e617fba43e2ff6e51f1b651014b6ce462c768",
+      "bytes": 6589
+    },
+    {
+      "source_name": "prelease-clock-original-first.log",
+      "published_name": "prelease-clock-original-first.txt",
+      "sha256": "c9674d49ff12c97bd8d333ce0f9bc6e8bc1a5b5326a41b3ba5827621174cf832",
+      "bytes": 110
+    }
+  ],
+  "disposition": "Reject CLOCK-only canonicality reuse on immaterial observed repeat cost; no acquisition/behavior prototype or production adoption.",
+  "observed_repeated_codec_seconds": 0.00820437,
+  "observed_repeated_fraction_of_execute": 0.00018580911391612254,
+  "limitations": [
+    "Instrumented original-only observation, not a candidate benchmark, net saving, resource qualification or Linux acceptance.",
+    "Hash groups are observational and do not establish exact payload/row ownership.",
+    "Setup, factory construction and outside-execute cleanup are excluded from timing; original setup/call/teardown passed.",
+    "No automatic repeat or broader predicate/cache expansion is justified by this result."
+  ]
+}

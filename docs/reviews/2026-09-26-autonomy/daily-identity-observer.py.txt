@@ -1,0 +1,556 @@
+"""Temporary, bounded observation of original daily identity calls; no substitution.
+
+Loaded only with -p aqt_daily_identity_cost and an explicit audit output path.
+Project modules are looked up after ordinary test collection/setup; this plugin
+never imports them, traverses a fresh graph, or invokes an authority method.
+"""
+from datetime import date, datetime
+from decimal import Decimal
+import dis
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import threading
+from time import perf_counter_ns
+from types import MappingProxyType
+import weakref
+
+import pytest
+
+TARGET = ('tests/integration/test_continuous_simulation_factory_outcome.py::'
+          'test_actual_signed_retained_outcome_restores_with_original_utc_and_lease')
+OPERATION = 'restore-original-retained-outcome'
+ENV = 'AQT_DAILY_IDENTITY_PROFILE_PATH'
+MAX_EVENTS = 20_000
+MAX_SPANS = 4_096
+MAX_DEPTH = 64
+MAX_METADATA_BYTES = 32_768
+MAX_HISTOGRAM = 131_072
+TOOL_ID = 5
+AUDIT = Path('/private/tmp/aqt-autonomy-audit')
+FILES = (
+    'packages/persistence/daily_runtime_risk.py',
+    'packages/persistence/_factory_attempt_behavior.py',
+    'packages/persistence/_factory_attempt_fingerprint.py',
+    'packages/persistence/continuous_runtime_attempt_sources.py',
+    'packages/persistence/continuous_integrity.py',
+    'apps/trader/continuous_simulation_factory.py',
+    TARGET.split('::')[0],
+)
+# Exact class identities, declared in advance. Unknown means unclassified, not
+# unsupported. The inventory neither tests slots nor calls dataclass reflection.
+DAILY_RECORDS = (
+    'RuntimeAssignmentCommand', 'ResolvedRuntimeRiskInputs',
+    'RuntimeAttemptAccountingSource', 'RuntimeTableSnapshot',
+    'RuntimeProducerRawSnapshot', 'RuntimeAttemptSourcePlan',
+    'RuntimeAttemptSourceSnapshot', 'ResolvedRuntimeAttemptSources',
+    'RuntimeObservedHoldSourcePlan', 'RuntimeObservedHoldSourceSnapshot',
+    'ResolvedRuntimeObservedHoldSources', 'DailyRuntimeRawSnapshot',
+    'ResolvedDailyRuntimeSnapshot', 'PreparedDailyAdmission',
+    'PreparedDailyAssignment', 'RetainedDailyAdmission',
+    'ResolvedHistoricalDailyAdmission', 'PreparedDailyAttemptMutation',
+    'PreparedDailyObservedHolds', 'RetainedDailyObservedHolds',
+    'RetainedDailyAttemptGroup', 'RetainedDailyAssignmentPrefix',
+)
+
+
+def source_hashes(root):
+    result = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in FILES}
+    for name in ('aqt_daily_identity_cost.py', 'test_aqt_daily_identity_cost.py'):
+        result[name] = hashlib.sha256((AUDIT / name).read_bytes()).hexdigest()
+    return result
+
+
+def call_sites(code):
+    """Resolve two explicit daily method CALL/cache ranges, never ordinal guesses."""
+    instructions = tuple(dis.get_instructions(code, show_caches=True))
+    found = []
+    for index, ins in enumerate(instructions):
+        if ins.opname not in ('LOAD_ATTR', 'LOAD_METHOD') or ins.argval != 'require_resolved_snapshot':
+            continue
+        following = instructions[index + 1:index + 18]
+        meaningful = tuple(part for part in following if part.opname != 'CACHE')
+        call = next((part for part in meaningful if part.opname == 'CALL'), None)
+        if call is None or not any(part.opname == 'LOAD_FAST' and part.argval == 'current'
+                                   and part.offset < call.offset for part in meaningful):
+            raise ValueError('DAILY_CALL_SITE_PROFILE')
+        end = call.offset
+        call_index = next(i for i, part in enumerate(instructions) if part is call)
+        for part in instructions[call_index + 1:]:
+            if part.opname != 'CACHE':
+                break
+            end = part.offset
+        found.append((call.offset, end))
+    if len(found) != 2 or found[0][1] >= found[1][0]:
+        raise ValueError('DAILY_CALL_SITE_COUNT')
+    return tuple(found)
+
+
+def row():
+    return dict(calls=0, returned=0, unwound=0, returned_ns=0, unwound_ns=0)
+
+
+class Capture:
+    def __init__(self, integrity, source, daily, factory):
+        self.integrity, self.source, self.daily, self.factory = integrity, source, daily, factory
+        reader, store = integrity.SqlContinuousIntegrityReader, daily.SqlDailyRuntimeRisk
+        self.functions = dict(execute=factory.execute, borrow=reader._borrow_original_daily,
+                              public=store.require_resolved_snapshot,
+                              builder=store._assignment_identity_fields)
+        self.codes = {function.__code__: name for name, function in self.functions.items()}
+        self.graph_code = reader._require_daily_graph.__code__
+        self.wrapper_code = reader._require_borrow_daily_graph.__code__
+        self.episode_code = reader._require_daily_episode.__code__
+        self.sites = call_sites(self.graph_code)
+        self.inventory = (
+            (str, 'str'), (int, 'int'), (bytes, 'bytes'), (type(None), 'none'),
+            (bool, 'bool'), (Decimal, 'decimal'), (datetime, 'datetime'),
+            (date, 'date'), (object, 'opaque_object'), (tuple, 'tuple'),
+            (dict, 'dict'), (MappingProxyType, 'mapping_proxy'),
+            *((vars(daily)[name], 'declared_daily_record') for name in DAILY_RECORDS),
+        )
+        self.rows = {name: row() for name in ('execute', 'borrow', 'public_first',
+                      'public_second', 'builder_first', 'builder_second')}
+        self.routes = dict(attempt_proof=0, original_fallback=0)
+        self.live = {}
+        self.events = self.spans = self.excluded_builder_calls = 0
+        self.excluded_counter_saturated = False
+        self.active = self.installed = False
+        self.thread = self.candidate = None
+        self.factory_ref = self.reader_ref = self.store_ref = self.current_ref = None
+        self.sample = self.sample_parent = None
+        self.histogram_ns = 0
+        self.faults = set()
+
+    def start(self):
+        monitor = sys.monitoring
+        if monitor.get_tool(TOOL_ID) is not None or sys.getprofile() is not None:
+            raise pytest.UsageError('unused tool slot 5 and no profiler required')
+        monitor.use_tool_id(TOOL_ID, 'aqt-original-daily-identity-cost')
+        self.installed = True
+        try:
+            monitor.register_callback(TOOL_ID, monitor.events.PY_START, self.on_start)
+            monitor.register_callback(TOOL_ID, monitor.events.PY_RETURN, self.on_return)
+            monitor.register_callback(TOOL_ID, monitor.events.PY_UNWIND, self.on_unwind)
+            monitor.set_events(TOOL_ID, monitor.events.PY_UNWIND)
+            for code in self.codes:
+                monitor.set_local_events(TOOL_ID, code, monitor.events.PY_START | monitor.events.PY_RETURN)
+        except BaseException:
+            self.stop()
+            raise
+
+    def stop(self):
+        if self.installed:
+            monitor = sys.monitoring
+            try:
+                for code in self.codes:
+                    monitor.set_local_events(TOOL_ID, code, 0)
+            finally:
+                try:
+                    monitor.set_events(TOOL_ID, 0)
+                finally:
+                    try:
+                        for event in (monitor.events.PY_START, monitor.events.PY_RETURN,
+                                      monitor.events.PY_UNWIND):
+                            monitor.register_callback(TOOL_ID, event, None)
+                    finally:
+                        monitor.free_tool_id(TOOL_ID)
+                        self.installed = False
+        self.factory_ref = self.reader_ref = self.store_ref = self.current_ref = None
+
+    def on_start(self, code, offset):
+        frame = sys._getframe(1)
+        try:
+            self.observe('call', code, frame, None)
+        except BaseException:
+            self.faults.add('observer_failure')
+            raise
+        finally:
+            del frame
+
+    def on_return(self, code, offset, result):
+        frame = sys._getframe(1)
+        try:
+            self.observe('return', code, frame, result)
+        except BaseException:
+            self.faults.add('observer_failure')
+            raise
+        finally:
+            del frame, result
+
+    def on_unwind(self, code, offset, error):
+        if code not in self.codes:
+            return
+        frame = sys._getframe(1)
+        try:
+            self.observe('unwind', code, frame, None)
+        except BaseException:
+            # An original exception is already propagating. Diagnostic cleanup
+            # cannot replace it, including an original timeout or interruption.
+            # No secondary exception object/text is retained; partial rows are
+            # explicitly invalid. Call/return observer faults still propagate.
+            self.faults.add('observer_failure_during_original_unwind')
+        finally:
+            del frame, error
+
+    def select_borrow(self, values):
+        reader, episode = values.get('self'), values.get('episode')
+        if (type(reader) is not self.integrity.SqlContinuousIntegrityReader
+                or type(episode) is not self.integrity._OriginalDailyEpisode
+                or self.factory_ref is None or self.factory_ref() is None
+                or self.factory_ref().integrity is not reader):
+            return False
+        store, current = reader.daily, episode.current
+        state, operation = reader._daily_episode, reader._factory_read
+        if (type(store) is not self.daily.SqlDailyRuntimeRisk
+                or type(current) is not self.daily.ResolvedDailyRuntimeSnapshot
+                or type(state) is not self.integrity._DailyEpisodeState
+                or state.episode is not episode or state.failed
+                or episode.reader is not reader or episode.composer is not reader.composer
+                or values.get('consumer') is not episode.composer
+                or episode.thread is not threading.current_thread()
+                or type(operation) is not self.integrity._FactoryReadState
+                or operation.reader is not reader or operation.thread is not episode.thread
+                or operation.failed or operation.scope is None
+                or self.integrity._ACTIVE_FACTORY_READS.get(reader) is not operation
+                or current.control is None
+                or current.control.effective_state is not self.integrity.OperationalControlState.HALTED):
+            return False
+        identities = (id(reader), id(episode), id(current), id(store), id(operation))
+        if self.candidate is None:
+            self.candidate = identities
+            self.reader_ref, self.store_ref = weakref.ref(reader), weakref.ref(store)
+            self.current_ref = weakref.ref(current)
+        if identities != self.candidate:
+            self.faults.add('second_episode_or_snapshot')
+            return False
+        return self.reader_ref() is reader and self.store_ref() is store and self.current_ref() is current
+
+    def public_position(self, frame):
+        """Exact direct ancestry; contextmanager's suspended frame is not needed."""
+        graph = frame.f_back
+        parent = borrow = None
+        try:
+            if (graph is None or graph.f_code is not self.graph_code
+                    or self.candidate is None or self.reader_ref is None
+                    or frame.f_locals.get('self') is not self.store_ref()
+                    or frame.f_locals.get('value') is not self.current_ref()
+                    or graph.f_locals.get('self') is not self.reader_ref()
+                    or graph.f_locals.get('current') is not self.current_ref()):
+                return None
+            position = next((name for name, (begin, end) in zip(('first', 'second'), self.sites)
+                             if begin <= graph.f_lasti <= end), None)
+            if position is None:
+                self.faults.add('unrecognized_daily_call_site')
+                return None
+            parent = graph.f_back
+            route = 'original_fallback'
+            if parent is not None and parent.f_code is self.wrapper_code:
+                if (parent.f_locals.get('self') is not self.reader_ref()
+                        or parent.f_locals.get('current') is not self.current_ref()
+                        or graph.f_locals.get('use') is None):
+                    return None
+                parent = parent.f_back
+                route = 'attempt_proof'
+            elif graph.f_locals.get('use') is not None:
+                return None
+            if (parent is None or parent.f_code is not self.episode_code
+                    or parent.f_locals.get('self') is not self.reader_ref()
+                    or id(parent.f_locals.get('episode')) != self.candidate[1]):
+                return None
+            borrow = parent.f_back
+            if (borrow is None or borrow.f_code is not self.functions['borrow'].__code__
+                    or id(borrow) not in self.live or self.live[id(borrow)][0] != 'borrow'
+                    or borrow.f_locals.get('self') is not self.reader_ref()
+                    or id(borrow.f_locals.get('episode')) != self.candidate[1]):
+                return None
+            return position, route
+        finally:
+            del graph, parent, borrow
+
+    def select(self, name, frame):
+        values = frame.f_locals
+        if name == 'execute':
+            operation = values.get('operation_id')
+            if (type(operation) is not str or operation != OPERATION
+                    or type(values.get('self')) is not self.factory):
+                return None
+            if self.rows['execute']['calls']:
+                self.faults.add('repeated_execute')
+                return None
+            self.factory_ref = weakref.ref(values['self'])
+            return 'execute', None
+        if not self.active or threading.get_ident() != self.thread:
+            return None
+        if name == 'borrow':
+            return ('borrow', None) if self.select_borrow(values) else None
+        if name == 'public':
+            position = self.public_position(frame)
+            return None if position is None else ('public_' + position[0], position[1])
+        parent = frame.f_back
+        try:
+            span = self.live.get(id(parent)) if parent is not None else None
+            if (span is not None and span[0] in ('public_first', 'public_second')
+                    and parent.f_code is self.functions['public'].__code__
+                    and values.get('value') is self.current_ref()):
+                return 'builder_' + span[0].split('_')[1], span[3]
+            if self.excluded_builder_calls < MAX_EVENTS:
+                self.excluded_builder_calls += 1
+            else:
+                self.excluded_counter_saturated = True
+            return None
+        finally:
+            del parent
+
+    def observe(self, event, code, frame, result):
+        stopped = perf_counter_ns()
+        if frame.f_code is not code:
+            self.faults.add('monitor_frame_differs')
+            return
+        identity = id(frame)
+        if event == 'call':
+            selected = self.select(self.codes[code], frame)
+            if selected is None:
+                return
+            name, route = selected
+            if (self.events + len(self.live) + 2 > MAX_EVENTS or self.spans >= MAX_SPANS
+                    or len(self.live) >= MAX_DEPTH):
+                self.faults.add('observation_bound')
+                return
+            parent, parent_id = frame.f_back, None
+            try:
+                for _ in range(MAX_DEPTH):
+                    if parent is None:
+                        break
+                    if id(parent) in self.live:
+                        parent_id = id(parent)
+                        break
+                    parent = parent.f_back
+                else:
+                    self.faults.add('ancestry_depth_bound')
+                    return
+            finally:
+                del parent
+            if name == 'execute':
+                self.active, self.thread = True, threading.get_ident()
+            self.live[identity] = (name, perf_counter_ns(), parent_id, route)
+            self.rows[name]['calls'] += 1
+            if name.startswith('public_'):
+                self.routes[route] += 1
+            self.events += 1
+            self.spans += 1
+            return
+        span = self.live.pop(identity, None)
+        if span is None:
+            return
+        name, started, parent_id, route = span
+        elapsed = stopped - started
+        self.events += 1
+        if elapsed < 0:
+            self.faults.add('negative_elapsed')
+            return
+        terminal = 'returned' if event == 'return' else 'unwound'
+        self.rows[name][terminal] += 1
+        self.rows[name][terminal + '_ns'] += elapsed
+        if name.startswith('builder_') and event == 'return' and self.sample is None:
+            self.summarize(result, frame, parent_id, name, route)
+        if name.startswith('public_') and identity == self.sample_parent:
+            self.sample['validation'] = 'public_returned' if event == 'return' else 'public_unwound'
+            self.sample_parent = None
+        if name == 'execute':
+            self.active = False
+            self.thread = None
+
+    def summarize(self, result, frame, parent_id, name, route):
+        started = perf_counter_ns()
+        public = frame.f_back
+        try:
+            self.sample = dict(validation='provisional', position=name.split('_')[1], route=route,
+                               vector_length=None, seen_size=None, stored_original_length=None,
+                               histogram=None, shape_status='unavailable', attempt_proof=None)
+            self.sample_parent = parent_id
+            seen = frame.f_locals.get('seen')
+            before = public.f_locals.get('before') if public is not None else None
+            if type(result) is not tuple or type(seen) is not set or type(before) is not tuple:
+                self.faults.add('original_return_local_profile')
+                return
+            self.sample.update(vector_length=len(result), seen_size=len(seen),
+                               stored_original_length=len(before))
+            if len(result) > MAX_HISTOGRAM:
+                self.sample['shape_status'] = 'shape_over_bound'
+                self.faults.add('histogram_shape_bound')
+            else:
+                histogram = {label: 0 for _, label in self.inventory}
+                histogram['unknown'] = 0
+                for item in result:
+                    kind = type(item)
+                    label = 'unknown'
+                    for original, bucket in self.inventory:
+                        if kind is original:
+                            label = bucket
+                            break
+                    histogram[label] += 1
+                self.sample['histogram'] = histogram
+                self.sample['shape_status'] = 'bounded_exact_type_inventory'
+            self.sample['attempt_proof'] = self.resources()
+        finally:
+            self.histogram_ns += perf_counter_ns() - started
+            del public, result
+
+    def resources(self):
+        reader, current = self.reader_ref(), self.current_ref()
+        daily_state = reader._daily_episode
+        context = daily_state.fingerprint_context
+        caps = dict(containers=self.integrity._MAX_FACTORY_CONTAINERS,
+                    bindings=self.integrity._MAX_FACTORY_BINDINGS)
+        if any(type(value) is not int or value < 0 for value in caps.values()):
+            raise TypeError('RESOURCE_CAP_PROFILE')
+        if context is None:
+            if self.integrity._FACTORY_FINGERPRINT_READERS.get(reader) is not None:
+                self.faults.add('inactive_proof_registry_differs')
+            return dict(status='inactive', caps=caps, total=None, remaining=None)
+        owner = self.integrity._FACTORY_FINGERPRINTS.get(context)
+        if (owner is None or owner.reader is not reader or owner.daily is not daily_state
+                or owner.factory is not reader._factory_read or owner.phase != 'active'
+                or owner.value is not current.attempt_sources or owner.proof is None
+                or self.integrity._FACTORY_FINGERPRINT_READERS.get(reader) is not context):
+            self.faults.add('active_proof_owner_differs')
+            return dict(status='unavailable', caps=caps, total=None, remaining=None)
+        entry = self.source._FACTORY_ATTEMPT_PROOFS.get(id(owner.proof))
+        if (entry is None or entry[0]() is not owner.proof or entry[1].owner() is not owner.source
+                or entry[1].context() is not context or entry[1].value is not owner.value):
+            self.faults.add('active_source_registry_differs')
+            return dict(status='unavailable', caps=caps, total=None, remaining=None)
+        state = entry[1]
+        components = {
+            'data': dict(containers=state.data.containers, bindings=state.data.bindings),
+            'source_behavior': dict(containers=state.source_behavior.containers,
+                                    bindings=state.source_behavior.bindings),
+            'root_behavior': dict(containers=state.root_behavior.containers,
+                                  bindings=state.root_behavior.bindings),
+            'root_reserve': dict(containers=self.source._FACTORY_ROOT_CONTAINERS,
+                                 bindings=self.source._FACTORY_ROOT_BINDINGS),
+            'source_reserve': dict(containers=self.source._FACTORY_SOURCE_CONTAINERS,
+                                   bindings=self.source._FACTORY_SOURCE_BINDINGS),
+        }
+        if any(type(value) is not int or value < 0 for part in components.values() for value in part.values()):
+            raise TypeError('RESOURCE_COUNT_PROFILE')
+        total = {name: sum(part[name] for part in components.values()) for name in caps}
+        remaining = {name: caps[name] - total[name] for name in caps}
+        if any(value < 0 for value in remaining.values()):
+            self.faults.add('existing_proof_over_cap')
+        return dict(status='active', caps=caps, components=components, total=total, remaining=remaining)
+
+    def report(self, exitstatus, before, after):
+        if before != after:
+            self.faults.add('source_hashes_changed')
+        if self.live:
+            self.faults.add('incomplete_spans')
+        execute = self.rows['execute']
+        if execute['calls'] != 1 or execute['returned'] + execute['unwound'] != 1:
+            self.faults.add('incomplete_execute')
+        if execute['returned']:
+            borrows = self.rows['borrow']['returned']
+            if (not borrows or self.rows['borrow']['unwound']
+                    or any(self.rows[k]['returned'] != borrows * 3 or self.rows[k]['unwound']
+                           for k in ('public_first', 'public_second', 'builder_first', 'builder_second'))):
+                self.faults.add('unexpected_completed_borrow_counts')
+        extent = 'partial_original_unwind' if execute['unwound'] else 'complete_execute'
+        if self.faults:
+            extent = 'incomplete_observation'
+        return dict(schema='aqt-original-daily-identity-observation/1',
+                    capture_status='invalid' if self.faults else 'valid', observation_extent=extent,
+                    acceptance=False, test_exitstatus=int(exitstatus), diagnostic_faults=sorted(self.faults),
+                    source_hashes_before=before, source_hashes_after=after,
+                    bounds=dict(events=MAX_EVENTS, spans=MAX_SPANS, depth=MAX_DEPTH,
+                                metadata_bytes=MAX_METADATA_BYTES, histogram_bindings=MAX_HISTOGRAM),
+                    event_count=self.events, span_count=self.spans,
+                    excluded_builder_calls=self.excluded_builder_calls,
+                    excluded_counter_saturated=self.excluded_counter_saturated,
+                    graph_call_sites=[dict(position=name, call_offset=begin, last_cache_offset=end)
+                                      for name, (begin, end) in zip(('first', 'second'), self.sites)],
+                    spans=self.rows, routes=self.routes, first_vector=self.sample,
+                    first_summary_observer_ns=self.histogram_ns,
+                    limits=[
+                        'Only original calls observed; no extra validation, proof, permit, replay or provider calls.',
+                        'PY_START/PY_RETURN are local; PY_UNWIND is global and immediately code-filtered. Global event overhead is not bounded by selected counters.',
+                        'Nested inclusive timings overlap and cannot be added as separate savings. Public/borrow/execute spans include observation and first-summary overhead.',
+                        'Builder stop time precedes first-summary work. Instrumented timing is not unprofiled or Linux acceptance.',
+                        'Vector/seen lengths and unknown type counts are not a proposed proof resource charge, admission proof or authorization.',
+                        'A failed original execute provides partial observed work only; public_unwound never authenticates the provisional vector.',
+                        'An observer fault during original unwind invalidates metadata and preserves the already-propagating original error; other observer faults propagate.',
+                        'Outside-execute release/cleanup is not separately instrumented; test exitstatus remains authoritative and can include cleanup failures.',
+                    ])
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    output = os.environ.get(ENV)
+    if (not output or sys.implementation.name != 'cpython' or sys.version_info[:3] != (3, 12, 13)
+            or not hasattr(sys, 'monitoring')):
+        raise pytest.UsageError('explicit audit JSON and qualified CPython3.12.13 required')
+    if os.environ.get('AQT_RETAINED_RESTORE_PROFILE_PATH'):
+        raise pytest.UsageError('do not combine daily observation and cProfile')
+    path = Path(output)
+    if (not path.is_absolute() or path.parent.resolve() != AUDIT.resolve()
+            or path.suffix != '.json' or path.exists()):
+        raise pytest.UsageError('new explicit direct audit JSON path required')
+    root = Path(str(config.rootpath)).resolve()
+    config._aqt_daily_identity = dict(path=path, root=root, before=source_hashes(root), capture=None)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    if [item.nodeid for item in items] != [TARGET]:
+        raise pytest.UsageError('exact unchanged original retained-outcome node required')
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_call(item):
+    if item.nodeid != TARGET:
+        yield
+        return
+    state = item.config._aqt_daily_identity
+    # Ordinary test imports and fixture setup already finished. No early import
+    # can alter the production behavior baseline's captured module inventory.
+    names = ('packages.persistence.continuous_integrity',
+             'packages.persistence.continuous_runtime_attempt_sources',
+             'packages.persistence.daily_runtime_risk',
+             'apps.trader.continuous_simulation_factory')
+    if any(name not in sys.modules for name in names):
+        raise pytest.UsageError('original test did not load the expected modules')
+    integrity, source, daily, factory = (sys.modules[name] for name in names)
+    capture = Capture(integrity, source, daily, factory.ContinuousSimulationFactory)
+    state['capture'] = capture
+    capture.start()
+    try:
+        yield
+    finally:
+        capture.stop()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    state = getattr(session.config, '_aqt_daily_identity', None)
+    if state is None or session.config.option.collectonly:
+        return
+    capture = state['capture']
+    after = source_hashes(state['root'])
+    if capture is None:
+        report = dict(schema='aqt-original-daily-identity-observation/1', capture_status='invalid',
+                      observation_extent='target_not_started', acceptance=False,
+                      test_exitstatus=int(exitstatus), diagnostic_faults=['target_not_started'],
+                      source_hashes_before=state['before'], source_hashes_after=after)
+    else:
+        capture.stop()
+        report = capture.report(exitstatus, state['before'], after)
+    raw = (json.dumps(report, sort_keys=True, indent=2) + '\n').encode('ascii')
+    if len(raw) > MAX_METADATA_BYTES:
+        raise ValueError('DAILY_METADATA_BOUND')
+    fd = os.open(state['path'], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(raw)
+    if report['capture_status'] != 'valid' and int(exitstatus) == 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
