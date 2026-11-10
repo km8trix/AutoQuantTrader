@@ -1,0 +1,11 @@
+{
+  "evidence_class": "mechanical_fixture_not_provider_evidence",
+  "accounts": {"AccountListResponse":{"Accounts":{"Account":[
+    {"accountId":"00123456","accountIdKey":"MechanicalKeyA_01","accountMode":"CASH","accountStatus":"ACTIVE","institutionType":"BROKERAGE","currency":"USD"},
+    {"accountId":"87654321","accountIdKey":"MechanicalKeyB_02","accountMode":"MARGIN","accountStatus":"ACTIVE","institutionType":"BROKERAGE"}
+  ]}}},
+  "balances": {"BalanceResponse":{"accountId":"00123456","accountMode":"CASH","currency":"USD","Computed":{"cashBalance":10000,"netCash":9900,"cashAvailableForInvestment":9000,"settledCashForInvestment":8500.01,"unSettledCashForInvestment":500,"fundsWithheldFromPurchasePower":999.99,"cashBuyingPower":9000}}},
+  "portfolio": {"PortfolioResponse":{"AccountPortfolio":[{"accountId":"00123456","totalNoOfPages":1,"nextPageNo":"0","Position":[{"positionId":1001,"Product":{"securityType":"EQ","symbol":"SPY"},"quantity":2,"positionType":"LONG","currency":"USD","Quick":{"lastTrade":500,"lastTradeTime":1788970000,"quoteStatus":"DELAYED"}}]}]}},
+  "orders": {"OrdersResponse":{"marker":"","Order":[{"orderId":9001,"OrderDetail":[{"status":"OPEN","Instrument":[{"Product":{"symbol":"QQQ","securityType":"EQ"},"orderedQuantity":1,"filledQuantity":0}]}]}]}},
+  "activity": {"TransactionListResponse":{"Transaction":[{"transactionId":8001,"accountId":"00123456","transactionDate":1788825600000,"amount":-250,"transactionType":"Bought","brokerage":{"quantity":1,"price":250,"fee":0,"orderNo":"9000","settlementCurrency":"USD","paymentCurrency":"USD"}}],"transactionCount":1}}
+}

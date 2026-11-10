@@ -1,0 +1,6 @@
+#ifndef AQT_TEST_TRUSTED_TIME_GRACEFUL_STOP_V2_ENDPOINT_H
+#define AQT_TEST_TRUSTED_TIME_GRACEFUL_STOP_V2_ENDPOINT_H
+
+int aqt_trusted_time_graceful_stop_v2_endpoint_initialize_before_python(void);
+
+#endif

@@ -1,0 +1,8 @@
+#ifndef AQT_TEST_TRUSTED_TIME_V2_FORK_GUARD_H
+#define AQT_TEST_TRUSTED_TIME_V2_FORK_GUARD_H
+
+int aqt_trusted_time_v2_fork_guard_initialize_before_python(void);
+int aqt_trusted_time_v2_fork_guard_is_poisoned(void);
+int aqt_trusted_time_v2_fork_guard_require_owner_table_empty(void);
+
+#endif

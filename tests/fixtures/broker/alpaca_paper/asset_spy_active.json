@@ -1,0 +1,15 @@
+{
+  "id": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+  "class": "us_equity",
+  "exchange": "ARCA",
+  "symbol": "SPY",
+  "name": "SPDR S&P 500 ETF Trust",
+  "status": "active",
+  "tradable": true,
+  "marginable": true,
+  "maintenance_margin_requirement": 30,
+  "shortable": true,
+  "easy_to_borrow": true,
+  "fractionable": true,
+  "attributes": []
+}

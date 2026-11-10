@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "scope": "local_deterministic_contract_evidence",
+  "local_drills": [
+    {
+      "id": "strategy_claim_and_restart",
+      "summary": "A durable claim precedes runner execution and an exact retry or restart never invokes the runner again.",
+      "fault": "The process stops after the durable claim or the runner raises before a result is retained.",
+      "expected": "The claim stays pending before its fixed recovery instant, then becomes one deterministic CRASH result without rerunning strategy code.",
+      "coverage": [
+        "strategy.claim_before_effect",
+        "strategy.no_rerun"
+      ],
+      "evidence": [
+        "tests/unit/test_durable_supervised_strategy.py::test_claim_is_committed_before_runner_and_exact_retry_never_reruns",
+        "tests/unit/test_durable_supervised_strategy.py::test_runner_interruption_leaves_claim_pending_and_never_retries_effect",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_application_commits_claim_before_runner_and_exact_retry_is_retained",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_restart_never_reruns_orphan_and_equality_recovers_fail_closed"
+      ]
+    },
+    {
+      "id": "strategy_finalization_boundaries",
+      "summary": "Both sides of strategy-result finalization are restart safe and the SQL finalizer is atomic.",
+      "fault": "Execution stops immediately before finalization commit, immediately after commit, or a late finalization insert fails.",
+      "expected": "A pre-commit stop recovers as CRASH without rerun, response loss returns the retained result, and a failed SQL finalizer leaves no partial result, control, or incident facts.",
+      "coverage": [
+        "strategy.finalize_before_commit",
+        "strategy.finalize_after_commit",
+        "strategy.atomic_finalization"
+      ],
+      "evidence": [
+        "tests/unit/test_durable_supervised_strategy.py::test_crash_between_result_and_record_does_not_rerun_and_recovers_fail_closed",
+        "tests/unit/test_durable_supervised_strategy.py::test_response_loss_after_record_returns_retained_exact_result_without_rerun",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_finalization_insert_failure_rolls_back_result_control_and_incident"
+      ]
+    },
+    {
+      "id": "strategy_current_fence_recovery",
+      "summary": "Orphan recovery is authorized by the current fence rather than the historical claim fence.",
+      "fault": "The original worker cleanly releases its lease after claiming and a new generation owns the account at recovery.",
+      "expected": "The new current fence records one fail-closed CRASH result and the strategy runner remains uncalled.",
+      "coverage": [
+        "strategy.current_fence_recovery"
+      ],
+      "evidence": [
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_orphan_recovery_uses_the_new_current_fence_after_clean_handoff"
+      ]
+    },
+    {
+      "id": "strategy_start_authorization_freshness",
+      "summary": "A newly claimed invocation must still be inside its strict start window and the account control head must still be RUNNING before strategy code can start.",
+      "fault": "Authorization reaches the strict start boundary or control transitions to PAUSED or HALTED between claim and start.",
+      "expected": "Authorization fails before the runner, the claim remains recoverable, and no strategy process is created.",
+      "coverage": [
+        "strategy.start_authorization_freshness",
+        "strategy.prestart_running"
+      ],
+      "evidence": [
+        "tests/unit/test_durable_supervised_strategy.py::test_new_claim_that_expires_before_start_authorization_never_calls_runner",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_nonrunning_transition_between_claim_and_start_blocks_runner_but_allows_recovery",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_latest_strict_start_authorization_is_valid_but_equality_is_not",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_consumed_start_permit_cannot_cross_the_strict_start_deadline"
+      ]
+    },
+    {
+      "id": "strategy_claim_serialization",
+      "summary": "Claim time is sampled only after account serialization and concurrent exact claims converge on one start-authorized winner.",
+      "fault": "Account-lock acquisition is delayed or two callers race to claim the same invocation.",
+      "expected": "Deadlines derive from the under-lock time sample, exactly one caller receives NEW authority, and the loser remains PENDING without start capability.",
+      "coverage": [
+        "strategy.claim_time_under_lock",
+        "strategy.concurrent_claim_convergence"
+      ],
+      "evidence": [
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_claim_time_is_sampled_after_account_serialization",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_concurrent_exact_claims_converge_to_one_new_and_one_pending"
+      ]
+    },
+    {
+      "id": "strategy_start_authority_one_shot",
+      "summary": "Start authority is repository- and PID-bound, single-use at authorization, and single-use again at the final subprocess boundary.",
+      "fault": "Another repository or PID consumes the permit, the same permit is replayed, or the final authorization is replayed after one process start.",
+      "expected": "Every mismatched or replayed use fails before process creation while the exact winning path can start only once.",
+      "coverage": [
+        "strategy.start_permit_repository_bound",
+        "strategy.start_permit_pid_bound",
+        "strategy.start_permit_one_shot",
+        "strategy.final_authorization_one_shot"
+      ],
+      "evidence": [
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_new_start_permit_is_repository_bound_and_single_use",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_start_permit_is_pid_bound_without_consumption_on_mismatch",
+        "tests/unit/test_supervised_strategy.py::test_start_authorization_is_one_shot_before_process_creation"
+      ]
+    },
+    {
+      "id": "strategy_recovery_discovery_and_writer_lockout",
+      "summary": "Recovery discovery is bounded and observational, and lifecycle activation permanently excludes the legacy direct result writer.",
+      "fault": "Multiple claims become due across a cursor boundary or a caller attempts to bypass claim finalization through the legacy writer.",
+      "expected": "Cursor-exact pages return only due claims without running strategy code, and the direct writer records no result, control transition, or alert.",
+      "coverage": [
+        "strategy.due_scan_bounded",
+        "strategy.due_scan_no_runner",
+        "strategy.legacy_writer_lockout"
+      ],
+      "evidence": [
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_due_claim_scan_is_bounded_cursor_exact_and_never_runs_strategy",
+        "tests/integration/test_phase5_strategy_invocation_lifecycle_persistence.py::test_direct_legacy_result_write_is_rejected_after_lifecycle_activation"
+      ]
+    },
+    {
+      "id": "alert_primary_and_fallback",
+      "summary": "The provider-neutral worker confirms primary delivery, retains primary failure, and selects only fallback at the fixed boundary.",
+      "fault": "Primary delivery fails or the worker first observes an incident exactly at the 15-second primary deadline.",
+      "expected": "A successful primary closes delivery, a failed primary waits without I/O, and equality selects one fallback call without calling primary.",
+      "coverage": [
+        "alert.primary_success",
+        "alert.primary_failure",
+        "alert.fallback_at_15s"
+      ],
+      "evidence": [
+        "tests/unit/test_critical_alert_scheduler.py::test_primary_confirmation_is_bounded_and_never_resolves_absent_escalation",
+        "tests/unit/test_critical_alert_scheduler.py::test_terminal_primary_failure_waits_until_fixed_escalation_boundary",
+        "tests/unit/test_critical_alert_scheduler.py::test_primary_deadline_equality_selects_only_escalation"
+      ]
+    },
+    {
+      "id": "alert_unresolved_restart",
+      "summary": "A claim with no terminal provider result remains unresolved across restart and is never resent.",
+      "fault": "The selected adapter is absent or the worker restarts after an already durable delivery claim.",
+      "expected": "History is authenticated before adapter resolution, the provider is not called again, and only the original claim remains.",
+      "coverage": [
+        "alert.unresolved_no_resend"
+      ],
+      "evidence": [
+        "tests/unit/test_critical_alert_scheduler.py::test_missing_selected_adapter_leaves_one_unresolved_claim_and_never_resends",
+        "tests/unit/test_critical_alert_scheduler.py::test_preexisting_unresolved_claim_is_authenticated_before_adapter_resolution",
+        "tests/integration/test_phase5_critical_alert_supervisor.py::test_sql_supervisor_restarts_from_confirmed_primary_without_resending"
+      ]
+    },
+    {
+      "id": "alert_total_failure_atomic_control",
+      "summary": "Terminal route exhaustion binds PAUSED only on durable replay, while an unresolved escalation waits through the fixed 30-second boundary.",
+      "fault": "Escalation terminally fails, remains unresolved through its deadline, or an older split policy/writer is injected.",
+      "expected": "Provider-called terminal evidence waits for replay, the exact atomic binder appends one PAUSED receipt and control command, and legacy split control ports are never called.",
+      "coverage": [
+        "alert.terminal_failure_first_replay",
+        "alert.unresolved_failure_at_30s",
+        "alert.atomic_paused_receipt",
+        "alert.legacy_split_control_disabled"
+      ],
+      "evidence": [
+        "tests/unit/test_critical_alert_supervisor.py::test_unresolved_escalation_waits_then_becomes_total_failure_at_equality",
+        "tests/unit/test_critical_alert_scheduler.py::test_escalation_deadline_rejects_legacy_split_policy_and_writer",
+        "tests/unit/test_critical_alert_atomic_worker.py::test_terminal_provider_call_waits_for_replay_before_atomic_bind",
+        "tests/integration/test_phase5_critical_alert_atomic_worker.py::test_sql_atomic_worker_concurrent_and_restart_retries_converge",
+        "tests/integration/test_phase5_critical_alert_supervisor.py::test_sql_unresolved_escalation_becomes_total_failure_at_deadline_without_io"
+      ]
+    },
+    {
+      "id": "advanced_risk_reject_trip_and_equality",
+      "summary": "Strict owner-approved thresholds preserve equality and split hypothetical rejection from runtime control trips.",
+      "fault": "A metric is exactly at a strict threshold, exceeds a pretrade limit, or exceeds a runtime PAUSE/HALT limit.",
+      "expected": "Strict equality stays in the lower band, a pretrade breach creates no holds or control trip, and runtime breach atomically records the greatest-severity control state without a Phase 2 decision.",
+      "coverage": [
+        "risk.strict_equality",
+        "risk.pretrade_reject",
+        "risk.runtime_trip"
+      ],
+      "evidence": [
+        "tests/unit/test_advanced_risk_policy.py::test_strict_threshold_equality_passes_and_only_greater_breaches",
+        "tests/integration/test_phase5_advanced_batch_risk.py::test_pretrade_reject_commits_assessments_without_phase2_or_holds",
+        "tests/integration/test_phase5_advanced_batch_risk.py::test_runtime_trip_commits_control_and_assessments_without_phase2"
+      ]
+    },
+    {
+      "id": "advanced_risk_atomic_rollback",
+      "summary": "The post-cutover admission transaction exposes no partial advanced-risk, Phase 2, control, or outcome prefix.",
+      "fault": "Pretrade evidence fails authentication or a late admission-sidecar insert aborts.",
+      "expected": "The complete attempted authorization rolls back to the exact pre-call row counts and creates no dispatchable decision.",
+      "coverage": [
+        "risk.atomic_rollback"
+      ],
+      "evidence": [
+        "tests/integration/test_phase5_advanced_batch_risk.py::test_invalid_pretrade_evidence_rolls_back_runtime_append",
+        "tests/integration/test_phase5_advanced_batch_risk.py::test_late_admission_insert_failure_rolls_back_the_atomic_authorization"
+      ]
+    },
+    {
+      "id": "data_gap_and_unavailable_evidence",
+      "summary": "Causal gaps and unavailable applicable evidence are explicit and fail closed by evaluation mode.",
+      "fault": "Session history has a gap, volatility bars are nonconsecutive, SIP freshness reaches its exclusive limit, or applicable data-health evidence is incomplete.",
+      "expected": "Metric production returns unavailable or rejects the malformed chain; policy evaluation rejects new exposure and requests PAUSED at runtime instead of inventing a safe value.",
+      "coverage": [
+        "data.gap_fail_closed",
+        "data.unavailable_fail_closed"
+      ],
+      "evidence": [
+        "tests/unit/test_advanced_risk_metrics.py::test_session_high_water_is_gap_free_and_authority_mismatch_is_unavailable",
+        "tests/unit/test_advanced_risk_metrics.py::test_volatility_requires_31_consecutive_version_consistent_rth_bars",
+        "tests/unit/test_advanced_risk_metrics.py::test_sip_freshness_is_strict_and_equality_is_unavailable",
+        "tests/unit/test_advanced_risk_policy.py::test_incomplete_applicable_evidence_fails_closed_by_mode"
+      ]
+    },
+    {
+      "id": "uncertain_order_exposure",
+      "summary": "Pending cancellation and UNKNOWN submission state retain economic exposure and block re-arm.",
+      "fault": "An order has only a local cancel request or an authorization has an unresolved UNKNOWN child.",
+      "expected": "Capacity remains reserved or frozen until authoritative reconciliation, and either uncertainty class prevents re-arm.",
+      "coverage": [
+        "exposure.pending_cancel_retained",
+        "exposure.unknown_retained"
+      ],
+      "evidence": [
+        "tests/unit/test_reservation_lifecycle.py::test_cancel_and_local_terminal_state_do_not_authorize_release",
+        "tests/unit/test_reservation_lifecycle.py::test_unknown_child_freezes_parent_without_releasing_its_capacity",
+        "tests/unit/test_operational_control.py::test_rearm_rejects_each_missing_prerequisite"
+      ]
+    },
+    {
+      "id": "database_and_lease_loss",
+      "summary": "Database unavailability and loss of the exact current lease remove readiness or effect authority.",
+      "fault": "The durable database probe fails, a lease expires while abandoned, or ownership moves to a new fencing generation.",
+      "expected": "Readiness is not-ready, the protected effect is not called, and the historical fence remains permanently rejected.",
+      "coverage": [
+        "infrastructure.database_loss",
+        "infrastructure.lease_loss"
+      ],
+      "evidence": [
+        "tests/integration/test_api.py::test_database_loss_downgrades_every_readiness_contract",
+        "tests/unit/test_account_coordinator.py::test_expired_abandoned_lease_blocks_effects_renewal_release_and_takeover",
+        "tests/unit/test_account_coordinator.py::test_clean_release_permits_handoff_and_permanently_fences_old_owner"
+      ]
+    },
+    {
+      "id": "manual_rearm_only",
+      "summary": "No breaker, successful strategy result, restart, or missing-authority path can automatically resume trading.",
+      "fault": "A later observation is healthy, a strategy invocation completes, or no authoritative re-arm verifier is composed.",
+      "expected": "The non-running head is preserved until a separately authenticated human request supplies fresh server-constructed proof.",
+      "coverage": [
+        "control.no_automatic_rearm"
+      ],
+      "evidence": [
+        "tests/unit/test_operational_control.py::test_breaker_requires_exact_rule_policy_and_observation_and_never_resumes",
+        "tests/integration/test_phase5_strategy_supervision_persistence.py::test_completed_result_is_durable_idempotent_and_does_not_rearm",
+        "tests/unit/test_operational_rearm.py::test_rearm_is_unavailable_without_an_authoritative_verifier"
+      ]
+    }
+  ],
+  "deployment_drills": [
+    {
+      "id": "deployed_alert_delivery",
+      "status": "not_run",
+      "reason": "Local fake ports prove scheduling and idempotency only; they do not prove operator delivery or independent route health.",
+      "requires": [
+        "owner-approved primary and independent fallback providers",
+        "approved destinations, recipients, escalation roster, and secret references",
+        "deployed route probes and worker cadence",
+        "approval to activate the fixed PAUSED total-delivery-failure policy and exact authority digest"
+      ]
+    },
+    {
+      "id": "deployed_observability_outage",
+      "status": "not_run",
+      "reason": "Local bounded export proves no trading authority but no telemetry backend or outage behavior has been selected.",
+      "requires": [
+        "approved exporter and endpoint",
+        "approved authentication secret reference",
+        "sampling, retention, access, and outage policy"
+      ]
+    },
+    {
+      "id": "paper_broker_and_data_faults",
+      "status": "not_run",
+      "reason": "Deterministic repository tests do not prove a deployed broker, entitled SIP/NBBO source, or correction-safe reconciliation loop.",
+      "requires": [
+        "exact paper account and current-fence deployment authority",
+        "authoritative broker control and data producers",
+        "correction-safe fill application and reconciliation composition",
+        "selected signed strategy artifact and runtime sandbox"
+      ]
+    },
+    {
+      "id": "timed_phase5_game_day",
+      "status": "not_run",
+      "reason": "Unit and SQL time injection prove boundary semantics, not wall-clock response budgets in a deployed environment.",
+      "requires": [
+        "deployed kill-state, strategy-failure, alert-failure, data-gap, broker-disconnect, and risk-trip drills",
+        "audited timestamps and residual-exposure results",
+        "manual re-arm evidence after every non-running outcome"
+      ]
+    }
+  ]
+}

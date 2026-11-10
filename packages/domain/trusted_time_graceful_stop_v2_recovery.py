@@ -1,0 +1,1106 @@
+"""Canonical classification-only recovery evidence for lifecycle v2.
+
+This module defines signed, non-effecting recovery-classification bytes.  It
+does not load a key, authenticate a signature, publish an artifact, resume an
+effect, or grant graceful-stop authority.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import importlib
+import os
+import re
+import sys
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from types import CodeType
+from typing import NamedTuple, Self, cast
+
+from packages.domain.trusted_time_graceful_stop_v2 import (
+    LIFECYCLE_V2_MAXIMUM_ENTRIES,
+    LIFECYCLE_V2_OPERATION_BUDGET_NS,
+    LIFECYCLE_V2_SERVICE,
+    MAXIMUM_SIGNED_INTEGER,
+    FrozenJsonObject,
+    LifecycleV2ProgressRecord,
+    LifecycleV2Root,
+    LifecycleV2Stage,
+    LifecycleV2Transcript,
+    TrustedTimeGracefulStopV2Rejected,
+    canonical_v2_json_bytes,
+    decode_canonical_v2_json_object,
+    decode_lifecycle_v2_progress_record,
+    decode_lifecycle_v2_root,
+    decode_lifecycle_v2_transcript,
+    normal_lifecycle_v2_stage_for_ordinal,
+)
+
+RECOVERY_CLASSIFICATION_CONTRACT_VERSION = (
+    "phase6d-trusted-time-graceful-stop-recovery-classification-envelope-v1"
+)
+RECOVERY_CLASSIFICATION_SIGNATURE_DOMAIN = (
+    "AutoQuantTrader/trusted-time/graceful-stop/recovery-classification/v1"
+)
+RECOVERY_CLASSIFICATION_MAXIMUM_BYTES = 64 * 1_024
+
+RECOVERY_CLASSIFICATION_REASON_CODES = frozenset(
+    {
+        "call_or_result_ambiguous",
+        "pre_effect_reauthentication_unconfirmed",
+        "supervisor_stop_unconfirmed",
+        "source_stop_unconfirmed",
+        "supervisor_remove_unconfirmed",
+        "source_remove_unconfirmed",
+        "network_remove_unconfirmed",
+        "volume_preservation_unconfirmed",
+        "post_teardown_reauthentication_unconfirmed",
+        "transport_cleanup_unconfirmed",
+        "terminal_cleanup_unconfirmed",
+        "outcome_commit_unconfirmed",
+        "deadline_expired",
+        "lock_lost",
+        "fork_detected",
+    }
+)
+
+_FIELDS = frozenset(
+    {
+        "contract_version",
+        "service",
+        "status",
+        "environment",
+        "graceful_stop_operation_id",
+        "root_sha256",
+        "admission_started_boottime_ns",
+        "operation_deadline_boottime_ns",
+        "transcript_sha256",
+        "last_ordinal",
+        "last_stage",
+        "reason_code",
+        "transport_authority_manifest_sha256",
+        "key_generation",
+        "recovery_key_id",
+        "operator_nonce_base64",
+        "issued_at_utc",
+        "signature_ed25519_base64",
+    }
+)
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
+
+_PRODUCTION_AUTHENTICATED_RECOVERY_TYPE = (
+    "packages.adapters.trusted_time.graceful_stop_v2_ed25519",
+    "AuthenticatedLifecycleV2RecoveryClassificationEnvelope",
+)
+
+
+class _LifecycleV2RecoveryIntentIssuanceSnapshot(NamedTuple):
+    """Closure-owned immutable facts captured at authenticated issuance."""
+
+    value: LifecycleV2AuthenticatedRecoveryIntent
+    envelope_encoded: bytes
+    root_encoded: bytes
+    classified_transcript_encoded: bytes
+    recorded_at_utc: str
+    record_encoded: bytes
+    recovery_classification_envelope_sha256: str
+    operator_nonce_sha256: str
+    classified_transcript_sha256: str
+    root_sha256: str
+    origin_pid: int
+    origin_thread: threading.Thread
+    origin_fork_epoch: object
+    provenance: str
+
+
+def _lifecycle_v2_recovery_intent_issuance_registry() -> tuple[
+    Callable[[Callable[[object], object]], None],
+    Callable[..., LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[..., LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[[object], LifecycleV2AuthenticatedRecoveryIntent],
+    Callable[[object], LifecycleV2AuthenticatedRecoveryIntent],
+]:
+    """Own issuance snapshots and one-use state outside caller-held values."""
+
+    snapshot_state: tuple[_LifecycleV2RecoveryIntentIssuanceSnapshot, ...] = ()
+    consumed_state: frozenset[int] = frozenset()
+    nonce_state: frozenset[tuple[str, str]] = frozenset()
+    adapter_unwrap: Callable[[object], object] | None = None
+    import_adapter = importlib.import_module
+    get_call_frame = sys._getframe
+    exact_getattr = getattr
+    exact_realpath = os.path.realpath
+    getpid = os.getpid
+    current_thread = threading.current_thread
+    register_at_fork = getattr(os, "register_at_fork", None)
+    adapter_module_name = _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE[0]
+    adapter_source = os.path.realpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "adapters",
+            "trusted_time",
+            "graceful_stop_v2_ed25519.py",
+        )
+    )
+    with open(adapter_source, "rb") as adapter_source_file:
+        expected_adapter_code = compile(
+            adapter_source_file.read(),
+            adapter_source,
+            "exec",
+        )
+    expected_adapter_names = frozenset(
+        {
+            "_authenticated_recovery_classification_issuance_registry",
+            "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+            "_install_authenticated_lifecycle_v2_recovery_adapter_endpoint",
+            "authenticate_lifecycle_v2_recovery_classification_envelope",
+        }
+    )
+    expected_endpoint_freevars = (
+        "decode_envelope",
+        "lookup",
+        "require_issuance",
+        "set_attribute",
+    )
+    decode_envelope = decode_lifecycle_v2_recovery_classification_envelope
+    decode_root = decode_lifecycle_v2_root
+    decode_transcript = decode_lifecycle_v2_transcript
+    original_canonicalize_inputs = _canonical_recovery_inputs
+    original_record_builder = _recovery_intent_record
+    original_build_intent_value = _build_recovery_intent_value
+    original_validate_issuance = _require_lifecycle_v2_recovery_intent_issuance
+    lock = threading.Lock()
+    fork_epoch = object()
+
+    def canonicalize_inputs(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+    ) -> tuple[
+        LifecycleV2RecoveryClassificationEnvelope,
+        LifecycleV2Root,
+        LifecycleV2Transcript,
+    ]:
+        return original_canonicalize_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            _decode_envelope=decode_envelope,
+            _decode_root=decode_root,
+            _decode_transcript=decode_transcript,
+        )
+
+    def build_record(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+    ) -> LifecycleV2ProgressRecord:
+        return original_record_builder(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            recorded_at_utc=recorded_at_utc,
+            _canonicalize=canonicalize_inputs,
+        )
+
+    def build_intent_value(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+        capability: object,
+        origin_pid: int,
+        origin_thread: threading.Thread,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        return original_build_intent_value(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability=capability,
+            origin_pid=origin_pid,
+            origin_thread=origin_thread,
+            _canonicalize=canonicalize_inputs,
+            _record_builder=build_record,
+        )
+
+    def validate_issuance(
+        value: object,
+        snapshot: _LifecycleV2RecoveryIntentIssuanceSnapshot,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        return original_validate_issuance(
+            value,
+            snapshot,
+            _decode_envelope=decode_envelope,
+            _decode_root=decode_root,
+            _decode_transcript=decode_transcript,
+            _record_builder=build_record,
+        )
+
+    def invalidate_after_fork() -> None:
+        nonlocal fork_epoch
+        nonlocal lock
+        fork_epoch = object()
+        lock = threading.Lock()
+
+    if callable(register_at_fork):
+        register_at_fork(after_in_child=invalidate_after_fork)
+
+    def install_adapter_unwrap(endpoint: Callable[[object], object]) -> None:
+        """Capture the exact verifier-owned endpoint once during adapter import."""
+
+        nonlocal adapter_unwrap
+        if adapter_unwrap is not None or not callable(endpoint):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery adapter endpoint installation is invalid"
+            )
+        caller = get_call_frame(1)
+        try:
+            caller_code = caller.f_code
+            caller_globals = caller.f_globals
+            caller_codes: set[CodeType] = set()
+            pending_codes = [caller_code]
+            while pending_codes:
+                nested_code = pending_codes.pop()
+                caller_codes.add(nested_code)
+                pending_codes.extend(
+                    item for item in nested_code.co_consts if type(item) is CodeType
+                )
+            if (
+                caller_code.co_name != "<module>"
+                or caller_code != expected_adapter_code
+                or not expected_adapter_names.issubset(caller_code.co_names)
+                or exact_realpath(caller_code.co_filename) != adapter_source
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery adapter endpoint installation is invalid"
+                )
+            adapter = import_adapter(adapter_module_name)
+            adapter_globals = exact_getattr(adapter, "__dict__", None)
+            adapter_spec = exact_getattr(adapter, "__spec__", None)
+            exact_endpoint = exact_getattr(
+                adapter,
+                "_consume_authenticated_lifecycle_v2_recovery_envelope_value",
+            )
+            endpoint_code = exact_getattr(endpoint, "__code__", None)
+            if (
+                adapter_globals is not caller_globals
+                or exact_getattr(adapter, "__name__", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter, "__file__", "")) != adapter_source
+                or exact_getattr(adapter_spec, "name", None) != adapter_module_name
+                or exact_realpath(exact_getattr(adapter_spec, "origin", "")) != adapter_source
+                or exact_getattr(adapter_spec, "_initializing", False) is not True
+                or endpoint is not exact_endpoint
+                or exact_getattr(endpoint, "__globals__", None) is not caller_globals
+                or exact_getattr(endpoint, "__module__", None) != adapter_module_name
+                or type(endpoint_code) is not CodeType
+                or endpoint_code not in caller_codes
+                or endpoint_code.co_name != "consume_value"
+                or endpoint_code.co_qualname
+                != (
+                    "_authenticated_recovery_classification_issuance_registry."
+                    "<locals>.consume_value"
+                )
+                or endpoint_code.co_freevars != expected_endpoint_freevars
+            ):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery adapter endpoint installation is invalid"
+                )
+        except (AttributeError, ImportError, TypeError, ValueError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery adapter endpoint installation is invalid"
+            ) from error
+        finally:
+            del caller
+        adapter_unwrap = endpoint
+
+    production_derive_code: CodeType | None = None
+    fake_mint_code: CodeType | None = None
+    consume_code: CodeType | None = None
+
+    def register_issued_intent(
+        value: LifecycleV2AuthenticatedRecoveryIntent,
+        *,
+        envelope_encoded: bytes,
+        root_encoded: bytes,
+        classified_transcript_encoded: bytes,
+        recorded_at_utc: str,
+        provenance: str,
+    ) -> None:
+        nonlocal snapshot_state
+        caller = get_call_frame(1)
+        try:
+            caller_code = caller.f_code
+        finally:
+            del caller
+        expected_provenance = (
+            "production_authenticated_recovery"
+            if caller_code is production_derive_code
+            else "fake_test_recovery"
+            if caller_code is fake_mint_code
+            else None
+        )
+        if provenance != expected_provenance:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery intent issuance caller is not authorized"
+            )
+        snapshot = _LifecycleV2RecoveryIntentIssuanceSnapshot(
+            value=value,
+            envelope_encoded=envelope_encoded,
+            root_encoded=root_encoded,
+            classified_transcript_encoded=classified_transcript_encoded,
+            recorded_at_utc=recorded_at_utc,
+            record_encoded=value.record.encoded,
+            recovery_classification_envelope_sha256=(value.recovery_classification_envelope_sha256),
+            operator_nonce_sha256=value.operator_nonce_sha256,
+            classified_transcript_sha256=value.classified_transcript_sha256,
+            root_sha256=value.root_sha256,
+            origin_pid=value._origin_pid,
+            origin_thread=value._origin_thread,
+            origin_fork_epoch=fork_epoch,
+            provenance=provenance,
+        )
+        validate_issuance(value, snapshot)
+        with lock:
+            if any(candidate.value is value for candidate in snapshot_state):
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery intent identity was already issued"
+                )
+            snapshot_state = (*snapshot_state, snapshot)
+
+    def read_snapshot(value: object) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
+        owner_snapshot = next(
+            (candidate for candidate in snapshot_state if candidate.value is value),
+            None,
+        )
+        if owner_snapshot is None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent has no exact issuance snapshot"
+            )
+        if getpid() != owner_snapshot.origin_pid:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent owner is invalid"
+            )
+        if (
+            current_thread() is not owner_snapshot.origin_thread
+            or fork_epoch is not owner_snapshot.origin_fork_epoch
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery intent owner is invalid"
+            )
+        with lock:
+            snapshot = next(
+                (candidate for candidate in snapshot_state if candidate.value is value),
+                None,
+            )
+            if snapshot is None:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "authenticated recovery intent has no exact issuance snapshot"
+                )
+            return snapshot
+
+    def consume_snapshot(
+        value: object,
+    ) -> _LifecycleV2RecoveryIntentIssuanceSnapshot:
+        nonlocal consumed_state
+        caller = get_call_frame(1)
+        try:
+            if caller.f_code is not consume_code:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery intent consumption caller is not authorized"
+                )
+        finally:
+            del caller
+        snapshot = read_snapshot(value)
+        key = id(value)
+        with lock:
+            if key in consumed_state:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "authenticated recovery intent was already consumed"
+                )
+            consumed_state = consumed_state | {key}
+        return snapshot
+
+    def reserve_production_nonce(root_sha256: str, nonce_sha256: str) -> None:
+        nonlocal nonce_state
+        caller = get_call_frame(1)
+        try:
+            if caller.f_code is not production_derive_code:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery classification nonce caller is not authorized"
+                )
+        finally:
+            del caller
+        consumption_key = (root_sha256, nonce_sha256)
+        with lock:
+            if consumption_key in nonce_state:
+                raise TrustedTimeGracefulStopV2Rejected(
+                    "recovery classification nonce was already consumed"
+                )
+            nonce_state = nonce_state | {consumption_key}
+
+    def derive_production(
+        authenticated_envelope: object,
+        *,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        """Consume only an exact adapter issuance, then seal its durable intent."""
+
+        authenticated_type = type(authenticated_envelope)
+        if (
+            authenticated_type.__module__,
+            authenticated_type.__qualname__,
+        ) != _PRODUCTION_AUTHENTICATED_RECOVERY_TYPE:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery intent requires the exact adapter-authenticated type"
+            )
+        exact_unwrap = adapter_unwrap
+        if exact_unwrap is None:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification adapter is unavailable"
+            )
+        try:
+            unwrapped = exact_unwrap(authenticated_envelope)
+        except Exception as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification cannot be consumed"
+            ) from error
+        if type(unwrapped) is not tuple or len(unwrapped) != 4:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery-intent adapter returned an invalid value"
+            )
+        envelope, wrapped_root_sha256, wrapped_transcript_sha256, wrapped_manifest_sha256 = (
+            unwrapped
+        )
+        exact_envelope, exact_root, exact_transcript = canonicalize_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+        )
+        if (
+            wrapped_root_sha256 != exact_root.sha256
+            or wrapped_transcript_sha256 != exact_transcript.sha256
+            or wrapped_manifest_sha256 != exact_envelope.transport_authority_manifest_sha256
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "authenticated recovery classification crossed its sealed bindings"
+            )
+        reserve_production_nonce(
+            exact_root.sha256,
+            exact_envelope.operator_nonce_sha256,
+        )
+        result = build_intent_value(
+            envelope=exact_envelope,
+            root=exact_root,
+            classified_transcript=exact_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability="production_authenticated_recovery",
+            origin_pid=getpid(),
+            origin_thread=current_thread(),
+        )
+        register_issued_intent(
+            result,
+            envelope_encoded=exact_envelope.encoded,
+            root_encoded=exact_root.encoded,
+            classified_transcript_encoded=exact_transcript.encoded,
+            recorded_at_utc=recorded_at_utc,
+            provenance="production_authenticated_recovery",
+        )
+        return require(result)
+
+    def mint_fake(
+        *,
+        envelope: LifecycleV2RecoveryClassificationEnvelope,
+        root: LifecycleV2Root,
+        classified_transcript: LifecycleV2Transcript,
+        recorded_at_utc: str,
+    ) -> LifecycleV2AuthenticatedRecoveryIntent:
+        """Registry-issued fake intent for an exact injected test root only."""
+
+        exact_envelope, exact_root, exact_transcript = canonicalize_inputs(
+            envelope=envelope,
+            root=root,
+            classified_transcript=classified_transcript,
+        )
+        if exact_root.environment != "test":
+            raise TrustedTimeGracefulStopV2Rejected(
+                "fake recovery intent requires one exact test root"
+            )
+        result = build_intent_value(
+            envelope=exact_envelope,
+            root=exact_root,
+            classified_transcript=exact_transcript,
+            recorded_at_utc=recorded_at_utc,
+            capability="fake_test_recovery",
+            origin_pid=getpid(),
+            origin_thread=current_thread(),
+        )
+        register_issued_intent(
+            result,
+            envelope_encoded=exact_envelope.encoded,
+            root_encoded=exact_root.encoded,
+            classified_transcript_encoded=exact_transcript.encoded,
+            recorded_at_utc=recorded_at_utc,
+            provenance="fake_test_recovery",
+        )
+        return require(result)
+
+    def require(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
+        snapshot = read_snapshot(value)
+        return validate_issuance(value, snapshot)
+
+    def consume(value: object) -> LifecycleV2AuthenticatedRecoveryIntent:
+        snapshot = consume_snapshot(value)
+        return validate_issuance(value, snapshot)
+
+    production_derive_code = derive_production.__code__
+    fake_mint_code = mint_fake.__code__
+    consume_code = consume.__code__
+
+    return install_adapter_unwrap, derive_production, mint_fake, require, consume
+
+
+def _require_fields(value: dict[str, object]) -> None:
+    if frozenset(value) != _FIELDS:
+        raise TrustedTimeGracefulStopV2Rejected("recovery classification field set is not exact")
+
+
+def _require_identifier(value: object, name: str) -> str:
+    if type(value) is not str or _IDENTIFIER.fullmatch(value) is None:
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} is not a bounded identifier")
+    return value
+
+
+def _require_sha256(value: object, name: str) -> str:
+    if type(value) is not str or _SHA256.fullmatch(value) is None:
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} is not lowercase SHA-256")
+    return value
+
+
+def _require_int(
+    value: object,
+    name: str,
+    *,
+    minimum: int = 0,
+    maximum: int = MAXIMUM_SIGNED_INTEGER,
+) -> int:
+    if type(value) is not int or value < minimum or value > maximum:
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} is outside its integer bounds")
+    return value
+
+
+def _require_base64(value: object, name: str, *, exact_length: int) -> bytes:
+    if type(value) is not str or not value or not value.isascii():
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} is not canonical base64")
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} is not canonical base64") from error
+    if len(decoded) != exact_length or base64.b64encode(decoded).decode("ascii") != value:
+        raise TrustedTimeGracefulStopV2Rejected(f"{name} has the wrong canonical bytes")
+    return decoded
+
+
+def _install_prefix_stage_validator() -> Callable[[int, object], LifecycleV2Stage]:
+    exact_normal_stage_lookup = normal_lifecycle_v2_stage_for_ordinal
+
+    def require_prefix_stage(ordinal: int, stage_value: object) -> LifecycleV2Stage:
+        try:
+            stage = LifecycleV2Stage(stage_value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as error:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification last stage is unknown"
+            ) from error
+        expected = exact_normal_stage_lookup(ordinal)
+        if ordinal == 2 and stage is LifecycleV2Stage.CLEAN_STOP_ERROR_RETAINED:
+            return stage
+        if expected is None or stage is not expected:
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification last stage does not match its ordinal"
+            )
+        return stage
+
+    return require_prefix_stage
+
+
+_require_prefix_stage = _install_prefix_stage_validator()
+del _install_prefix_stage_validator
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2RecoveryClassificationEnvelope:
+    """Structurally exact recovery-key-signed classification bytes."""
+
+    fields: FrozenJsonObject
+    operator_nonce: bytes
+    signature: bytes
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("recovery classification envelopes require canonical capture")
+
+    @classmethod
+    def capture(cls, value: object) -> Self:
+        frozen = FrozenJsonObject.capture(value)
+        fields = frozen.to_dict()
+        _require_fields(fields)
+        if (
+            fields["contract_version"] != RECOVERY_CLASSIFICATION_CONTRACT_VERSION
+            or fields["service"] != LIFECYCLE_V2_SERVICE
+            or fields["status"] != "recovery_classification_requested"
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification discriminator is invalid"
+            )
+        _require_identifier(fields["environment"], "environment")
+        _require_identifier(fields["graceful_stop_operation_id"], "graceful_stop_operation_id")
+        _require_sha256(fields["root_sha256"], "root_sha256")
+        start = _require_int(
+            fields["admission_started_boottime_ns"],
+            "admission_started_boottime_ns",
+        )
+        deadline = _require_int(
+            fields["operation_deadline_boottime_ns"],
+            "operation_deadline_boottime_ns",
+        )
+        if (
+            start > MAXIMUM_SIGNED_INTEGER - LIFECYCLE_V2_OPERATION_BUDGET_NS
+            or deadline != start + LIFECYCLE_V2_OPERATION_BUDGET_NS
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification operation deadline is not exact"
+            )
+        _require_sha256(fields["transcript_sha256"], "transcript_sha256")
+        last_ordinal = _require_int(
+            fields["last_ordinal"],
+            "last_ordinal",
+            minimum=1,
+            maximum=min(22, LIFECYCLE_V2_MAXIMUM_ENTRIES - 1),
+        )
+        _require_prefix_stage(last_ordinal, fields["last_stage"])
+        if (
+            type(fields["reason_code"]) is not str
+            or fields["reason_code"] not in RECOVERY_CLASSIFICATION_REASON_CODES
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification reason is not allowlisted"
+            )
+        _require_sha256(
+            fields["transport_authority_manifest_sha256"],
+            "transport_authority_manifest_sha256",
+        )
+        _require_int(fields["key_generation"], "key_generation", minimum=1)
+        _require_identifier(fields["recovery_key_id"], "recovery_key_id")
+        nonce = _require_base64(
+            fields["operator_nonce_base64"],
+            "operator_nonce_base64",
+            exact_length=32,
+        )
+        if (
+            type(fields["issued_at_utc"]) is not str
+            or _UTC.fullmatch(fields["issued_at_utc"]) is None
+        ):
+            raise TrustedTimeGracefulStopV2Rejected(
+                "recovery classification audit time is not canonical UTC"
+            )
+        signature = _require_base64(
+            fields["signature_ed25519_base64"],
+            "signature_ed25519_base64",
+            exact_length=64,
+        )
+        result = object.__new__(cls)
+        object.__setattr__(result, "fields", frozen)
+        object.__setattr__(result, "operator_nonce", nonce)
+        object.__setattr__(result, "signature", signature)
+        if len(result.encoded) > RECOVERY_CLASSIFICATION_MAXIMUM_BYTES:
+            raise TrustedTimeGracefulStopV2Rejected("recovery classification envelope is too large")
+        return result
+
+    def to_dict(self) -> dict[str, object]:
+        return self.fields.to_dict()
+
+    @property
+    def unsigned_encoded(self) -> bytes:
+        fields = self.to_dict()
+        fields.pop("signature_ed25519_base64")
+        return canonical_v2_json_bytes(
+            fields,
+            maximum_bytes=RECOVERY_CLASSIFICATION_MAXIMUM_BYTES,
+        )
+
+    @property
+    def signature_input(self) -> bytes:
+        return (
+            RECOVERY_CLASSIFICATION_SIGNATURE_DOMAIN.encode("ascii") + b"\0" + self.unsigned_encoded
+        )
+
+    @property
+    def encoded(self) -> bytes:
+        return canonical_v2_json_bytes(
+            self.to_dict(),
+            maximum_bytes=RECOVERY_CLASSIFICATION_MAXIMUM_BYTES,
+        )
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.encoded).hexdigest()
+
+    @property
+    def operator_nonce_sha256(self) -> str:
+        return hashlib.sha256(self.operator_nonce).hexdigest()
+
+    @property
+    def environment(self) -> str:
+        return self.to_dict()["environment"]  # type: ignore[return-value]
+
+    @property
+    def graceful_stop_operation_id(self) -> str:
+        return self.to_dict()["graceful_stop_operation_id"]  # type: ignore[return-value]
+
+    @property
+    def root_sha256(self) -> str:
+        return self.to_dict()["root_sha256"]  # type: ignore[return-value]
+
+    @property
+    def transcript_sha256(self) -> str:
+        return self.to_dict()["transcript_sha256"]  # type: ignore[return-value]
+
+    @property
+    def last_ordinal(self) -> int:
+        return self.to_dict()["last_ordinal"]  # type: ignore[return-value]
+
+    @property
+    def last_stage(self) -> LifecycleV2Stage:
+        return LifecycleV2Stage(cast(str, self.to_dict()["last_stage"]))
+
+    @property
+    def reason_code(self) -> str:
+        return self.to_dict()["reason_code"]  # type: ignore[return-value]
+
+    @property
+    def transport_authority_manifest_sha256(self) -> str:
+        return self.to_dict()["transport_authority_manifest_sha256"]  # type: ignore[return-value]
+
+    @property
+    def key_generation(self) -> int:
+        return self.to_dict()["key_generation"]  # type: ignore[return-value]
+
+    @property
+    def recovery_key_id(self) -> str:
+        return self.to_dict()["recovery_key_id"]  # type: ignore[return-value]
+
+    @property
+    def admission_started_boottime_ns(self) -> int:
+        return self.to_dict()["admission_started_boottime_ns"]  # type: ignore[return-value]
+
+    @property
+    def operation_deadline_boottime_ns(self) -> int:
+        return self.to_dict()["operation_deadline_boottime_ns"]  # type: ignore[return-value]
+
+
+def decode_lifecycle_v2_recovery_classification_envelope(
+    encoded: object,
+) -> LifecycleV2RecoveryClassificationEnvelope:
+    return LifecycleV2RecoveryClassificationEnvelope.capture(
+        decode_canonical_v2_json_object(
+            encoded,
+            maximum_bytes=RECOVERY_CLASSIFICATION_MAXIMUM_BYTES,
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class LifecycleV2AuthenticatedRecoveryIntent:
+    """One exact, one-use recovery intent derived from authenticated bytes.
+
+    The value is sealed by either the production Ed25519 adapter seam or the
+    deliberately separate test-only seam.  Persistence may retain its record,
+    but cannot manufacture or replace its signed classifier facts.
+    """
+
+    record: LifecycleV2ProgressRecord
+    recovery_classification_envelope_sha256: str
+    operator_nonce_sha256: str
+    classified_transcript_sha256: str
+    root_sha256: str
+    _origin_pid: int
+    _origin_thread: threading.Thread
+    _capability: object
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("authenticated recovery intents require one-use consumption")
+
+
+_RecoveryEnvelopeUnwrapper = Callable[
+    [object],
+    tuple[LifecycleV2RecoveryClassificationEnvelope, str, str, str],
+]
+
+
+def _canonical_recovery_inputs(
+    *,
+    envelope: LifecycleV2RecoveryClassificationEnvelope,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+    _decode_envelope: Callable[
+        [object], LifecycleV2RecoveryClassificationEnvelope
+    ] = decode_lifecycle_v2_recovery_classification_envelope,
+    _decode_root: Callable[[object], LifecycleV2Root] = decode_lifecycle_v2_root,
+    _decode_transcript: Callable[[object], LifecycleV2Transcript] = decode_lifecycle_v2_transcript,
+) -> tuple[
+    LifecycleV2RecoveryClassificationEnvelope,
+    LifecycleV2Root,
+    LifecycleV2Transcript,
+]:
+    try:
+        exact_envelope = _decode_envelope(envelope.encoded)
+        exact_root = _decode_root(root.encoded)
+        exact_transcript = _decode_transcript(classified_transcript.encoded)
+    except (AttributeError, TrustedTimeGracefulStopV2Rejected) as error:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "recovery intent inputs are not canonical"
+        ) from error
+    if (
+        exact_envelope != envelope
+        or exact_root != root
+        or exact_transcript != classified_transcript
+        or len(exact_transcript.entries) < 2
+        or exact_envelope.environment != exact_root.environment
+        or exact_envelope.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
+        or exact_envelope.root_sha256 != exact_root.sha256
+        or exact_envelope.admission_started_boottime_ns != exact_root.admission_started_boottime_ns
+        or exact_envelope.operation_deadline_boottime_ns
+        != exact_root.operation_deadline_boottime_ns
+        or exact_envelope.transcript_sha256 != exact_transcript.sha256
+        or exact_envelope.last_ordinal != exact_transcript.entries[-1].ordinal
+        or exact_envelope.last_stage is not exact_transcript.entries[-1].stage
+        or exact_transcript.environment != exact_root.environment
+        or exact_transcript.graceful_stop_operation_id != exact_root.graceful_stop_operation_id
+        or exact_transcript.root_sha256 != exact_root.sha256
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "recovery intent crossed its root or classified prefix"
+        )
+    return exact_envelope, exact_root, exact_transcript
+
+
+def _recovery_intent_record(
+    *,
+    envelope: LifecycleV2RecoveryClassificationEnvelope,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+    recorded_at_utc: str,
+    _canonicalize: Callable[
+        ...,
+        tuple[
+            LifecycleV2RecoveryClassificationEnvelope,
+            LifecycleV2Root,
+            LifecycleV2Transcript,
+        ],
+    ] = _canonical_recovery_inputs,
+) -> LifecycleV2ProgressRecord:
+    exact_envelope, exact_root, exact_transcript = _canonicalize(
+        envelope=envelope,
+        root=root,
+        classified_transcript=classified_transcript,
+    )
+    last_entry = exact_transcript.entries[-1]
+    return LifecycleV2ProgressRecord(
+        graceful_stop_operation_id=exact_root.graceful_stop_operation_id,
+        root_sha256=exact_root.sha256,
+        ordinal=last_entry.ordinal + 1,
+        stage=LifecycleV2Stage.RECOVERY_CLASSIFICATION_INTENT_RETAINED,
+        predecessor_sha256=last_entry.record_artifact_sha256,
+        effect_kind="recovery_classification",
+        deadline_boottime_ns=exact_root.operation_deadline_boottime_ns,
+        evidence=FrozenJsonObject.capture(
+            {
+                "recovery_classification_envelope_sha256": exact_envelope.sha256,
+                "operator_nonce_sha256": exact_envelope.operator_nonce_sha256,
+                "recovery_key_id": exact_envelope.recovery_key_id,
+                "transport_authority_manifest_sha256": (
+                    exact_envelope.transport_authority_manifest_sha256
+                ),
+                "classified_transcript_sha256": exact_transcript.sha256,
+                "admission_started_boottime_ns": (exact_root.admission_started_boottime_ns),
+                "operation_deadline_boottime_ns": (exact_root.operation_deadline_boottime_ns),
+                "reason_code": exact_envelope.reason_code,
+            }
+        ),
+        recorded_at_utc=recorded_at_utc,
+    )
+
+
+def _build_recovery_intent_value(
+    *,
+    envelope: LifecycleV2RecoveryClassificationEnvelope,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+    recorded_at_utc: str,
+    capability: object,
+    origin_pid: int,
+    origin_thread: threading.Thread,
+    _canonicalize: Callable[
+        ...,
+        tuple[
+            LifecycleV2RecoveryClassificationEnvelope,
+            LifecycleV2Root,
+            LifecycleV2Transcript,
+        ],
+    ] = _canonical_recovery_inputs,
+    _record_builder: Callable[..., LifecycleV2ProgressRecord] = _recovery_intent_record,
+) -> LifecycleV2AuthenticatedRecoveryIntent:
+    exact_envelope, exact_root, exact_transcript = _canonicalize(
+        envelope=envelope,
+        root=root,
+        classified_transcript=classified_transcript,
+    )
+    record = _record_builder(
+        envelope=exact_envelope,
+        root=exact_root,
+        classified_transcript=exact_transcript,
+        recorded_at_utc=recorded_at_utc,
+    )
+    result = object.__new__(LifecycleV2AuthenticatedRecoveryIntent)
+    object.__setattr__(result, "record", record)
+    object.__setattr__(
+        result,
+        "recovery_classification_envelope_sha256",
+        exact_envelope.sha256,
+    )
+    object.__setattr__(
+        result,
+        "operator_nonce_sha256",
+        exact_envelope.operator_nonce_sha256,
+    )
+    object.__setattr__(result, "classified_transcript_sha256", exact_transcript.sha256)
+    object.__setattr__(result, "root_sha256", exact_root.sha256)
+    object.__setattr__(result, "_origin_pid", origin_pid)
+    object.__setattr__(result, "_origin_thread", origin_thread)
+    object.__setattr__(result, "_capability", capability)
+    return result
+
+
+def _consume_authenticated_lifecycle_v2_recovery_classification_envelope(
+    authenticated_envelope: object,
+    *,
+    root: LifecycleV2Root,
+    classified_transcript: LifecycleV2Transcript,
+    recorded_at_utc: str,
+) -> LifecycleV2AuthenticatedRecoveryIntent:
+    """Compatibility name for the safe adapter-validated derivation endpoint."""
+
+    return _derive_authenticated_lifecycle_v2_recovery_intent(
+        authenticated_envelope,
+        root=root,
+        classified_transcript=classified_transcript,
+        recorded_at_utc=recorded_at_utc,
+    )
+
+
+def _require_lifecycle_v2_recovery_intent_issuance(
+    value: object,
+    snapshot: _LifecycleV2RecoveryIntentIssuanceSnapshot,
+    *,
+    _decode_envelope: Callable[[object], LifecycleV2RecoveryClassificationEnvelope],
+    _decode_root: Callable[[object], LifecycleV2Root],
+    _decode_transcript: Callable[[object], LifecycleV2Transcript],
+    _record_builder: Callable[..., LifecycleV2ProgressRecord],
+) -> LifecycleV2AuthenticatedRecoveryIntent:
+    if type(value) is not LifecycleV2AuthenticatedRecoveryIntent:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated recovery intent owner or capability is invalid"
+        )
+    try:
+        exact_envelope = _decode_envelope(snapshot.envelope_encoded)
+        exact_root = _decode_root(snapshot.root_encoded)
+        exact_transcript = _decode_transcript(snapshot.classified_transcript_encoded)
+        expected_record = _record_builder(
+            envelope=exact_envelope,
+            root=exact_root,
+            classified_transcript=exact_transcript,
+            recorded_at_utc=snapshot.recorded_at_utc,
+        )
+        canonical = decode_lifecycle_v2_progress_record(value.record.encoded)
+        value_capability = value._capability
+        value_origin_pid = value._origin_pid
+        value_origin_thread = value._origin_thread
+        value_envelope_sha256 = value.recovery_classification_envelope_sha256
+        value_nonce_sha256 = value.operator_nonce_sha256
+        value_transcript_sha256 = value.classified_transcript_sha256
+        value_root_sha256 = value.root_sha256
+    except (AttributeError, TypeError, TrustedTimeGracefulStopV2Rejected) as error:
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated recovery intent changed under validation"
+        ) from error
+    if (
+        snapshot.value is not value
+        or value_capability != snapshot.provenance
+        or value_origin_pid != snapshot.origin_pid
+        or value_origin_thread is not snapshot.origin_thread
+        or exact_envelope.encoded != snapshot.envelope_encoded
+        or exact_root.encoded != snapshot.root_encoded
+        or exact_transcript.encoded != snapshot.classified_transcript_encoded
+        or exact_envelope.sha256 != snapshot.recovery_classification_envelope_sha256
+        or exact_envelope.operator_nonce_sha256 != snapshot.operator_nonce_sha256
+        or exact_transcript.sha256 != snapshot.classified_transcript_sha256
+        or exact_root.sha256 != snapshot.root_sha256
+        or expected_record.encoded != snapshot.record_encoded
+        or type(value.record) is not LifecycleV2ProgressRecord
+        or canonical != value.record
+        or canonical != expected_record
+        or value_envelope_sha256 != snapshot.recovery_classification_envelope_sha256
+        or value_nonce_sha256 != snapshot.operator_nonce_sha256
+        or value_transcript_sha256 != snapshot.classified_transcript_sha256
+        or value_root_sha256 != snapshot.root_sha256
+    ):
+        raise TrustedTimeGracefulStopV2Rejected(
+            "authenticated recovery intent changed under validation"
+        )
+    return value
+
+
+(
+    _install_authenticated_lifecycle_v2_recovery_adapter_endpoint,
+    _derive_authenticated_lifecycle_v2_recovery_intent,
+    _build_injected_fake_lifecycle_v2_recovery_intent,
+    require_authenticated_lifecycle_v2_recovery_intent,
+    consume_authenticated_lifecycle_v2_recovery_intent,
+) = _lifecycle_v2_recovery_intent_issuance_registry()
+del _lifecycle_v2_recovery_intent_issuance_registry
+
+
+def lifecycle_v2_recovery_non_authority_facts() -> dict[str, bool]:
+    return {
+        "recovery_signer_present": False,
+        "recovery_artifact_writer_present": False,
+        "transport_dispatch_reachable": False,
+        "docker_mutation_reachable": False,
+        "effect_continuation_authorized": False,
+        "trusted_time_stop_enabled": False,
+    }
+
+
+__all__ = [
+    "RECOVERY_CLASSIFICATION_CONTRACT_VERSION",
+    "RECOVERY_CLASSIFICATION_MAXIMUM_BYTES",
+    "RECOVERY_CLASSIFICATION_REASON_CODES",
+    "RECOVERY_CLASSIFICATION_SIGNATURE_DOMAIN",
+    "LifecycleV2AuthenticatedRecoveryIntent",
+    "LifecycleV2RecoveryClassificationEnvelope",
+    "consume_authenticated_lifecycle_v2_recovery_intent",
+    "decode_lifecycle_v2_recovery_classification_envelope",
+    "lifecycle_v2_recovery_non_authority_facts",
+    "require_authenticated_lifecycle_v2_recovery_intent",
+]

@@ -1,0 +1,1 @@
+"""Account-coordinator composition root."""
