@@ -309,7 +309,8 @@ class ForwardCapturePublisher(Protocol):
     A caller-built record or opaque object cannot substitute for that episode.
     """
 
-    journal: ForwardCaptureJournal
+    @property
+    def journal(self) -> ForwardCaptureJournal: ...
 
     def require_original(self) -> None: ...
     def publish(self, episode: object) -> CapturePublication: ...

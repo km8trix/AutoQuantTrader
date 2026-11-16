@@ -1,5 +1,21 @@
 # Current status
 
+Updated 2026-11-16 for this isolated local integration only. **Wave 4 OPEN;
+startup HALTED and trading authority false. No push/CI/merge/deployment selected.**
+
+The private ownership writer and required source prerequisites are integrated on
+published base68fa0a7d without importing divergent history or CI changes. Published
+canonical/API-contract source remains unchanged. Architecture, configured lint/
+format and full436-source types pass; the selected12writer+14ownership cases pass
+in53.58s with78passed phases. Fresh simulated temporary data was cleaned up after
+child exit;1,132source pins remained unchanged. No held retained/runtime or broader
+CI gate was rerun. [Scope, checks and remaining gates](reviews/2026-11-16-ownership-integration/README.md).
+The current task is local review of this scoped integration, not historical
+publication/diagnostic instructions below. All existing operating and release
+holds remain open.
+
+## Preserved published-base status (historical October 13)
+
 Updated 2026-10-13 (America/New_York). Read [SPEC](SPEC.md), [PLAN](PLAN.md),
 [ARCHITECTURE](ARCHITECTURE.md) and [TESTING](TESTING.md). Use Git and
 exact-revision CI for current HEAD and gate state.

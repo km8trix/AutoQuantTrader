@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 from weakref import WeakValueDictionary, finalize
 
 import sqlalchemy as sa
@@ -62,6 +62,14 @@ class PreparedJournalAppend:
     entries: tuple[JournalEntry, ...]
     _owner: object
     _validated_values: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ClassifiedJournalAppend:
+    """Actual locked append branch, not evidence of outer transaction commit."""
+
+    disposition: Literal["inserted_in_this_transaction", "already_retained"]
+    receipt: JournalReceipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,6 +532,12 @@ class SqlDurableJournal:
         self, connection: Connection, prepared: PreparedJournalAppend
     ) -> JournalReceipt:
         """Use the caller's real transaction; rollback a failed append's savepoint only."""
+        return self.append_classified_in_transaction(connection, prepared).receipt
+
+    def append_classified_in_transaction(
+        self, connection: Connection, prepared: PreparedJournalAppend
+    ) -> ClassifiedJournalAppend:
+        """Classify at the original locked branch; savepoint success is not commit."""
         if (
             type(prepared) is not PreparedJournalAppend
             or prepared._owner is not self._preparation_owner
@@ -553,7 +567,7 @@ class SqlDurableJournal:
 
     def _append_locked(
         self, connection: Connection, prepared: PreparedJournalAppend
-    ) -> JournalReceipt:
+    ) -> ClassifiedJournalAppend:
         key, request, receipt = prepared.key, prepared.request, prepared.receipt
         key_hash = key.semantic_sha256
         insertion = sqlite_insert if connection.dialect.name == "sqlite" else pg_insert
@@ -595,7 +609,7 @@ class SqlDurableJournal:
             existing = self._receipt(key, old, typed=False)
             if existing != receipt or current.sequence < existing.committed_head.sequence:
                 raise JournalConflict("JOURNAL_COMMAND_CONFLICT")
-            return existing
+            return ClassifiedJournalAppend("already_retained", existing)
         if current != request.expected_head:
             raise JournalConflict("JOURNAL_HEAD_CONFLICT")
         inserted = connection.execute(
@@ -650,7 +664,7 @@ class SqlDurableJournal:
         ).scalar_one_or_none()
         if changed != receipt.committed_head.sequence:
             raise JournalConflict("JOURNAL_HEAD_CONFLICT")
-        return receipt
+        return ClassifiedJournalAppend("inserted_in_this_transaction", receipt)
 
     def read_receipt(self, key: JournalKey, command_id: str) -> JournalReceipt | None:
         key.__post_init__()
