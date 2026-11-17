@@ -41,6 +41,8 @@ jobs:
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install pinned Python before offline architecture check
+        run: uv python install 3.12.13
       - name: Check architecture before importing project code
         run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
       - name: Install locked dependencies without executing project build code
@@ -114,6 +116,8 @@ jobs:
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install pinned Python before offline architecture check
+        run: uv python install 3.12.13
       - name: Check architecture before importing project code
         run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
       - name: Install locked dependencies without executing project build code
@@ -145,6 +149,8 @@ jobs:
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install pinned Python before offline architecture check
+        run: uv python install 3.12.13
       - name: Check architecture before importing project code
         run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
       - name: Install locked dependencies without executing project build code
@@ -204,6 +210,8 @@ jobs:
           version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install pinned Python before offline architecture check
+        run: uv python install 3.12.13
       - name: Check architecture before importing project code
         run: uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
       - name: Install locked dependencies without executing project build code
