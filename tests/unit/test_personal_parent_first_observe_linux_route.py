@@ -371,9 +371,14 @@ def test_active_bounded_interval_is_unavailable_without_disable_stats_export_or_
     assert events == ["enable", "disable", "getstats", "clear"]
 
 
-def test_failure_triggered_workflow_inverse_keeps_required_gate_and_exact_two_outputs():
-    candidate = Path(__file__).resolve().parents[2]
-    text = (candidate / ".github/workflows/ci.yml").read_text()
+PINNED_PYTHON_STEP = (
+    "      - name: Install pinned Python before offline architecture check\n"
+    "        run: uv python install 3.12.13\n"
+)
+ARCHITECTURE_STEP = "      - name: Check architecture before importing project code\n"
+
+
+def _assert_failure_triggered_workflow(text):
     first = text.index("  parent-first-observe-profile:\n")
     last = text.index("  backend:\n", first)
     job = text[first:last]
@@ -381,7 +386,28 @@ def test_failure_triggered_workflow_inverse_keeps_required_gate_and_exact_two_ou
     assert len(WORKFLOW_BASELINE_BYTES) == 11070
     assert hashlib.sha256(WORKFLOW_BASELINE_BYTES).hexdigest() == WORKFLOW_BASELINE_SHA256
     original = WORKFLOW_BASELINE_BYTES.decode("utf-8")
-    assert text[:first] + text[last:] == original
+    # Preserve the pinned baseline; admit only the three exact, job-scoped
+    # provisioning insertions outside the separate parent diagnostic job.
+    expected = original
+    for name, following in (
+        ("backend-foundations", "backend-tests"),
+        ("backend-tests", "retained-restore-profile"),
+        ("retained-restore-profile", "backend"),
+    ):
+        start = expected.index(f"  {name}:\n")
+        end = expected.index(f"  {following}:\n", start)
+        block = expected[start:end]
+        assert block.count(ARCHITECTURE_STEP) == 1
+        block = block.replace(ARCHITECTURE_STEP, PINNED_PYTHON_STEP + ARCHITECTURE_STEP)
+        expected = expected[:start] + block + expected[end:]
+    assert text[:first] + text[last:] == expected
+    # The excluded diagnostic must provision the same pinned interpreter in
+    # exactly the same position, not merely mention it elsewhere in the job.
+    assert text.count(PINNED_PYTHON_STEP) == 4
+    assert job.count(PINNED_PYTHON_STEP) == 1
+    assert (
+        "          cache-dependency-glob: uv.lock\n" + PINNED_PYTHON_STEP + ARCHITECTURE_STEP
+    ) in job
     assert "needs: [backend-foundations, backend-tests]" in job
     assert (
         "needs.backend-foundations.result == 'success' && needs.backend-tests.result == 'failure'"
@@ -408,6 +434,40 @@ def test_failure_triggered_workflow_inverse_keeps_required_gate_and_exact_two_ou
     aggregate = text[last : text.index("  frontend:", last)]
     assert "needs: [backend-foundations, backend-tests]" in aggregate
     assert "parent-first-observe-profile" not in aggregate
+
+
+def test_failure_triggered_workflow_inverse_keeps_required_gate_and_exact_two_outputs():
+    candidate = Path(__file__).resolve().parents[2]
+    _assert_failure_triggered_workflow((candidate / ".github/workflows/ci.yml").read_text())
+
+
+@pytest.mark.parametrize(
+    "name,following",
+    [
+        ("backend-foundations", "backend-tests"),
+        ("backend-tests", "retained-restore-profile"),
+        ("retained-restore-profile", "parent-first-observe-profile"),
+        ("parent-first-observe-profile", "backend"),
+    ],
+)
+@pytest.mark.parametrize("mutation", ["missing", "wrong_pin", "duplicate", "moved"])
+def test_workflow_inverse_rejects_python_provisioning_mutations(name, following, mutation):
+    candidate = Path(__file__).resolve().parents[2]
+    text = (candidate / ".github/workflows/ci.yml").read_text()
+    start = text.index(f"  {name}:\n")
+    end = text.index(f"  {following}:\n", start)
+    block = text[start:end]
+    assert block.count(PINNED_PYTHON_STEP) == 1
+    if mutation == "missing":
+        block = block.replace(PINNED_PYTHON_STEP, "")
+    elif mutation == "wrong_pin":
+        block = block.replace("uv python install 3.12.13", "uv python install 3.12")
+    elif mutation == "duplicate":
+        block = block.replace(PINNED_PYTHON_STEP, PINNED_PYTHON_STEP * 2)
+    else:
+        block = block.replace(PINNED_PYTHON_STEP, "") + "\n" + PINNED_PYTHON_STEP
+    with pytest.raises(AssertionError):
+        _assert_failure_triggered_workflow(text[:start] + block + text[end:])
 
 
 @pytest.mark.parametrize(
