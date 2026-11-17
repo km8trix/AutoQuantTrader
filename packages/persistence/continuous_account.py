@@ -13,7 +13,7 @@ from datetime import datetime
 from hashlib import sha256
 from threading import Event, Lock, Thread, current_thread
 from types import MappingProxyType, TracebackType
-from typing import Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 from weakref import WeakValueDictionary, finalize
 
 import sqlalchemy as sa
@@ -431,6 +431,22 @@ def _validate_lease(row: Mapping[str, Any], receipt: ContinuousAccountReceipt) -
         raise ContinuousAccountConflict("CONTINUOUS_RETAINED_LEASE_INVALID") from None
 
 
+if TYPE_CHECKING:
+    from packages.domain.durable_journal_contracts import JournalHead
+    from packages.domain.operational_control_operator_record import (
+        OperationalControlOperatorStatementRecord,
+    )
+    from packages.persistence.daily_runtime_risk import (
+        ResolvedDailyRuntimeSnapshot,
+        SqlDailyRuntimeRisk,
+    )
+    from packages.persistence.operator_statement_retention import (
+        PreparedStatementWrite,
+        StatementCandidate,
+        StatementWriteOutcome,
+    )
+
+
 class SqlContinuousAccount:
     def __init__(
         self,
@@ -481,6 +497,52 @@ class SqlContinuousAccount:
         self._cooperative_stop_fields: dict[int, tuple[object, ...]] = {}
         self._cooperative_stop_used: set[int] = set()
         self._cooperative_writes: dict[object, _ContinuousStopScope | None] = {}
+        self._statement_values: WeakValueDictionary[int, Any] = WeakValueDictionary()
+        self._statement_fields: dict[int, tuple[object, ...]] = {}
+        self._statement_write_lock = Lock()
+
+    def prepare_statement_candidate(
+        self,
+        *,
+        account: ResolvedContinuousAccount,
+        risk: ResolvedDailyRuntimeSnapshot,
+        daily: SqlDailyRuntimeRisk,
+        journal: SqlDurableJournal,
+        record: OperationalControlOperatorStatementRecord,
+        expected_head: JournalHead,
+        prepared_at: datetime,
+    ) -> StatementCandidate:
+        from packages.persistence.operator_statement_retention import prepare_candidate
+
+        return prepare_candidate(
+            self,
+            account=account,
+            risk=risk,
+            daily=daily,
+            journal=journal,
+            record=record,
+            expected_head=expected_head,
+            prepared_at=prepared_at,
+        )
+
+    def prepare_statement_write(
+        self,
+        candidate: StatementCandidate,
+        *,
+        authenticated_at: datetime,
+        expires_at: datetime,
+        clock: object,
+    ) -> PreparedStatementWrite:
+        from packages.persistence.operator_statement_retention import prepare_write
+
+        return prepare_write(
+            self, candidate, authenticated_at=authenticated_at, expires_at=expires_at, clock=clock
+        )
+
+    def retain_statement(self, prepared: PreparedStatementWrite) -> StatementWriteOutcome:
+        from packages.persistence.operator_statement_retention import retain
+
+        return retain(self, prepared)
 
     def cooperative_stop_scope(self, stop_event: Event) -> _ContinuousStopScope:
         """Bind one operation's exact Event to this thread, with permanent stop denial.
