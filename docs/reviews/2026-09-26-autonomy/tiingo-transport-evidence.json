@@ -1,0 +1,107 @@
+{
+  "schema": "tiingo-transport-return-boundary-evidence/1",
+  "base_head": "08c4230e37f781f3dc76553f6cbae9686c25b729",
+  "files": [
+    {
+      "path": "packages/adapters/forward_capture_http.py",
+      "sha256": "3b4c2b2c5898992f7fcecca9ae3fb0b079bfadfe2216b3e96a0d5f9ce6253705"
+    },
+    {
+      "path": "tests/unit/test_forward_capture_http.py",
+      "sha256": "6759108a1263005bd540acce77246da251e50362449157f11c4a77d4854f9f5d"
+    }
+  ],
+  "problem": "Tiingo get could return provider-class success despite loader substitution during a dependency or request/loader/deadline invalidation during response/connection/socket cleanup. Existing binding checks rejected the returned selection immediately afterwards.",
+  "change": "Use existing full request+loader binding check after loader/TLS/body; recheck effective deadline before GET; a pending success return is allowed only after all cleanup and final original binding/effective deadline checks. Final unexpected exceptions retain static suppression. Earlier failure and cleanup-failure precedence remain unchanged.",
+  "before": {
+    "passed": 2,
+    "failed": 9,
+    "deselected": 81,
+    "seconds": 1.16,
+    "original_result_preserved": true,
+    "scope": "Initial 11 regressions against unchanged implementation; 12 additional final cases extend equivalent cleanup boundaries."
+  },
+  "validation": {
+    "runtime": "Verified persistent Python3.12.13, clean env -i, existing mechanical network/credential doubles only",
+    "focused_paths": [
+      "tests/unit/test_forward_capture_http.py",
+      "tests/unit/test_personal_forward_capture.py",
+      "tests/unit/test_personal_tiingo_capture_selection.py",
+      "tests/unit/test_personal_capture_calendar_binding.py",
+      "tests/integration/test_personal_forward_capture_publication.py",
+      "tests/integration/test_personal_forward_capture_journal.py"
+    ],
+    "final_passed": 297,
+    "final_failed": 0,
+    "final_skipped": 1,
+    "final_seconds": 3.62,
+    "skip": "Existing PostgreSQL publication test requires an explicit disposable AQT_TEST_POSTGRES_URL; no PostgreSQL acceptance inferred.",
+    "added_http_cases": 23,
+    "ruff_format": "2 files already formatted",
+    "ruff_lint": "All checks passed",
+    "mypy": "Success: no issues found in 1 source file (scoped forward_capture_http.py)",
+    "architecture": "Personal architecture check passed (layers, pure code, simulation import closure)",
+    "diff_check": "passed",
+    "independent_review": "architecture_audit: no actionable source finding; independently ran all 104 HTTP tests, passed in 1.87s."
+  },
+  "preserved": [
+    "Original one-use and fixed-endpoint behavior",
+    "Original request/maximum/effective deadline limits and static error conventions",
+    "All response/connection/socket cleanup attempts and cleanup error precedence",
+    "Collector fresh genuine-source guard, E*TRADE behavior, source/clock owner interfaces, risk/financial state"
+  ],
+  "limits": [
+    "Mechanical fixture-only validation; not actual provider, clock, source provenance, account or capture admission.",
+    "No credentials, real network/provider requests, operational activation, orders or commits.",
+    "Root owns documentation, final static integration and release CI."
+  ],
+  "temporary_artifacts": [
+    {
+      "path": "tiingo-transport-before.log",
+      "sha256": "f96193fe9e6da29fa4c498998ca99efb224fd544bb2df9d0ac83685f0d4406b6"
+    },
+    {
+      "path": "tiingo-transport-before.xml",
+      "sha256": "56ea8e9603d9858f61a7f58bc5e6ef17f6789f70783486df7a7c5cb0cfa174ad"
+    },
+    {
+      "path": "tiingo-before-forward_capture_http.py",
+      "sha256": "cc492b103b6c3f506a6ee723a2cb9786b55986595dbd3e0a8cfa79e6ae05a231"
+    },
+    {
+      "path": "tiingo-before-test_forward_capture_http.py",
+      "sha256": "b5657a368fff90756e57fd8ff6210f0d6774dba2e2c24a40f57e23d1bd79c2e6"
+    },
+    {
+      "path": "tiingo-before-hashes.json",
+      "sha256": "4a995a4d4469e085fbb5821289739e59f55448d81925ec5dc293d2b9395f63c9"
+    },
+    {
+      "path": "tiingo-transport-after.log",
+      "sha256": "66b457e0a38109b9bd5d4f05a1bcddc0390763688144c2fdbfc7f7f611b774fa"
+    },
+    {
+      "path": "tiingo-transport-after.xml",
+      "sha256": "f50602eccd8253108e1cbc46025f9f19d6ae6ae23119a51de5dd74c628e97e2a"
+    },
+    {
+      "path": "tiingo-transport-final.log",
+      "sha256": "5fa0d1dbf67236ebdd24f419ee49d7464226e4af06f81bafa8bdc1b13a5c96be"
+    },
+    {
+      "path": "tiingo-transport-final.xml",
+      "sha256": "d2eef6a1607323a6965eb795b1015913b943b9d0b40aaf7340c4fec79807542f"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "tiingo-transport-before.txt",
+      "sha256": "f96193fe9e6da29fa4c498998ca99efb224fd544bb2df9d0ac83685f0d4406b6"
+    },
+    {
+      "path": "tiingo-transport-final.txt",
+      "sha256": "5fa0d1dbf67236ebdd24f419ee49d7464226e4af06f81bafa8bdc1b13a5c96be"
+    }
+  ],
+  "temporary_artifacts_note": "Original diagnostic copies were saved outside Git under /private/tmp/aqt-autonomy-audit. The two durable logs above and source hashes are sufficient to inspect the failure and final result."
+}

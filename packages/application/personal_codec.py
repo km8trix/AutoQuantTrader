@@ -35,6 +35,11 @@ def _hints(cls: type) -> dict[str, object]:
 def _pack(value: object, depth: int = 0) -> object:
     if depth > _MAX_DEPTH:
         raise ValueError("research record nesting exceeds limit")
+    # Exact built-in scalars cannot be enums, records or typed containers.
+    if value is None or type(value) is str or type(value) is int or type(value) is bool:
+        if type(value) is str and len(value) > 65536:
+            raise ValueError("research text exceeds limit")
+        return value
     if isinstance(value, Enum):
         return {"$enum": _name(type(value)), "value": _pack(value.value, depth + 1)}
     if type(value) is Decimal:
@@ -111,6 +116,14 @@ def _text(value: object) -> str:
 def _unpack(value: object, annotation: object, depth: int = 0) -> object:
     if depth > _MAX_DEPTH:
         raise ValueError("research record nesting exceeds limit")
+    # Leave mismatches, aliases, unions and subclass annotations on the
+    # original dispatch path. Exact primitives need no typing introspection.
+    if (
+        annotation is str or annotation is int or annotation is bool or annotation is type(None)
+    ) and type(value) is annotation:
+        if annotation is str:
+            return _text(value)
+        return value
     if isinstance(annotation, TypeAliasType):
         return _unpack(value, annotation.__value__, depth + 1)
     origin, args = get_origin(annotation), get_args(annotation)

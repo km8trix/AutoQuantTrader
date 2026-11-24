@@ -1,0 +1,27 @@
+{
+  "recommendation": "Do not apply the temporary inline tuple scalar conditional. Keep the simpler restored literal generator source: the finite actual-contract benchmark showed no material benefit.",
+  "repository_changes": false,
+  "restored_source_sha256": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+  "candidate_function_ast_sha256": "44538c71aa73a16d392f1dbb89527b8128ee0cd8e004787cf8f0abd1948718a2",
+  "candidate": "Only the first exact-tuple branch: tuple(item if item is None or type(item) is str or type(item) is int or type(item) is bool or type(item) is bytes else semantic_value(item) for item in value). Dataclass generator/prefix/fields evaluation unchanged; no helper or type local.",
+  "compatibility": {
+    "result": "324 passed in 1.02s",
+    "log": "semantic-tuple-inline-compatibility.txt",
+    "mechanism": "Preserves generator item local, PEP479 boundary, original accumulator release on failure and direct nonexact recursion. Existing scalar/subclass/golden/error/getter/field-name/temporary-result/metadata lifetime cases pass.",
+    "limitations": [
+      "No universal equivalence claim for arbitrary module-global rebinding: a nonexact getter can replace contracts.semantic_value, and a later exact scalar would bypass that replacement in the candidate. No guards were added for unsupported mutable-code scenarios.",
+      "No exact recursion/resource-exhaustion boundary equivalence claim: removing a final exact-scalar call can change a pathological stack threshold.",
+      "Finite helper comparison does not establish retained fixture or exact-revision CI acceptance."
+    ]
+  },
+  "benchmark": {
+    "evidence": "semantic-tuple-inline-benchmark.json",
+    "ratio_definition": "Median of nine paired candidate elapsed / restored literal-generator elapsed ratios; 200 conversions per measurement, alternating ordering; timeit disables cyclic GC during each timing. Below one is faster.",
+    "actual_golden_contracts_ratio": 1.014139268147442,
+    "scalar_records_ratio": 1.0251186027333867,
+    "scalar_tuples_ratio": 0.7115911648330695,
+    "tuple_field_records_ratio": 0.9070622093357995,
+    "conclusion": "Synthetic scalar tuples improve, but actual golden contracts do not. No material actual-contract benefit justifies adding this conditional or any global-rebinding guards."
+  },
+  "coordination": "Finite tests/benchmarks completed after root's retained gate finished. All CPU work stopped and root notified before its next integration run."
+}

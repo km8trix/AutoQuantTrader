@@ -1,0 +1,116 @@
+{
+  "schema": "aqt-contract-primitive-checkpoint-publication/1",
+  "date": "2026-09-27",
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-validation.json",
+      "published": "docs/reviews/2026-09-26-autonomy/check-type-dispatch-validation.json",
+      "bytes": 3238,
+      "sha256": "d48332d780b9679a0af968acd89b7af06951e0e86f178c6fa87f9da0fa823c6e"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/check-type-dispatch-candidate-first.txt",
+      "bytes": 2172,
+      "sha256": "48c31bd44e122dc490c302ff62caa89b85d7584e867f210bc6f6dd2e603404cf"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-corrected.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/check-type-dispatch-candidate-corrected.txt",
+      "bytes": 179,
+      "sha256": "c5cc0762a37d0e6448a2804e7688984d4dba834df3ec0f963e345aec0745c5b2"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-final.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/check-type-dispatch-candidate-final.txt",
+      "bytes": 179,
+      "sha256": "90950769469c434949ca58c179c20eb2e785131e8c8d55fbb4a3749720e7e800"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-ruff-final.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/check-type-dispatch-ruff-final.txt",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-final-review.md",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-final-review.md",
+      "bytes": 3659,
+      "sha256": "862c15e0ba17f8fbcaefd74b8243d4ef018f812675866805ccdc332a064cb080"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-existing-units-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-existing-units-first.txt",
+      "bytes": 420,
+      "sha256": "6ddcb2de3c5e9705f7ec76ea60ba72e8d1a96a84d581b6fc09c437032855cd46"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-economic-units-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-economic-units-first.txt",
+      "bytes": 179,
+      "sha256": "e8d1c400b97e6ae284552bd4bf1b7d919d53d3159be368ebe381475dc919c6f2"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-financial-units-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-financial-units-first.txt",
+      "bytes": 420,
+      "sha256": "116d8d22d7d3c65b3653771e2aa2309c8f583705f8a283dcaa381f3bae1698ed"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-mypy-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-mypy-first.txt",
+      "bytes": 45,
+      "sha256": "186b2487a0b763b0edb1e7ff4a32863a9b284ae14487410f6145aa538fa0e540"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-api-first.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-api-first.txt",
+      "bytes": 36,
+      "sha256": "d748acc8820faf093db6cc948e69d01da74fe75dd0b617567797609f740802d0"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-ruff.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-ruff.txt",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-format.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-format.txt",
+      "bytes": 29,
+      "sha256": "4462ea8e2eada956cbf4ff3281f0ff264a767a77142ba1af13c78701df62068c"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-failure.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-071dd5c-shard3-failure.json",
+      "bytes": 7919,
+      "sha256": "e6aeeefbfcde69fe160cf2697fcea740590f5764b0c1e3b686cbf1f7275bb361"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-shard3-raw.log",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-071dd5c-shard3-raw.txt",
+      "bytes": 51951,
+      "sha256": "952682f33fb85072a86ff5aadc9556c26653ab077dd6ae708c709a770f3e03c3",
+      "source_sha256": "b1a77aeae13356faaa34c723f2e67ee03c54e07be752ec48986369dcf8d6b9d5",
+      "encoding": "display text with trailing whitespace removed; exact original in verbatim-validation-logs.json"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/linux-071dd5c-once-snapshot.json",
+      "published": "docs/reviews/2026-09-26-autonomy/linux-071dd5c-once-snapshot.json",
+      "bytes": 5383,
+      "sha256": "06ce25294e088abfa3b2a82118f24ed1adf54cb01ae9d9a06e17a3867d32237d"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/ci-071dd5c-initial.json",
+      "published": "docs/reviews/2026-09-26-autonomy/ci-071dd5c-initial.json",
+      "bytes": 6766,
+      "sha256": "9c98497e535f24c33af7005dc203ed3fd35fefcb53cf8f670c624a812e4fd4ba"
+    }
+  ],
+  "limits": [
+    "Focused new and existing unit/static results only; integration run remains active at this checkpoint.",
+    "First candidate unit failure was a test expectation error corrected against the independent original oracle.",
+    "071dd5c shard3 failure predates current primitive edit and is a completed job within an incomplete workflow.",
+    "No retained-restore speedup or Linux acceptance claimed."
+  ]
+}

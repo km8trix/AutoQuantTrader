@@ -1,0 +1,30 @@
+{
+  "schema": "aqt-ci-evidence-publication-map/1",
+  "scope": "Exact copies preserve original temporary names inside source records; this map resolves durable repository filenames. Raw job logs, remote-response originals and archive remain outside Git; digests and bounded static traces are preserved.",
+  "files": {
+    "ci-26631c6-final-summary.json": {
+      "repository_file": "linux-26631c6-ci-failure.json",
+      "sha256": "b3ae8242095914dc9cebd4a8384f8054165d3ae5f2e931e4b7c022cb0e0f46d7"
+    },
+    "ci-26631c6-financial-summary.json": {
+      "repository_file": "linux-26631c6-financial-summary.json",
+      "sha256": "8ab4636aa02c522e365ec0370a249964f13066d53e80982303fd5cf2c29b505e"
+    },
+    "ci-26631c6-profile/profile.json": {
+      "repository_file": "linux-26631c6-diagnostic-profile.json",
+      "sha256": "c0b290a9382ec1b555258d11664e0813f73be2a939748d4640764341704d6eeb"
+    },
+    "ci-26631c6-profile/test-exit.json": {
+      "repository_file": "linux-26631c6-diagnostic-test-exit.json",
+      "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25"
+    },
+    "ci-26631c6-artifacts.json": {
+      "repository_file": "linux-26631c6-artifacts.json",
+      "sha256": "3b47db423ff66aaa69cf2a5131925a020e07dcd10b1e6a773a42ab269fc87231"
+    },
+    "ci-26631c6-source-binding.json": {
+      "repository_file": "linux-26631c6-source-binding.json",
+      "sha256": "d3c909cc6d5748c27b0e008917ac3c5cbb016f57e2f7710711d532ddc45284d9"
+    }
+  }
+}

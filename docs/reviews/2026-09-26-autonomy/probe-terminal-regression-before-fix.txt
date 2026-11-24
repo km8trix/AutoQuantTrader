@@ -1,0 +1,19 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_post_exit_sample_ends_producer_before_terminal_handoff_join _______
+
+terminal_model = namespace(mode='normal', phase='released', eof_delay=0, clock_offset=0.0, exited=True, terminal_received=True, eof_del...t 0x10bb3dc60>, supervisor=<packages.application.continuous_process.ContinuousProcessSupervisor object at 0x10b8b7e60>)
+
+    def test_post_exit_sample_ends_producer_before_terminal_handoff_join(terminal_model):
+        model = terminal_model
+        result = model.run()
+>       assert result.status == "completed" and result.receipt is not None
+E       AssertionError: assert ('failed' == 'completed'
+E         
+E         - completed
+E         + failed)
+
+tests/unit/test_continuous_terminal_probe.py:207: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_continuous_terminal_probe.py::test_post_exit_sample_ends_producer_before_terminal_handoff_join
+1 failed in 0.31s

@@ -1,0 +1,48 @@
+{
+  "base_commit": "47fab9c32108151e1d98a5e636579a22cb86813c",
+  "capture_binding": {
+    "actual_review_sha256": "a19f04071571a212c7b2695cfb3a3fd2c2b647e8933976bc68295e9eb4c70474",
+    "existing_capture_denial": 4,
+    "existing_http": 63,
+    "format": "passed",
+    "junit_sha256": "0b36571eab07c882136539ee1c20ccf8e7e36edec6707c594b41a5eb5d6a5ac9",
+    "lint": "passed",
+    "new": 18,
+    "passed": 85,
+    "result_sha256": "263ea48eb59bb6a74d9ab9164575aa6b9cb34d93f6b8f38fbbe520da5ea4fc2b",
+    "types": "passed"
+  },
+  "ci_base_revision": "Run36004656372 shard07 failed retained integrity at60.190seconds when the original60-second lease expired; this is separate from these adapter validations. Do not claim Wave4 complete.",
+  "clock": {
+    "actual_review_sha256": "31eb79234810523221453faaefe43ce4959a42f57edd57251ede5a4019cfb02b",
+    "architecture": "passed",
+    "corrected_freeze_metadata": "The frozen run manifest retained stale advisory stage/new_files fields; its authoritative source_files and explicit runner stage were verified. The independent acceptance binds the actual final source.",
+    "existing": 23,
+    "format": "passed",
+    "junit_sha256": "7d6b5191455fdc0820422ecdc3d5e684a07f829463bf092c8afea20bf20e1893",
+    "lint": "passed",
+    "new": 30,
+    "passed": 53,
+    "result_sha256": "3e24708f8d9bef1705bfb7f8c33309fa0eb3cfc88cdbe3d267b303bbdb5b0cf7",
+    "source_review_sha256": "6a047ba1e04a91cb90dd23e60d54fb646c8715d7457692d9f567f5e116b3360f",
+    "types": "passed on identical production bytes"
+  },
+  "prior_failed_runs_preserved": {
+    "capture_binding": [
+      "one non-raw test regex lint failure"
+    ],
+    "clock": [
+      "lint failure",
+      "pytest source-path collection failure",
+      "sandbox process-inspection PermissionError before test results"
+    ]
+  },
+  "schema": "wave4-offline-adapter-validation/1",
+  "scope": "Offline mechanical adapters using synthetic source, clock, credential and socket fixtures. No actual host clock, credentials, provider requests or genuine source admission. Original deadlines, one-attempt behavior and capture guard are unchanged. No initializer, orders, deployment or trading activation.",
+  "source_files": {
+    "packages/adapters/forward_capture_http.py": "cc492b103b6c3f506a6ee723a2cb9786b55986595dbd3e0a8cfa79e6ae05a231",
+    "packages/adapters/standard_clock_chrony.py": "882258170df787c1110efaab551d3a95703978d1188db7da032794d0d7623bfd",
+    "tests/unit/test_forward_capture_http.py": "1ecd2318d3785b2775c9b3dbb3897778c23ba48ccce0114a83c051b509f9318b",
+    "tests/unit/test_personal_standard_clock_chrony.py": "a0bbb9e224820f53933fa2462470c9e31929afb41c87e4c7ec0729bb391624a9"
+  }
+}

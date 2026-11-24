@@ -1,0 +1,93 @@
+{
+  "scope": "Offline focused tests for private factory fingerprint pilot; no live/provider interaction",
+  "counts": {
+    "pure_data": 58,
+    "pure_behavior": 23,
+    "pure_method_profile": 8,
+    "actual_pending_and_signed_genesis_controls": 4,
+    "focused_total": 93,
+    "genuine_lifecycle_cases_pending_root": 7
+  },
+  "focused_result": {
+    "passed": 93,
+    "seconds": 37.35,
+    "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest -q tests/unit/test_continuous_attempt_fingerprint_proof.py tests/unit/test_continuous_attempt_fingerprint_behavior.py tests/unit/test_continuous_attempt_fingerprint_method_profile.py tests/integration/test_continuous_attempt_factory_proof.py",
+    "log": "factory-proof-expanded-focused-final.txt"
+  },
+  "earlier_results_preserved": [
+    {
+      "log": "factory-proof-expanded-pure-first.txt",
+      "passed": 51,
+      "failed": 27,
+      "errors": 1,
+      "seconds": 0.95,
+      "cause": "Native ABC lazy cache layout/role assumptions plus test __bases__ teardown."
+    },
+    {
+      "log": "factory-proof-expanded-pure-second.txt",
+      "passed": 58,
+      "failed": 20,
+      "seconds": 0.94,
+      "cause": "Test copy(Field) added incidental __slotnames__ after captured behavior baseline; cleanup corrected."
+    },
+    {
+      "log": "factory-proof-expanded-pure-third.txt",
+      "passed": 78,
+      "seconds": 0.75
+    },
+    {
+      "log": "factory-proof-expanded-pure-final.txt",
+      "passed": 87,
+      "failed": 2,
+      "seconds": 1.42,
+      "cause": "Test restored EnumType bases but recreated MRO identity; mutation moved to isolated sanitized interpreter."
+    },
+    {
+      "log": "factory-proof-owned-controls-first.txt",
+      "passed": 2,
+      "failed": 1,
+      "errors": 1,
+      "seconds": 32.61,
+      "cause": "Copied-type slot-cache test contamination plus missing configured fixture import."
+    },
+    {
+      "log": "factory-proof-owned-controls-second.txt",
+      "passed": 4,
+      "seconds": 36.27
+    }
+  ],
+  "hash_capture_scope": "These hashes describe the frozen files observed after focused tests and at root genuine-suite launch. No before-run hash capture is claimed; production source was being finalized during focused validation.",
+  "files_sha256": {
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "tests/unit/test_continuous_attempt_fingerprint_proof.py": "39b0c39e51dae50247b37bd34fbf669c60f8663874d7222bf10fc4b802a24016",
+    "tests/unit/test_continuous_attempt_fingerprint_behavior.py": "10ab2eac535050904b8585362e1ab484666751d9caf82bec6c4b3a292b7c8377",
+    "tests/unit/test_continuous_attempt_fingerprint_method_profile.py": "716db019731fade27ca482b64c02297da58036af1eaafc68fd159fc450f3fbf6",
+    "tests/integration/test_continuous_attempt_factory_proof.py": "a14ec354779663f527dd485f8f780d056ed873b98201acbe6411d4a302f734bb",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "301967ab19ba4638c29ff6ba3afba507336875765eb27b7a8b25a34468048def"
+  },
+  "evidence_sha256": {
+    "factory-proof-expanded-pure-first.txt": "9f3ece89de8391a9ea967fbd34c2467b88e0c860de87ff13e6b40bdfaa2d1d62",
+    "factory-proof-expanded-pure-second.txt": "b6ba5c10636c8e8d286c2724ffcd2e5d05b89ed6d8af51adb942509415f0695b",
+    "factory-proof-expanded-pure-third.txt": "3e575a27c37b6bba186a86da8ba8b7a285bcf1026769fe5ad4f1e4795169880f",
+    "factory-proof-expanded-pure-final.txt": "e8d18a9df10239af58b3b1216902f556c142c49a0eaf8240416de938e44c5a67",
+    "factory-proof-expanded-focused-final.txt": "b0f59b016bd62a82641319be08d50a9d3a09c85acf818936efcaa720655aec19",
+    "factory-proof-owned-controls-first.txt": "60535f092f542a4778f54ae963647b4d86fc36d8607aaacf595bd879139f9d45",
+    "factory-proof-owned-controls-second.txt": "b7d5d2f58250855f0c5721700a70bf9074d9470e9170a333b286857d9397984e",
+    "factory-proof-copy-class-cache.txt": "1dbc4c21805809446ad7db191efd07208bb6052565b3d985705d68ec4e460963",
+    "factory-proof-native-cache-layout-repro.py": "4a069cc5f583a6b3b15df1a9c266fd5d116505191a2081dad4e401c1aa0ed2f1",
+    "factory-proof-native-cache-layout-repro.txt": "c45f3802fc7ec6792aebdbf2578bfd7a1d285acbfd55fc28b2d4de501241ef5d"
+  },
+  "limits": [
+    "Pure seals and uninitialized method-profile objects confer no source/factory authority.",
+    "Actual pending fixture verifies original source ownership and actual projection under remaining original budget, but not a signed factory episode.",
+    "Existing real-clock retained runner supplies original 120s deadline, fresh leases, no new sources, financial-row/venue equality, and cleanup for seven genuine cases.",
+    "Genuine lifecycle suite is running under root ownership; no result or performance acceptance is claimed here.",
+    "Focused source was not frozen at process start; root source-frozen full genuine/original retained/CI gates remain necessary.",
+    "Original source require_resolved/fingerprint remain full outside the admitted factory borrow; no cache or resource limit was increased.",
+    "Incidental copyreg __slotnames__ class caches are restored in test helpers so copied-owner/token tests exercise ownership identity and do not contaminate later tests.",
+    "Metaclass MRO mutation runs in a bounded isolated Python interpreter because restoring bases cannot restore original MRO tuple identity."
+  ]
+}

@@ -1,0 +1,498 @@
+{
+  "source_revision": "02a8ee6008c7dfefd6c6572593f5664e834ebe3f",
+  "run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058",
+  "conclusion": "failure",
+  "completed_at": "2026-09-26T08:57:31Z",
+  "source_difference_from_passing_a8b9229": "Only documentation/evidence changed; packages/apps/scripts/tests/configuration identical.",
+  "jobs": [
+    {
+      "name": "Browser regressions",
+      "conclusion": "success",
+      "databaseId": 108366640714,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366640714"
+    },
+    {
+      "name": "Standard Python foundations and installed-wheel checks",
+      "conclusion": "success",
+      "databaseId": 108366640750,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366640750"
+    },
+    {
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873539,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873539"
+    },
+    {
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873556,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873556"
+    },
+    {
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873566,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873566"
+    },
+    {
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "conclusion": "failure",
+      "databaseId": 108366873571,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873571"
+    },
+    {
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "conclusion": "failure",
+      "databaseId": 108366873591,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873591"
+    },
+    {
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873596,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873596"
+    },
+    {
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873615,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873615"
+    },
+    {
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873640,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873640"
+    },
+    {
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873651,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873651"
+    },
+    {
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873653,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873653"
+    },
+    {
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873659,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873659"
+    },
+    {
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873681,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873681"
+    },
+    {
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873719,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873719"
+    },
+    {
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366873740,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366873740"
+    },
+    {
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366874149,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366874149"
+    },
+    {
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "conclusion": "success",
+      "databaseId": 108366874176,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108366874176"
+    },
+    {
+      "name": "Standard Python foundations and retained financial regressions",
+      "conclusion": "failure",
+      "databaseId": 108373992712,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108373992712"
+    },
+    {
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "conclusion": "failure",
+      "databaseId": 108373992758,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36228369058/job/108373992758"
+    }
+  ],
+  "failures": [
+    {
+      "shard": 3,
+      "test": "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history",
+      "result": "probe_stalled",
+      "passed": 312,
+      "failed": 1,
+      "deselected": 4473,
+      "seconds": 744.77,
+      "cause_status": "Exact probe_stalled branch is not identified by CI output; lifecycle/capture investigation open."
+    },
+    {
+      "shard": 7,
+      "test": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+      "result": "AccountLeaseOwnershipLost plus OFFLINE_LEASE_RELEASE_FAILED",
+      "restore_seconds": 60.412,
+      "passed": 294,
+      "failed": 1,
+      "deselected": 4491,
+      "seconds": 1018.53,
+      "cause": "Expiry during _validate_accounts -> resolve_index -> prepare_capture -> _historical_current -> original daily episode/fence validation."
+    }
+  ],
+  "diagnostic": {
+    "artifact_id": 10902790326,
+    "artifact_name": "retained-restore-profile-36228369058-1",
+    "result": "failed",
+    "restore_seconds": 60.333,
+    "profile_sha256": "783dcf733fe202b9b40aa13651f983fd637773a540e32e77b603014fb2611274",
+    "scope": "Instrumented factory.execute only; fixture setup, factory construction, result decoding/assertions, cleanup and report generation are excluded. A returned execute call is not a passing restore test or startup acceptance.",
+    "top_self_rows": [
+      {
+        "stats_entry_ordinal": 470,
+        "group": "project",
+        "file": "packages/domain/canonical.py",
+        "line": 152,
+        "function": "_append_typed_text",
+        "calls": 3762932,
+        "recursive_calls": 3740844,
+        "inclusive_seconds": 13.765972385000001,
+        "self_seconds": 8.173829162
+      },
+      {
+        "stats_entry_ordinal": 714,
+        "group": "project",
+        "file": "packages/persistence/daily_runtime_risk.py",
+        "line": 991,
+        "function": "_assignment_identity_fields",
+        "calls": 57,
+        "recursive_calls": 0,
+        "inclusive_seconds": 5.549128206000001,
+        "self_seconds": 2.486340486
+      },
+      {
+        "stats_entry_ordinal": 10,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "list.append",
+        "calls": 22365496,
+        "recursive_calls": 0,
+        "inclusive_seconds": 2.3911618860000003,
+        "self_seconds": 2.3911618860000003
+      },
+      {
+        "stats_entry_ordinal": 73,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "builtins.isinstance",
+        "calls": 12983145,
+        "recursive_calls": 0,
+        "inclusive_seconds": 3.5697992110000003,
+        "self_seconds": 2.2292516620000002
+      },
+      {
+        "stats_entry_ordinal": 409,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/cache_key.py",
+        "line": 221,
+        "function": "_gen_cache_key",
+        "calls": 1001075,
+        "recursive_calls": 987788,
+        "inclusive_seconds": 3.5321324350000003,
+        "self_seconds": 2.211326317
+      },
+      {
+        "stats_entry_ordinal": 354,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/coercions.py",
+        "line": 314,
+        "function": "expect",
+        "calls": 1308658,
+        "recursive_calls": 0,
+        "inclusive_seconds": 7.118549056000001,
+        "self_seconds": 2.20416407
+      },
+      {
+        "stats_entry_ordinal": 472,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 20,
+        "function": "semantic_value",
+        "calls": 940426,
+        "recursive_calls": 922857,
+        "inclusive_seconds": 3.90244675,
+        "self_seconds": 2.172743146
+      },
+      {
+        "stats_entry_ordinal": 69,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "builtins.getattr",
+        "calls": 11378161,
+        "recursive_calls": 5513,
+        "inclusive_seconds": 1.722441534,
+        "self_seconds": 1.716666467
+      },
+      {
+        "stats_entry_ordinal": 4733,
+        "group": "runtime",
+        "file": "dataclasses.py",
+        "line": 1278,
+        "function": "fields",
+        "calls": 970126,
+        "recursive_calls": 0,
+        "inclusive_seconds": 2.595599773,
+        "self_seconds": 1.515877023
+      },
+      {
+        "stats_entry_ordinal": 125,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "_json.encode_basestring_ascii",
+        "calls": 5810563,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.0572519770000002,
+        "self_seconds": 1.0572519770000002
+      },
+      {
+        "stats_entry_ordinal": 839,
+        "group": "project",
+        "file": "packages/persistence/detached_journal_capture.py",
+        "line": 89,
+        "function": "detached_journal_value",
+        "calls": 989064,
+        "recursive_calls": 988257,
+        "inclusive_seconds": 3.3666775920000003,
+        "self_seconds": 0.9477374780000001
+      },
+      {
+        "stats_entry_ordinal": 245,
+        "group": "generated",
+        "file": "<generated>",
+        "line": 117,
+        "function": "__instancecheck__",
+        "calls": 1374030,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.209381355,
+        "self_seconds": 0.9173767180000001
+      },
+      {
+        "stats_entry_ordinal": 4654,
+        "group": "runtime",
+        "file": "dataclasses.py",
+        "line": 1293,
+        "function": "<genexpr>",
+        "calls": 7437979,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.8238525040000001,
+        "self_seconds": 0.8238355620000001
+      },
+      {
+        "stats_entry_ordinal": 571,
+        "group": "project",
+        "file": "packages/domain/canonical.py",
+        "line": 102,
+        "function": "_typed_node",
+        "calls": 504641,
+        "recursive_calls": 33673,
+        "inclusive_seconds": 2.5575294310000003,
+        "self_seconds": 0.809516773
+      },
+      {
+        "stats_entry_ordinal": 4616,
+        "group": "runtime",
+        "file": "dataclasses.py",
+        "line": 1301,
+        "function": "is_dataclass",
+        "calls": 1650593,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.086707354,
+        "self_seconds": 0.668325524
+      },
+      {
+        "stats_entry_ordinal": 885,
+        "group": "project",
+        "file": "packages/application/personal_codec.py",
+        "line": 116,
+        "function": "_unpack",
+        "calls": 255395,
+        "recursive_calls": 253953,
+        "inclusive_seconds": 3.8737651970000004,
+        "self_seconds": 0.648158032
+      },
+      {
+        "stats_entry_ordinal": 64,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "builtins.any",
+        "calls": 729431,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.8760107320000001,
+        "self_seconds": 0.62882864
+      },
+      {
+        "stats_entry_ordinal": 408,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/elements.py",
+        "line": 1974,
+        "function": "__init__",
+        "calls": 303307,
+        "recursive_calls": 0,
+        "inclusive_seconds": 3.6750754540000004,
+        "self_seconds": 0.6221586210000001
+      },
+      {
+        "stats_entry_ordinal": 3947,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/elements.py",
+        "line": 3110,
+        "function": "<genexpr>",
+        "calls": 248839,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.6140940420000001,
+        "self_seconds": 0.614036616
+      },
+      {
+        "stats_entry_ordinal": 4068,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/sqltypes.py",
+        "line": 232,
+        "function": "_resolve_for_literal",
+        "calls": 67267,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.623464385,
+        "self_seconds": 0.610868375
+      },
+      {
+        "stats_entry_ordinal": 742,
+        "group": "project",
+        "file": "packages/application/personal_codec.py",
+        "line": 35,
+        "function": "_pack",
+        "calls": 438718,
+        "recursive_calls": 435816,
+        "inclusive_seconds": 1.286750485,
+        "self_seconds": 0.5893407820000001
+      },
+      {
+        "stats_entry_ordinal": 2300,
+        "group": "project",
+        "file": "packages/persistence/continuous_runtime_history.py",
+        "line": 322,
+        "function": "<genexpr>",
+        "calls": 2140574,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.7371017590000001,
+        "self_seconds": 0.556929541
+      },
+      {
+        "stats_entry_ordinal": 3979,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/elements.py",
+        "line": 5538,
+        "function": "safe_construct",
+        "calls": 304710,
+        "recursive_calls": 0,
+        "inclusive_seconds": 1.886779795,
+        "self_seconds": 0.524229158
+      },
+      {
+        "stats_entry_ordinal": 4530,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/functions.py",
+        "line": 155,
+        "function": "__init__",
+        "calls": 140298,
+        "recursive_calls": 0,
+        "inclusive_seconds": 5.126678417,
+        "self_seconds": 0.52318202
+      },
+      {
+        "stats_entry_ordinal": 3471,
+        "group": "project",
+        "file": "packages/persistence/daily_runtime_risk.py",
+        "line": 1026,
+        "function": "<genexpr>",
+        "calls": 2892807,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.9499521790000001,
+        "self_seconds": 0.51457547
+      },
+      {
+        "stats_entry_ordinal": 131,
+        "group": "builtin",
+        "file": "<builtin>",
+        "line": 0,
+        "function": "sqlite3.Cursor.execute",
+        "calls": 13721,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.5042459960000001,
+        "self_seconds": 0.5042459960000001
+      },
+      {
+        "stats_entry_ordinal": 437,
+        "group": "project",
+        "file": "packages/domain/personal_contracts.py",
+        "line": 124,
+        "function": "_check_type",
+        "calls": 302073,
+        "recursive_calls": 75884,
+        "inclusive_seconds": 1.115610707,
+        "self_seconds": 0.475782472
+      },
+      {
+        "stats_entry_ordinal": 393,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/elements.py",
+        "line": 2160,
+        "function": "_gen_cache_key",
+        "calls": 282123,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.564982612,
+        "self_seconds": 0.470231655
+      },
+      {
+        "stats_entry_ordinal": 280,
+        "group": "dependency",
+        "file": "sqlalchemy/sql/functions.py",
+        "line": 977,
+        "function": "__call__",
+        "calls": 154695,
+        "recursive_calls": 0,
+        "inclusive_seconds": 6.5308142700000005,
+        "self_seconds": 0.45941481100000003
+      },
+      {
+        "stats_entry_ordinal": 452,
+        "group": "project",
+        "file": "packages/domain/canonical.py",
+        "line": 194,
+        "function": "_typed_fragment_text",
+        "calls": 470968,
+        "recursive_calls": 0,
+        "inclusive_seconds": 0.8058750960000001,
+        "self_seconds": 0.458439876
+      }
+    ]
+  },
+  "unchanged_limits": {
+    "lease_seconds": 60,
+    "operation_seconds": 120,
+    "parent_seconds": 150
+  },
+  "limitations": "Earlier full pass remains valid for its run; this repeat failure reopens A2. No rerun-only acceptance, timeout increase, failed-test weakening or trading authority."
+}

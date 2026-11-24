@@ -1,0 +1,15 @@
+{
+  "schema": "aqt-final-study-ci-publication-validation/1",
+  "date": "2026-09-27",
+  "all_20_ci_raw_log_hashes_verified": true,
+  "github_archive_digest_and_exact_extracted_files_verified": true,
+  "exact_published_ci_copies_verified": 6,
+  "failure_traces_match_raw_logs": true,
+  "study_observer_and_source_bindings": "See prelease-study-publication-validation.json; unchanged since that check.",
+  "evidence_json_files_parsed": 87,
+  "local_markdown_documents": 22,
+  "local_markdown_links_resolved": 286,
+  "diff_check": "pass",
+  "production_tests_scripts_ci_unchanged_from": "26631c66854c754533f5d6d82749e1fb8b5e3dcf",
+  "behavioral_tests_repeated_for_documentation": false
+}

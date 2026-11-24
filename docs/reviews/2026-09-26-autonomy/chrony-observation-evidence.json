@@ -1,0 +1,33 @@
+{
+  "scope": "A3.2 source-owned reading-to-measurement precursor only",
+  "legacy_conversion_body_ast_preserved_after_return_wrapper_normalization": true,
+  "validation": {
+    "focused_pytest": "92 passed in 0.49s",
+    "ruff_format": "2 files already formatted",
+    "ruff_lint": "passed",
+    "mypy": "1 source file passed",
+    "independent_review": "Source review passed; independent architecture and 92 focused cases passed in 0.47s.",
+    "git_diff_check": "passed"
+  },
+  "review_correction": {
+    "copied_owner": "Initial draft shared weak registries through copy.copy; original producer weak reference now required. Regression failed against pre-fix source reconstructed in a temporary module: 1 failed in 0.11s, DID NOT RAISE. Working source was not reverted.",
+    "reproduction_file": "chrony-copied-owner-reproduction.txt",
+    "authority_descriptor": "Independent review added exact argv descriptor binding before inert authority revalidation; descriptor-rebinding adverse cases pass."
+  },
+  "files": [
+    {
+      "path": "packages/adapters/standard_clock_chrony.py",
+      "sha256": "426cebb424cd15f1a203c62e5d199bfd7d6dea334a8a308efe807989ccc9e156"
+    },
+    {
+      "path": "tests/unit/test_personal_standard_clock_chrony.py",
+      "sha256": "473e5aa7d3ecdab5a4b4dfe176126bbb05a95eb11c0c24610b62e41586e4cd2c"
+    }
+  ],
+  "limitations": [
+    "No real Chrony subprocess, provider request, clock-service query or credential use; tests use injected callbacks and synthetic parser fixtures.",
+    "No StandardClock behavior/profile change, host qualification, health-history linkage, currentness assertion, capture verifier, or genuine collector admission.",
+    "Registry proves cooperating-process object ownership; no hostile mutable-code sandbox claim.",
+    "Constructor/repr/equality/hash preserved; opt-in registry is unused by legacy __call__."
+  ]
+}

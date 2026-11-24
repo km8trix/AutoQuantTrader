@@ -16,7 +16,7 @@ from decimal import (
 )
 from zoneinfo import ZoneInfo
 
-from packages.domain.account_projection import project_unvalued_fifo_account
+from packages.domain.account_projection import CostBasisPolicy, project_unvalued_fifo_account
 from packages.domain.accounting_contracts import (
     AccountingCommand,
     AccountingContext,
@@ -24,6 +24,7 @@ from packages.domain.accounting_contracts import (
     AccountingTransition,
     AccountSnapshot,
     ActivateCommitment,
+    ActivateRuntimeCommitments,
     Commitment,
     ControlCommand,
     DueAccountingEvent,
@@ -34,6 +35,8 @@ from packages.domain.accounting_contracts import (
     InstallCommitment,
     ModelDisposition,
     PositionState,
+    RegisterVenueSubmission,
+    ReleaseRuntimeUnsent,
 )
 from packages.domain.corporate_action_ledger import (
     CashDividendAccrual,
@@ -66,12 +69,18 @@ from packages.domain.order_reducer import (
     OrderCancelRequest,
     reduce_order_lifecycle,
 )
-from packages.domain.personal_contracts import CausalMark, content_digest, require_text
+from packages.domain.personal_contracts import (
+    CausalMark,
+    content_digest,
+    require_amount,
+    require_text,
+)
 from packages.domain.settlement_ledger import (
     ExecutionSettlementConfirmation,
     ExecutionSettlementInstruction,
     create_settlement_confirmation,
     create_settlement_instruction,
+    reduce_observed_settlement_ledger,
     reduce_settlement_ledger,
 )
 
@@ -164,6 +173,74 @@ def _price(reference: Decimal, side: Side, policy: ExecutionPolicy) -> Decimal:
     if value <= 0:
         raise ValueError("modeled execution price is not positive")
     return value
+
+
+def model_execution_terms(
+    *,
+    quantity: Decimal,
+    reference_price: Decimal,
+    side: Side,
+    policy: ExecutionPolicy,
+) -> tuple[Decimal, Decimal]:
+    """Frozen W2 adverse price/fee arithmetic for separately journaled venue facts."""
+    require_amount(quantity, "modeled quantity", positive=True, whole=True)
+    require_amount(reference_price, "modeled reference", positive=True)
+    if type(side) is not Side or type(policy) is not ExecutionPolicy:
+        raise ValueError("modeled terms require exact side and execution policy")
+    return _price(reference_price, side, policy), multiply(quantity, policy.fee_per_share)
+
+
+def model_settlement_at(*, event: BrokerOrderEvent, policy: ExecutionPolicy) -> datetime:
+    """Frozen dated calendar/receipt convention, never provider settlement evidence."""
+    if (
+        type(event) is not BrokerOrderEvent
+        or event.kind
+        not in (
+            BrokerOrderEventKind.EXECUTION,
+            BrokerOrderEventKind.EXECUTION_CORRECTION,
+        )
+        or type(policy) is not ExecutionPolicy
+    ):
+        raise ValueError("modeled settlement requires an exact execution fact and policy")
+    return _settlement_at(event, policy)
+
+
+def _validate_commitment_capacity(
+    state: AccountingState,
+    commitment: Commitment,
+    before: AccountSnapshot,
+    policy: ExecutionPolicy,
+) -> None:
+    """One reserve/cash/share validation for engine and independent venue installs."""
+    c = commitment
+    if before.halted:
+        raise ValueError("account is halted")
+    expected_reserve = (
+        add(multiply(c.remaining_quantity, c.approved_price), c.remaining_fee_budget)
+        if c.side is Side.BUY
+        else c.remaining_fee_budget
+    )
+    if c.reserved_cash != expected_reserve or c.reserved_sell_quantity != (
+        c.remaining_quantity if c.side is Side.SELL else _ZERO
+    ):
+        raise ValueError("commitment reserve formula differs")
+    if c.remaining_fee_budget < multiply(c.remaining_quantity, policy.fee_per_share):
+        raise ValueError("commitment fee budget is below modeled fees")
+    if c.reserved_cash > before.available_cash:
+        raise ValueError("commitment exceeds current available cash")
+    if c.side is Side.SELL:
+        held = total(p.quantity for p in before.positions if p.instrument_id == c.instrument_id)
+        reserved = total(
+            p.reserved_sell_quantity
+            for p in state.commitments
+            if p.instrument_id == c.instrument_id
+        )
+        if c.remaining_quantity > subtract(held, reserved):
+            raise ValueError("commitment exceeds unreserved long shares")
+    if any(
+        p.intent_id == c.intent_id or p.commitment_id == c.commitment_id for p in state.commitments
+    ):
+        raise ValueError("commitment repeats an intent or reservation")
 
 
 def _validate_context(state: AccountingState, context: AccountingContext) -> None:
@@ -277,12 +354,22 @@ class PersonalAccounting:
             cash_dividends=state.cash_dividends,
             dividend_payments=state.dividend_payments,
             as_of=context.point.knowledge_at,
+            policy=(
+                CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1
+                if policy.model_id in ("observed-facts-v1", "stateful-venue-facts-v1")
+                else CostBasisPolicy.FIFO_TRADE_DATE
+            ),
         )
         event_ids = {event.event_id for event in state.broker_events}
         instructions = tuple(
             item for item in state.settlement_instructions if item.execution_event_id in event_ids
         )
-        settlement = reduce_settlement_ledger(
+        settlement_reducer = (
+            reduce_observed_settlement_ledger
+            if policy.model_id in ("observed-facts-v1", "stateful-venue-facts-v1")
+            else reduce_settlement_ledger
+        )
+        settlement = settlement_reducer(
             account_id=state.account_id,
             order_states=orders,
             cash_flows=state.cash_flows,
@@ -426,7 +513,9 @@ class PersonalAccounting:
                 economic_at=e.occurred_at,
                 knowledge_at=e.current_received_at,
                 sequence=event_points[e.event_id].reduction_sequence,
-                model_id=policy.model_id
+                model_id="observed-facts-v1"
+                if policy.model_id in ("observed-facts-v1", "stateful-venue-facts-v1")
+                else policy.model_id
                 if by_event[e.event_id].reason == "modeled-execution"
                 else "synthetic-authoritative-fact-v1",
                 supersedes_fact_id=by_event[e.event_id].supersedes_event_id,
@@ -530,6 +619,10 @@ class PersonalAccounting:
         before: AccountingTransition,
     ) -> tuple[AccountingState, tuple[DueAccountingEvent, ...], tuple[str, ...]]:
         payload = command.payload
+        if policy.model_id in ("observed-facts-v1", "stateful-venue-facts-v1") and isinstance(
+            payload, (ActivateCommitment, ExecutionObservation, ModelDisposition)
+        ):
+            raise ValueError("observed accounting cannot create modeled order or execution facts")
         now = context.point.knowledge_at
         due: tuple[DueAccountingEvent, ...] = ()
         if isinstance(payload, InstallCommitment):
@@ -578,43 +671,189 @@ class PersonalAccounting:
                 or c.expires_at <= now
             ):
                 raise ValueError("submission and initial commitment do not bind")
-            if before.snapshot.halted:
-                raise ValueError("account is halted")
-            expected_reserve = (
-                add(multiply(c.remaining_quantity, c.approved_price), c.remaining_fee_budget)
-                if c.side is Side.BUY
-                else c.remaining_fee_budget
-            )
-            if c.reserved_cash != expected_reserve or c.reserved_sell_quantity != (
-                c.remaining_quantity if c.side is Side.SELL else _ZERO
-            ):
-                raise ValueError("commitment reserve formula differs")
-            if c.remaining_fee_budget < multiply(c.remaining_quantity, policy.fee_per_share):
-                raise ValueError("commitment fee budget is below modeled fees")
-            if c.reserved_cash > before.snapshot.available_cash:
-                raise ValueError("commitment exceeds current available cash")
-            if c.side is Side.SELL:
-                held = total(
-                    p.quantity
-                    for p in before.snapshot.positions
-                    if p.instrument_id == c.instrument_id
-                )
-                reserved = total(
-                    p.reserved_sell_quantity
-                    for p in state.commitments
-                    if p.instrument_id == c.instrument_id
-                )
-                if c.remaining_quantity > subtract(held, reserved):
-                    raise ValueError("commitment exceeds unreserved long shares")
-            if any(
-                p.intent_id == c.intent_id or p.commitment_id == c.commitment_id
-                for p in state.commitments
-            ):
-                raise ValueError("commitment repeats an intent or reservation")
+            _validate_commitment_capacity(state, c, before.snapshot, policy)
             state = replace(
                 state,
                 submissions=_append(state.submissions, submission, "order_id"),
                 commitments=_append(state.commitments, c, "commitment_id"),
+            )
+        elif isinstance(payload, ReleaseRuntimeUnsent):
+            if (
+                policy.model_id != "observed-facts-v1"
+                or payload.account_id != state.account_id
+                or payload.source_state_sha256 != state.semantic_sha256
+                or payload.proof_at != now
+            ):
+                raise ValueError("unsent release requires the exact current runtime proof source")
+            c = _commitment(state, payload.commitment_id)
+            if (
+                c.semantic_sha256 != payload.expected_commitment_sha256
+                or c.state != "approved_unsent"
+                or c.activated_at is not None
+                or c.activation_sequence is not None
+                or c.activation_frontier is not None
+                or c.filled_quantity != 0
+                or c.remaining_quantity != c.original_quantity
+                or any(event.order_id == c.order_id for event in state.broker_events)
+                or any(request.order_id == c.order_id for request in state.cancel_requests)
+            ):
+                raise ValueError("unsent release cannot discard claimed or observed order exposure")
+            if payload.reason == "expired" and now < c.expires_at:
+                raise ValueError("unsent expiry cannot precede the original deadline")
+            state = _replace_commitment(
+                state,
+                replace(
+                    c,
+                    state="terminal",
+                    remaining_quantity=_ZERO,
+                    reserved_cash=_ZERO,
+                    reserved_sell_quantity=_ZERO,
+                    remaining_fee_budget=_ZERO,
+                    terminal_reason="runtime_unsent_" + payload.reason,
+                ),
+            )
+        elif isinstance(payload, RegisterVenueSubmission):
+            if (
+                policy.model_id != "stateful-venue-facts-v1"
+                or payload.account_id != state.account_id
+                or payload.venue_model_sha256 != policy.semantic_sha256
+                or context.approved_snapshot is not None
+                or context.risk_policy_sha256 is not None
+            ):
+                raise ValueError("venue registration requires its own scoped observed-facts policy")
+            c, submission = payload.source_commitment, payload.submission
+            intent = submission.intent
+            if (
+                (c.order_id, c.intent_id, c.instrument_id, c.symbol, c.side, c.original_quantity)
+                != (
+                    submission.order_id,
+                    intent.intent_id,
+                    intent.instrument_id,
+                    intent.symbol,
+                    intent.side,
+                    intent.quantity,
+                )
+                or dict(context.instruments).get(c.instrument_id) != c.symbol
+                or c.state not in ("approved_unsent", "active")
+                or c.filled_quantity != 0
+                or c.remaining_quantity != c.original_quantity
+                or c.approved_price <= 0
+                or (
+                    c.state == "approved_unsent"
+                    and (
+                        c.activated_at is not None
+                        or c.activation_sequence is not None
+                        or c.activation_frontier is not None
+                    )
+                )
+                or (
+                    c.state == "active"
+                    and (
+                        c.activated_at is None
+                        or c.activated_at > now
+                        or c.activation_sequence is None
+                        or c.activation_frontier is None
+                    )
+                )
+                or c.terminal_reason is not None
+                or submission.submitted_at > now
+                or not c.not_before <= now < c.expires_at
+                or intent.expires_at != c.expires_at
+            ):
+                raise ValueError("venue outbound submission/commitment binding differs")
+            _validate_commitment_capacity(state, c, before.snapshot, policy)
+            local = replace(
+                c,
+                created_sequence=context.point.reduction_sequence,
+                state="active",
+                activated_at=now,
+                activation_sequence=context.point.reduction_sequence,
+                activation_frontier=context.point.frontier_sequence,
+            )
+            state = replace(
+                state,
+                submissions=_append(state.submissions, submission, "order_id"),
+                commitments=_append(state.commitments, local, "commitment_id"),
+            )
+        elif isinstance(payload, ActivateRuntimeCommitments):
+            source = context.approved_snapshot
+            if (
+                policy.model_id != "observed-facts-v1"
+                or payload.account_id != state.account_id
+                or payload.source_state_sha256 != state.semantic_sha256
+                or source is None
+                or source.state_sha256 != state.semantic_sha256
+                or source.semantic_sha256 != payload.source_snapshot_sha256
+                or source != replace(before.snapshot, point=source.point)
+                or source.point.knowledge_at > payload.checked_at
+                or context.risk_policy_sha256 != payload.original_policy_sha256
+                or not payload.checked_at <= now < payload.expires_at
+                or source.point.reduction_sequence >= context.point.reduction_sequence
+                or source.point.frontier_sequence > context.point.frontier_sequence
+                or before.snapshot.halted
+            ):
+                raise ValueError("runtime activation source, policy, context or time differs")
+            originals = tuple(_commitment(state, term.commitment_id) for term in payload.terms)
+            ids = {c.commitment_id for c in originals}
+            orders = {c.order_id for c in originals}
+            if any(e.order_id in orders for e in state.broker_events) or any(
+                request.order_id in orders for request in state.cancel_requests
+            ):
+                raise ValueError("runtime activation cannot ignore broker or cancel facts")
+            replacements = []
+            for old, term in zip(originals, payload.terms, strict=True):
+                if (
+                    old.semantic_sha256 != term.expected_commitment_sha256
+                    or old.policy_sha256 != payload.original_policy_sha256
+                    or old.state != "approved_unsent"
+                    or old.filled_quantity != 0
+                    or old.remaining_quantity != old.original_quantity
+                    or old.activated_at is not None
+                    or old.activation_sequence is not None
+                    or old.activation_frontier is not None
+                    or old.terminal_reason is not None
+                    or not old.not_before <= now < old.expires_at
+                    or payload.expires_at > old.expires_at
+                    or old.execution_session != context.expected_mark_session
+                    or old.created_sequence >= context.point.reduction_sequence
+                ):
+                    raise ValueError("runtime activation changed original unsent commitment")
+                replacements.append(
+                    replace(
+                        old,
+                        reserved_cash=term.reserved_cash,
+                        reserved_sell_quantity=term.reserved_sell_quantity,
+                        approved_price=term.approved_price,
+                        remaining_fee_budget=term.remaining_fee_budget,
+                        state="active",
+                        activated_at=now,
+                        activation_sequence=context.point.reduction_sequence,
+                        activation_frontier=context.point.frontier_sequence,
+                    )
+                )
+            # This temporary inventory is used only by the shared capacity check.
+            # Removing an order's commitment is never published or projected.
+            capacity_state = replace(
+                state, commitments=tuple(c for c in state.commitments if c.commitment_id not in ids)
+            )
+            capacity = replace(
+                before.snapshot,
+                available_cash=add(
+                    before.snapshot.available_cash, total(c.reserved_cash for c in originals)
+                ),
+            )
+            for replacement in replacements:
+                _validate_commitment_capacity(capacity_state, replacement, capacity, policy)
+                capacity_state = replace(
+                    capacity_state, commitments=(*capacity_state.commitments, replacement)
+                )
+                capacity = replace(
+                    capacity,
+                    available_cash=subtract(capacity.available_cash, replacement.reserved_cash),
+                )
+            by_id = {c.commitment_id: c for c in replacements}
+            state = replace(
+                state, commitments=tuple(by_id.get(c.commitment_id, c) for c in state.commitments)
             )
         elif isinstance(payload, ActivateCommitment):
             c = _commitment(state, payload.commitment_id)
@@ -835,6 +1074,15 @@ class PersonalAccounting:
             ),
         )
         due: tuple[DueAccountingEvent, ...] = ()
+        if policy.model_id in ("observed-facts-v1", "stateful-venue-facts-v1"):
+            # Independent source instructions and confirmations arrive as their
+            # own commands. A received fill supplies no settlement evidence.
+            # Terminal projection changes here never release durable SQL holds.
+            if c.terminal_reason is not None and c.terminal_reason.startswith("runtime_unsent_"):
+                # Keep actual late broker truth, but a contradicted never-sent
+                # proof requires account recovery before any further exposure.
+                state = replace(state, halted=True)
+            return state, due
         if event.kind in (
             BrokerOrderEventKind.EXECUTION,
             BrokerOrderEventKind.EXECUTION_CORRECTION,

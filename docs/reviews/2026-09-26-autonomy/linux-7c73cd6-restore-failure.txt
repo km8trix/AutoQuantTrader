@@ -1,0 +1,45 @@
+2026-09-27T00:06:16.8458016Z genuine retained-outcome fixture setup: 325.158s
+2026-09-27T00:06:16.8458333Z actual factory graph ready: 0.037s
+2026-09-27T00:06:16.8458639Z actual factory restore result: failed; elapsed=60.118s
+2026-09-27T00:06:16.8459114Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED
+2026-09-27T00:06:16.8459840Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory
+2026-09-27T00:06:16.8460559Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute
+2026-09-27T00:06:16.8461197Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed
+2026-09-27T00:06:16.8461832Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute
+2026-09-27T00:06:16.8462400Z actual factory execute frame: packages/persistence/continuous_integrity.py:256:__enter__
+2026-09-27T00:06:16.8463023Z actual factory execute frame: packages/persistence/continuous_integrity.py:997:_factory_operation
+2026-09-27T00:06:16.8463660Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema
+2026-09-27T00:06:16.8464222Z actual factory execute frame: packages/persistence/database.py:219:validate
+2026-09-27T00:06:16.8464724Z actual factory execute frame: packages/persistence/database.py:381:validate
+2026-09-27T00:06:16.8465277Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED
+2026-09-27T00:06:16.8466222Z actual factory execute frame: packages/persistence/database.py:379:validate
+2026-09-27T00:06:16.8466795Z actual factory execute frame: packages/persistence/continuous_integrity.py:1480:validate_snapshot
+2026-09-27T00:06:16.8467428Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID
+2026-09-27T00:06:16.8468049Z actual factory execute frame: packages/persistence/continuous_integrity.py:1472:validate_snapshot
+2026-09-27T00:06:16.8468656Z actual factory execute frame: packages/persistence/continuous_integrity.py:1514:_validate
+2026-09-27T00:06:16.8469277Z actual factory execute frame: packages/persistence/continuous_integrity.py:1540:_validate_original
+2026-09-27T00:06:16.8469959Z actual factory execute frame: packages/persistence/continuous_integrity.py:1694:_validate_accounts
+2026-09-27T00:06:16.8470581Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index
+2026-09-27T00:06:16.8471214Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired
+2026-09-27T00:06:16.8471866Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture
+2026-09-27T00:06:16.8472524Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current
+2026-09-27T00:06:16.8473201Z actual factory execute frame: packages/persistence/continuous_integrity.py:1404:_borrow_original_daily
+2026-09-27T00:06:16.8473834Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate
+2026-09-27T00:06:16.8474416Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate
+2026-09-27T00:06:16.8475056Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction
+2026-09-27T00:06:16.8475998Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction
+2026-09-27T00:06:16.8476840Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt
+2026-09-27T00:06:16.8477446Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED
+2026-09-27T00:06:16.8478183Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory
+2026-09-27T00:06:16.8478885Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close
+2026-09-27T00:06:16.8479483Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired
+2026-09-27T00:06:16.8480074Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close
+2026-09-27T00:06:16.8480620Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release
+2026-09-27T00:06:16.8481180Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release
+2026-09-27T00:06:16.8481749Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt
+2026-09-27T00:06:17.7865282Z FAILED tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+2026-09-27T00:06:17.7866773Z 1 failed, 298 passed, 4549 deselected, 1 warning in 1039.51s (0:17:19)
+
+Final aggregate: failure. 17 jobs succeeded (15 financial shards, foundations, browser).
+Separate diagnostic job 108517406009: original restore expired at61.393s; fixture190.100s;1failed in254.50s.
+No rerun or limit change performed.

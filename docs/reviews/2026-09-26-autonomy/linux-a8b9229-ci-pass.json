@@ -1,0 +1,276 @@
+{
+  "source_revision": "a8b92297ba0845b9038b7684ab60333d928d9c6d",
+  "tested_merge_revision": "bf7625d47f2d8a29a062d9e2310ab897a705ce82",
+  "matching_source_and_merge_tree": "1a58635e503d602085c0450a8df15b06ff2d6366",
+  "run": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486",
+  "conclusion": "success",
+  "created_at": "2026-09-26T07:00:38Z",
+  "completed_at": "2026-09-26T07:52:38Z",
+  "selected_tests_passed": 4786,
+  "selected_tests_failed": 0,
+  "selected_tests_skipped": 0,
+  "shards": [
+    {
+      "index": 0,
+      "passed": 284,
+      "deselected": 4502,
+      "seconds": 952.74
+    },
+    {
+      "index": 1,
+      "passed": 285,
+      "deselected": 4501,
+      "seconds": 471.72
+    },
+    {
+      "index": 2,
+      "passed": 312,
+      "deselected": 4474,
+      "seconds": 494.89
+    },
+    {
+      "index": 3,
+      "passed": 313,
+      "deselected": 4473,
+      "seconds": 584.01
+    },
+    {
+      "index": 4,
+      "passed": 329,
+      "deselected": 4457,
+      "seconds": 394.6
+    },
+    {
+      "index": 5,
+      "passed": 291,
+      "deselected": 4495,
+      "seconds": 810.86
+    },
+    {
+      "index": 6,
+      "passed": 326,
+      "deselected": 4460,
+      "seconds": 339.4
+    },
+    {
+      "index": 7,
+      "passed": 295,
+      "deselected": 4491,
+      "seconds": 799.85
+    },
+    {
+      "index": 8,
+      "passed": 262,
+      "deselected": 4524,
+      "seconds": 548.23
+    },
+    {
+      "index": 9,
+      "passed": 298,
+      "deselected": 4488,
+      "seconds": 442.59
+    },
+    {
+      "index": 10,
+      "passed": 312,
+      "deselected": 4474,
+      "seconds": 584.43
+    },
+    {
+      "index": 11,
+      "passed": 296,
+      "deselected": 4490,
+      "seconds": 249.08
+    },
+    {
+      "index": 12,
+      "passed": 315,
+      "deselected": 4471,
+      "seconds": 1412.21
+    },
+    {
+      "index": 13,
+      "passed": 266,
+      "deselected": 4520,
+      "seconds": 568.18
+    },
+    {
+      "index": 14,
+      "passed": 329,
+      "deselected": 4457,
+      "seconds": 410.25
+    },
+    {
+      "index": 15,
+      "passed": 273,
+      "deselected": 4513,
+      "seconds": 886.16
+    }
+  ],
+  "jobs": [
+    {
+      "name": "Standard Python foundations and installed-wheel checks",
+      "conclusion": "success",
+      "databaseId": 108358509768,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358509768",
+      "startedAt": "2026-09-26T07:00:40Z",
+      "completedAt": "2026-09-26T07:02:31Z"
+    },
+    {
+      "name": "Browser regressions",
+      "conclusion": "success",
+      "databaseId": 108358509957,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358509957",
+      "startedAt": "2026-09-26T07:00:40Z",
+      "completedAt": "2026-09-26T07:01:59Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 1 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796537,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796537",
+      "startedAt": "2026-09-26T07:02:33Z",
+      "completedAt": "2026-09-26T07:10:50Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 4 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796541,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796541",
+      "startedAt": "2026-09-26T07:10:51Z",
+      "completedAt": "2026-09-26T07:17:51Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 6 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796560,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796560",
+      "startedAt": "2026-09-26T07:12:42Z",
+      "completedAt": "2026-09-26T07:18:45Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 2 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796561,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796561",
+      "startedAt": "2026-09-26T07:02:33Z",
+      "completedAt": "2026-09-26T07:11:11Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 8 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796578,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796578",
+      "startedAt": "2026-09-26T07:18:47Z",
+      "completedAt": "2026-09-26T07:28:24Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 3 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796593,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796593",
+      "startedAt": "2026-09-26T07:02:33Z",
+      "completedAt": "2026-09-26T07:12:41Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 0 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796609,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796609",
+      "startedAt": "2026-09-26T07:02:33Z",
+      "completedAt": "2026-09-26T07:18:51Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 7 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796611,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796611",
+      "startedAt": "2026-09-26T07:17:53Z",
+      "completedAt": "2026-09-26T07:31:41Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 11 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796616,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796616",
+      "startedAt": "2026-09-26T07:26:43Z",
+      "completedAt": "2026-09-26T07:31:14Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 13 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796621,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796621",
+      "startedAt": "2026-09-26T07:31:15Z",
+      "completedAt": "2026-09-26T07:41:09Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 9 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796631,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796631",
+      "startedAt": "2026-09-26T07:18:53Z",
+      "completedAt": "2026-09-26T07:26:41Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 5 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796637,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796637",
+      "startedAt": "2026-09-26T07:11:15Z",
+      "completedAt": "2026-09-26T07:25:16Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 12 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796651,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796651",
+      "startedAt": "2026-09-26T07:28:26Z",
+      "completedAt": "2026-09-26T07:52:32Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 10 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358796660,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358796660",
+      "startedAt": "2026-09-26T07:25:18Z",
+      "completedAt": "2026-09-26T07:35:31Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 14 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358797153,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358797153",
+      "startedAt": "2026-09-26T07:31:43Z",
+      "completedAt": "2026-09-26T07:38:55Z"
+    },
+    {
+      "name": "Retained financial regressions (shard index 15 of 16)",
+      "conclusion": "success",
+      "databaseId": 108358797189,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108358797189",
+      "startedAt": "2026-09-26T07:35:33Z",
+      "completedAt": "2026-09-26T07:50:47Z"
+    },
+    {
+      "name": "Standard Python foundations and retained financial regressions",
+      "conclusion": "success",
+      "databaseId": 108365906177,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108365906177",
+      "startedAt": "2026-09-26T07:52:34Z",
+      "completedAt": "2026-09-26T07:52:38Z"
+    },
+    {
+      "name": "Diagnostic retained restore profile (failure stays failure)",
+      "conclusion": "skipped",
+      "databaseId": 108365907089,
+      "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36225463486/job/108365907089",
+      "startedAt": "2026-09-26T07:52:33Z",
+      "completedAt": "2026-09-26T07:52:32Z"
+    }
+  ],
+  "warnings": "Existing Starlette/httpx deprecation warning in each shard; no dependency change.",
+  "scope": "Required unprofiled standard suite with per-job disposable PostgreSQL 16; foundation/migration/wheel/installed-process/static/API and browser/Compose gates passed.",
+  "limitations": "Not historical native qualification, actual provider/clock/account evidence, Wave 4 closeout, or permission to initialize, activate or trade. Individual successful Linux restore timing is not emitted by quiet pytest.",
+  "raw_run_log_archive_sha256": "da1e579bfab8c17476d2b415f555176f808d7b54f45df269c31ba6baa36c13c8"
+}

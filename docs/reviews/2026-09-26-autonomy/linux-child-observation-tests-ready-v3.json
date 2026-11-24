@@ -1,0 +1,49 @@
+{
+  "schema": "aqt-linux-observation-temporary-tests/3",
+  "scope": "Temporary artifacts only, no pytest execution/project import/child process/repository mutation by reviewer.",
+  "source_review": "Approved for focused validation; no remaining source finding. Not Linux or full integration acceptance.",
+  "unchanged_module_ast_check": true,
+  "existing_ps_patch_changed_call_sites": 3,
+  "test_functions": 40,
+  "linux_only_genuine_test_functions": 3,
+  "supersedes": [
+    "linux-child-observation-tests-ready.json",
+    "linux-child-observation-tests-marker-ready.json"
+  ],
+  "history_preserved": [
+    "test_continuous_linux_observation.py.first",
+    "test_continuous_linux_observation.py.marker-first",
+    "continuous_process_native_candidate.py.marker-first",
+    "linux-child-observation-tests-ready.json.first"
+  ],
+  "files": [
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/continuous_process_native_candidate.py",
+      "sha256": "a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/test_continuous_linux_observation.py",
+      "sha256": "14e487773ce8ed7cdcc4e026dea49d08b3fee8333c71387add1baf24237d78d0"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-child-observation-ps-tests.patch",
+      "sha256": "1e5c0a11f5bb0ae1b7f376bdc41e93786177080721b0543797fc3da80f12ce18"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-child-observation-test-plan.md",
+      "sha256": "cd866baa32a350f92694c11ac8d4349ac690591516af5973e2636fdf9961fa15"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-child-native-source-independent-review-v3.md",
+      "sha256": "ddab110ceed824b5c17d4b714caed6ad757d6d066c97f96f527533140019cf74"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-child-observation-v3-ruff.txt",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-child-observation-v3-format.txt",
+      "sha256": "fd2299c9f1c6dc869070883e281051bfe93aacf66c1a3b0069f45b4aa410ca50"
+    }
+  ]
+}

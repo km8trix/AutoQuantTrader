@@ -1,0 +1,288 @@
+"""Finite offline scalar-dispatch probe; never changes project functions."""
+from __future__ import annotations
+
+import ast
+import hashlib
+import inspect
+import json
+import os
+import statistics
+import sys
+import time
+import types
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from enum import IntEnum, StrEnum
+from pathlib import Path
+from typing import Literal, TypeAliasType, Union, get_args, get_origin
+
+from packages.domain import personal_contracts as contracts
+
+EXPECTED_SOURCE_SHA = "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6"
+SOURCE = Path(contracts.__file__)
+assert hashlib.sha256(SOURCE.read_bytes()).hexdigest() == EXPECTED_SOURCE_SHA
+assert sys.implementation.name == "cpython" and sys.version_info[:3] == (3, 12, 13)
+require_utc = contracts.require_utc
+
+
+def _original(value: object, annotation: object, name: str) -> None:
+    if isinstance(annotation, TypeAliasType):
+        _original(value, annotation.__value__, name)
+        return
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin in (types.UnionType, Union):
+        for candidate in args:
+            try:
+                _original(value, candidate, name)
+                return
+            except (TypeError, ValueError):
+                pass
+        raise ValueError(f"{name} has an unsupported value type")
+    if origin is Literal:
+        if not any(type(value) is type(v) and value == v for v in args):
+            raise ValueError(f"{name} has an unsupported literal")
+        return
+    if origin is tuple:
+        if type(value) is not tuple:
+            raise ValueError(f"{name} must be immutable tuple")
+        if len(args) == 2 and args[1] is Ellipsis:
+            for item in value:
+                _original(item, args[0], name)
+        elif len(value) == len(args):
+            for item, expected in zip(value, args, strict=True):
+                _original(item, expected, name)
+        else:
+            raise ValueError(f"{name} tuple shape differs")
+        return
+    if annotation is type(None):
+        if value is not None:
+            raise ValueError(f"{name} must be null")
+        return
+    if not isinstance(annotation, type) or type(value) is not annotation:
+        raise ValueError(f"{name} has an unsupported value type")
+    if type(value) is Decimal and not value.is_finite():
+        raise ValueError(f"{name} must be finite")
+    if type(value) is datetime:
+        require_utc(value, name)
+    if type(value) is str and len(value) > 65536:
+        raise ValueError(f"{name} exceeds text bound")
+
+
+literal = inspect.getsource(_original)
+source_tree = ast.parse(SOURCE.read_text())
+source_function = next(node for node in source_tree.body if isinstance(node, ast.FunctionDef) and node.name == "_check_type")
+literal_tree = ast.parse(literal.replace("_original", "_check_type")).body[0]
+assert ast.dump(source_function, include_attributes=False) == ast.dump(literal_tree, include_attributes=False)
+guard = '''    if (
+        annotation is str or annotation is int or annotation is bool or annotation is type(None)
+    ) and type(value) is annotation:
+        if type(value) is str and len(value) > 65536:
+            raise ValueError(f"{name} exceeds text bound")
+        return
+'''
+first, rest = literal.replace("_original", "_candidate").split("\n", 1)
+candidate_source = first + "\n" + guard + rest
+exec(compile(candidate_source, "<finite-check-type-candidate>", "exec"), globals())
+
+
+class Text(str):
+    pass
+
+
+class Count(int):
+    pass
+
+
+class Status(StrEnum):
+    OK = "ok"
+
+
+class Rank(IntEnum):
+    ONE = 1
+
+
+type CountAlias = int
+type MaybeText = str | None
+
+trace: list[str] = []
+
+
+class ObservedType(type):
+    def __getattribute__(cls, name):
+        if name == "__class__":
+            trace.append("annotation.__class__")
+        return super().__getattribute__(name)
+
+    def __eq__(cls, other):
+        trace.append("annotation.__eq__")
+        return super().__eq__(other)
+
+    __hash__ = type.__hash__
+
+
+class ObservedValue(metaclass=ObservedType):
+    pass
+
+
+sentinel = StopIteration("literal annotation failure")
+
+
+class FailingAnnotation:
+    @property
+    def __class__(self):
+        trace.append("annotation.__class__.raise")
+        raise sentinel
+
+
+class AnnotatedAsPlain:
+    @property
+    def __class__(self):
+        trace.append("annotation.__class__.read")
+        return object
+
+
+class ObservedInt(int):
+    def __eq__(self, other):
+        trace.append("literal.__eq__")
+        raise sentinel
+
+
+cases = [
+    ("none", None, type(None)),
+    ("true", True, bool),
+    ("false", False, bool),
+    ("zero", 0, int),
+    ("negative", -17, int),
+    ("large_integer", 10**5000, int),
+    ("empty_string", "", str),
+    ("unicode_string", "π\ud800\x00", str),
+    ("text_boundary", "x" * 65536, str),
+    ("text_overflow", "x" * 65537, str),
+    ("unicode_boundary", "π" * 65536, str),
+    ("bool_as_int", True, int),
+    ("int_as_bool", 1, bool),
+    ("none_as_str", None, str),
+    ("str_as_none", "", type(None)),
+    ("subclass_value_as_str", Text("x"), str),
+    ("subclass_str_annotation", Text("x" * 65537), Text),
+    ("subclass_value_as_int", Count(1), int),
+    ("subclass_int_annotation", Count(1), Count),
+    ("str_enum_annotation", Status.OK, Status),
+    ("str_enum_as_str", Status.OK, str),
+    ("int_enum_annotation", Rank.ONE, Rank),
+    ("int_enum_as_int", Rank.ONE, int),
+    ("type_alias_match", 2, CountAlias),
+    ("type_alias_mismatch", True, CountAlias),
+    ("optional_alias_text", "ok", MaybeText),
+    ("optional_alias_none", None, MaybeText),
+    ("optional_alias_bad", 3, MaybeText),
+    ("union_first", "ok", str | int),
+    ("union_later", 2, str | int),
+    ("union_reject", True, str | int),
+    ("typing_union_none", None, Union[int, None]),
+    ("literal_match", "ok", Literal["ok", "no"]),
+    ("literal_mismatch", "bad", Literal["ok", "no"]),
+    ("literal_bool_int", True, Literal[1]),
+    ("literal_stopiteration", ObservedInt(1), Literal[ObservedInt(1)]),
+    ("fixed_tuple", (1, False, "x"), tuple[int, bool, str]),
+    ("fixed_tuple_mismatch", (True, False, "x"), tuple[int, bool, str]),
+    ("fixed_tuple_length", (1,), tuple[int, bool]),
+    ("mutable_tuple_input", [1], tuple[int, ...]),
+    ("variable_tuple", (1, 2, 3), tuple[int, ...]),
+    ("nested_tuple", ((1, 2), (3,)), tuple[tuple[int, ...], ...]),
+    ("tuple_empty", (), tuple[()]),
+    ("finite_decimal", Decimal("1.25"), Decimal),
+    ("nonfinite_decimal", Decimal("NaN"), Decimal),
+    ("aware_datetime", datetime(2020, 1, 1, tzinfo=UTC), datetime),
+    ("naive_datetime", datetime(2020, 1, 1), datetime),
+    ("date", date(2020, 1, 1), date),
+    ("unsupported_annotation", 1, AnnotatedAsPlain()),
+    ("failing_annotation", 1, FailingAnnotation()),
+    ("observed_metaclass", ObservedValue(), ObservedValue),
+    ("observed_metaclass_mismatch", object(), ObservedValue),
+]
+
+
+def outcome(function, value, annotation):
+    trace.clear()
+    try:
+        result = function(value, annotation, "sample")
+    except BaseException as error:
+        result = {
+            "status": "error", "type": type(error).__name__, "message": str(error),
+            "cause": None if error.__cause__ is None else type(error.__cause__).__name__,
+            "context": None if error.__context__ is None else type(error.__context__).__name__,
+            "is_sentinel": error is sentinel,
+            "cause_is_sentinel": error.__cause__ is sentinel,
+        }
+        # The same fixed sentinel is intentionally reused; do not retain its traceback.
+        sentinel.__traceback__ = None
+    else:
+        result = {"status": "returned", "is_none": result is None}
+    return {**result, "trace": trace.copy()}
+
+
+compatibility = []
+for label, value, annotation in cases:
+    expected = outcome(_original, value, annotation)
+    actual = outcome(_candidate, value, annotation)
+    # Compare project original independently as well, including standard typing helpers.
+    project = outcome(contracts._check_type, value, annotation)
+    compatibility.append({"case": label, "matches": expected == actual == project,
+                          "original": expected, "candidate": actual, "project": project})
+
+primitive = [("short", str), (7, int), (False, bool), (None, type(None))] * 12
+fallback = [(Decimal("1.25"), Decimal), (datetime(2020, 1, 1, tzinfo=UTC), datetime),
+            (Count(7), Count), (Status.OK, Status), ((1, 2), tuple[int, ...]),
+            ("ok", Literal["ok", "no"])] * 8
+mixed = primitive[:24] + fallback[:24]
+# Literal fields of the existing foundational VersionPin, with no reconstruction or I/O.
+pin_fields = [("name", str), ("v1", str), ("a" * 64, str)] * 16
+workloads = {"matching_primitives": primitive, "fallback_control": fallback,
+             "mixed_synthetic": mixed, "version_pin_declared_string_fields": pin_fields}
+iterations, repeats = 300, 7
+measurements = []
+for label, workload in workloads.items():
+    values = {"original": [], "candidate": []}
+    for repeat in range(repeats):
+        order = (("original", _original), ("candidate", _candidate))
+        if repeat % 2:
+            order = tuple(reversed(order))
+        for name, function in order:
+            start = time.perf_counter_ns()
+            for _ in range(iterations):
+                for value, annotation in workload:
+                    function(value, annotation, "sample")
+            values[name].append(time.perf_counter_ns() - start)
+    original_median = statistics.median(values["original"])
+    candidate_median = statistics.median(values["candidate"])
+    measurements.append({"workload": label, "top_level_calls_per_sample": iterations * len(workload),
+                         "times_ns": values, "median_ns": {"original": original_median, "candidate": candidate_median},
+                         "candidate_over_original": candidate_median / original_median})
+
+report = {
+    "schema": "aqt-finite-check-type-primitive-probe/1",
+    "source_sha256": EXPECTED_SOURCE_SHA,
+    "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    "candidate_source_sha256": hashlib.sha256(candidate_source.encode()).hexdigest(),
+    "python": sys.version.split()[0],
+    "scope": "Standalone exact matching primitive prefix only; original body and recursive fallback preserved; no repository edits, cached verdicts, fixture, source owner, SQL, artifacts, fences or operational effects.",
+    "oracle_ast_matches_project": True,
+    "compatibility_count": len(compatibility),
+    "mismatch_count": sum(not item["matches"] for item in compatibility),
+    "compatibility": compatibility,
+    "benchmark": {"iterations": iterations, "repeats": repeats, "ratio_definition": "candidate median / original median; less than 1 is faster", "workloads": measurements},
+    "limitations": [
+        "Finite synthetic samples are not per-annotation frequencies, retained restore timings, Linux acceptance, or measured end-to-end savings.",
+        "Follows existing codec exact-primitive dispatch precedent. Does not promise identical observations from dynamically replaced imported typing/introspection helpers or tracing hooks on the skipped native-only reflection path.",
+        "Unknown, custom-metaclass and subclass annotations use the original body. Decimal/datetime, aliases, unions, Literals, tuples and errors are not bypassed.",
+        "A production proposal still requires broader constructor/read-order compatibility tests and source-bound validation; no implementation release is implied.",
+    ],
+}
+output = Path(sys.argv[1])
+fd = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+with os.fdopen(fd, "w") as stream:
+    json.dump(report, stream, indent=2)
+    stream.write("\n")
+print(json.dumps({"compatibility_count": report["compatibility_count"], "mismatch_count": report["mismatch_count"], "ratios": {item["workload"]: item["candidate_over_original"] for item in measurements}}))
+raise SystemExit(1 if report["mismatch_count"] else 0)

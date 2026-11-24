@@ -1,0 +1,27 @@
+{
+  "id": 108537702506,
+  "name": "Retained financial regressions (shard index 7 of 16)",
+  "status": "completed",
+  "conclusion": "failure",
+  "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36289760186/job/108537702506",
+  "started_at": "2026-09-27T03:09:11Z",
+  "completed_at": "2026-09-27T03:26:19Z",
+  "log": "/private/tmp/aqt-autonomy-audit/ci-26631c6-shard7.log",
+  "log_sha256": "876c241fa3a18246e862fe34f3d8043d42214c706ea261e9d6599790d561082e",
+  "pytest_summaries": [
+    "1 failed, 303 passed, 4663 deselected, 1 warning in 1002.06s (0:16:42)"
+  ],
+  "static_evidence": [
+    "| ExceptionGroup: actual restore and cleanup both failed (2 sub-exceptions)",
+    "actual factory restore result: failed; elapsed=60.113s",
+    "actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+    "actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+    "actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+    "actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+    "actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+    "actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+    "FAILED tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+  ],
+  "diagnostics": []
+}

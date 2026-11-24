@@ -1,0 +1,21 @@
+{
+  "schema": "temporary-linux-child-observation-static-v3",
+  "source": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/packages/application/continuous_process.py",
+  "source_sha256": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+  "candidate": "/private/tmp/aqt-autonomy-audit/continuous_process_native_candidate.py",
+  "candidate_sha256": "a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655",
+  "superseded_candidate_sha256": "21a3684d24ad069fa91b98597328bb556ed24614d7231655392daaa355eb322a",
+  "checks": {
+    "original_ps_function_ast_unchanged": true,
+    "all_other_original_module_ast_unchanged": true,
+    "candidate_compile": true
+  },
+  "changes": [
+    "Require every status key to begin with an ASCII letter or underscore and continue with ASCII letters, digits or underscore; do not strip or normalize keys or alter raw field values."
+  ],
+  "limitations": [
+    "No project imports, tests, process observations or speed measurements.",
+    "Temporary candidate only; repository production source unchanged.",
+    "Prior candidate reviews are historical and provisional pending review of this source."
+  ]
+}

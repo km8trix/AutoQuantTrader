@@ -1,0 +1,90 @@
+{
+  "date": "2026-09-26",
+  "scope": "A3.2b source-owned measured health history; process-local mechanical provenance only",
+  "cwd": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development",
+  "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+  "files_sha256": {
+    "packages/adapters/personal_measured_clock.py": "ce6898264a5cc9d76a0d1ce0c7e83b4e773fcb9fe86934b53db742ec1b02aeb2",
+    "tests/unit/test_personal_measured_clock.py": "7078a1a1cf736b2855eb379c9ce0b2729c0bf9737aa7fb38bbc0714844a411ee",
+    "packages/adapters/standard_clock.py": "68d409273ce069e12e94b3f4241a0ce305c35db717bf9b7414e5186ad77d2ab0",
+    "packages/adapters/standard_clock_chrony.py": "426cebb424cd15f1a203c62e5d199bfd7d6dea334a8a308efe807989ccc9e156"
+  },
+  "checks": [
+    {
+      "name": "architecture",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -I -B scripts/check_personal_architecture.py",
+      "exit_code": 0,
+      "result": "Personal architecture check passed (layers, pure code, simulation import closure)."
+    },
+    {
+      "name": "focused tests",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest tests/unit/test_personal_measured_clock.py tests/unit/test_personal_standard_clock_chrony.py tests/unit/test_standard_clock.py -q -p no:cacheprovider",
+      "exit_code": 0,
+      "result": "186 passed in 0.65s; 94 new measured-history cases plus 92 existing bridge/reducer cases"
+    },
+    {
+      "name": "format",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff format --check packages/adapters/personal_measured_clock.py tests/unit/test_personal_measured_clock.py",
+      "exit_code": 0,
+      "result": "2 files already formatted"
+    },
+    {
+      "name": "lint",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m ruff check packages/adapters/personal_measured_clock.py tests/unit/test_personal_measured_clock.py",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    {
+      "name": "types",
+      "command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m mypy packages/adapters/personal_measured_clock.py",
+      "exit_code": 0,
+      "result": "Success: no issues found in 1 source file"
+    },
+    {
+      "name": "whitespace",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed; new untracked source/test files also checked by Ruff"
+    }
+  ],
+  "failure_history": [
+    {
+      "check": "initial scoped mypy",
+      "exit_code": 1,
+      "result": "lines 263/265: Statement is unreachable; Right operand of or is never evaluated",
+      "cause": "Static flow narrowed callback-assigned _pending to None after its explicit reset; callbacks do populate it during StandardClock sampling.",
+      "repair": "Moved reset, call count initialization, sampling flag and reducer call into _reduce_once, preserving runtime order. Final scoped mypy passed."
+    },
+    {
+      "check": "mistyped focused test command",
+      "exit_code": 4,
+      "result": "no tests ran; tests/unit/test_personal_standard_clock.py not found",
+      "repair": "Verified actual existing path tests/unit/test_standard_clock.py and reran successfully."
+    },
+    {
+      "check": "prior original observation substituted during final local callback",
+      "exit_code": 1,
+      "result": "DID NOT RAISE MeasuredClockError; previous source evidence digest accepted at new sequence with identical measurement scalar object identities",
+      "evidence": "measured-clock-pending-reproduction.txt",
+      "repair": "Guard pending observation and call-count identity across every local callback and original source read, including exception exits. Targeted regression passed; broader 186 cases passed."
+    }
+  ],
+  "covered_boundaries": [
+    "Construction and historical verification invoke no local clocks or source reads.",
+    "Fresh private StandardClock only; explicit callbacks must be same objects as exact Chrony source clock domain.",
+    "Independent ordinary StandardClock comparison preserves warmup, limits/equality, cadence/suspend, epoch/regression, fault latching/recovery and source/local exceptions.",
+    "No arbitrary prewarmed clock, simulated source, profile or capture admission interfaces.",
+    "Cold/warmed copied owners, token copies/reconstruction/nested mutation, original snapshot fields, reading evidence digest and source/reducer/handler rebinding reject.",
+    "Callback history/pending/count tamper rejects even when callback raises; concurrent/reentrant sample calls have no interleaved source effects.",
+    "Weak original owner binding and token finalization prevent copies from adopting history or retaining original owner/source token registries.",
+    "Successful source observation remains attached to later unavailable snapshot without upgrading health; old authentic snapshots remain historical only."
+  ],
+  "limitations": [
+    "No genuine host/runner qualification; fake readers and callbacks only. No actual service, subprocess, provider or credentials used.",
+    "No freshness renewal, runtime admission, forward-capture current_sample, collector/publication changes or execution permission.",
+    "Cooperating Python ownership boundary, not a hostile mutable-code sandbox.",
+    "No full suite, frontend/native test, PostgreSQL or release qualification claimed.",
+    "New adapter intentionally depends on the current private StandardClock state shape and existing Chrony ownership helpers; changes require reviewing these guards and behavior comparison tests."
+  ],
+  "independent_review": "architecture_audit: review and architecture passed; independently 186 clock tests passed in 0.60 seconds."
+}

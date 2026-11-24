@@ -1,0 +1,83 @@
+{
+  "date": "2026-09-25",
+  "diagnostic_scope": [
+    "Disabled by default; required shard runner strips the opt-in environment variable.",
+    "Separate job runs only after foundations success and required backend failure; original required jobs and aggregate are unchanged.",
+    "Only factory.execute is intentionally profiled; original 60-second lease and 120-second operation limit, assertions, exceptions and cleanup remain.",
+    "Profiler/reporting failures cannot replace original operation or cleanup failures; invalid profiler control emits no timing rows.",
+    "At most 512 static metadata rows and 1000000 output bytes. No arguments, locals, SQL, credentials, raw profiles, databases or exception payloads are uploaded. Internal cProfile storage is not capped by the output limit.",
+    "Diagnostic test preserves its actual failing exit. Timings include instrumentation overhead and are not performance or startup acceptance.",
+    "Only finite fake-stat/fake-lifecycle cases ran locally for this helper; no retained history or provider operation was repeated."
+  ],
+  "evidence_sha256": {
+    "combined-expected-ci.json": "751f301dfe56ae32bef6e8754bae170165714140f8239cc66b544ae4daa7c169",
+    "independent-actual-v4-audit.json": "2e87e9829c1b2e7042fa4390f9c18f08487b0fa497a9286b838a01a895c905e0",
+    "independent-format-review-v3.json": "f47050128a98aa50f33819a9188d1caa065c70e6ec448e2dadd87d19c0948eb3",
+    "independent-source-review-v2.json": "77d162f599d0a20652cbaf6d3451dcfcf60d1a9aae9bf47bf8c03716bc26a766",
+    "manifest-v2.json": "6473a5bc954653669e9de6292d40153b11d5bdd2348764e9c4f4797e201b7fc1",
+    "qualification-run-v3/junit.xml": "621c9813dc627abeb58334489b1f8d26efa3e988f838f53cb00d0081f4c22355",
+    "qualification-run-v3/result.json": "666677d7824c1e744aa7d63dd60491c3d03a5df8825fdcf9f9ccb2badcf10082",
+    "qualification-run-v4/junit.xml": "cf8756727e40769c914b8052552f22adb2ca30a3bf0dee8faabdeee2e117da54",
+    "qualification-run-v4/result.json": "ec99f7b6ed2fcac1a1a18ffa0eacf38433772e494985385a26ec4294eb922ae3",
+    "root-correction-v4.json": "65192911d1ebe9cb522b50b33f811431b96f4aa2a0c0e99b767cc25816b8a6c9",
+    "source-freeze-v4.json": "3f2d9c53d1328b05600ebb4c044ad57b71522f3d05716c3b90594c428b23c197"
+  },
+  "expected_required_ci": {
+    "counts": [
+      271,
+      266,
+      297,
+      300,
+      312,
+      271,
+      302,
+      280,
+      250,
+      285,
+      301,
+      277,
+      302,
+      244,
+      308,
+      257
+    ],
+    "new_cases": 51,
+    "scope": "Expected selection only; no CI execution result.",
+    "selection_receipt_sha256": "751f301dfe56ae32bef6e8754bae170165714140f8239cc66b544ae4daa7c169",
+    "shards": 16,
+    "total": 4523
+  },
+  "files": [
+    {
+      "path": "tests/integration/test_continuous_simulation_factory_outcome.py",
+      "sha256": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "1b7ad1f7a8f5cf467759a60dc09e2983e150f1d2026704f4f808100f7709d8a0"
+    },
+    {
+      "path": "tests/retained_restore_profile.py",
+      "sha256": "8ce675bfb8642b5f3b53579c9300b007571aa29c18bd7d04d1ab038d12bd0a1b"
+    },
+    {
+      "path": "tests/unit/test_personal_retained_restore_profile.py",
+      "sha256": "10c6380361df8d845751d6b2a2169b79044e36bc0120b7010618262b8fed359e"
+    }
+  ],
+  "focused_qualification": {
+    "architecture_format_lint": "passed",
+    "errors": 0,
+    "failed": 0,
+    "passed": 26,
+    "skipped": 0,
+    "source_files": 1614
+  },
+  "preserved_failed_run": {
+    "failed": 1,
+    "passed": 25,
+    "reason": "The fake successful-execute/failed-disable test expected exact AssertionError text; pytest appended its assertion explanation. The corrected test accepts the fixed prefix and retains type, failure-state and cleanup assertions."
+  },
+  "schema": "aqt.linux-retained-profile-evidence/1",
+  "status": "qualified_offline_pending_linux"
+}

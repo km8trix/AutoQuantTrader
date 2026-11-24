@@ -1,0 +1,104 @@
+{
+  "capture_status": "valid",
+  "diagnostic_faults": [],
+  "diagnostic_only": true,
+  "eligible_borrow_fingerprint": {
+    "calls": 72,
+    "failed_calls": 0,
+    "inclusive_elapsed_ns": 3169499872
+  },
+  "execute_elapsed_ns": 42879169083,
+  "execute_returned": 1,
+  "execute_started": 1,
+  "fingerprint_calls": 80,
+  "limitations": [
+    "Instrumentation adds stack frames and elapsed overhead. This is not an unprofiled acceptance gate.",
+    "Counts cover prepared/resolved exact source types only. Inclusive times may overlap on reentrant fingerprint calls.",
+    "No argument graph, return value, exception value/text, account identifier, SQL, provider data or runtime path is stored.",
+    "Reports are written only at pytest session finish, after original test and fixture cleanup. Original exceptions and results are preserved.",
+    "Only the explicit synthetic offline retained fixture is permitted; do not use on provider/runtime datasets.",
+    "One real original entering/HALTED daily episode is inspected after original entry/binding, with a nonempty actual owned source. No fingerprint or other validation is substituted.",
+    "Extra full owner require, three original oracle fingerprints, one data-seal issue and three data checks add wall time under the unchanged original lease/deadline.",
+    "Prototype is an optimistic lower bound: initial Mapping classification, __class__ behavior, complete transitive function/code/descriptor/schema pins, authenticated root/source/episode/borrow handshake and poison/retirement are not implemented or timed.",
+    "Prototype data proof confers no source/factory authority. Unsupported actual shape falls back diagnostically; no scope or resource bounds are expanded.",
+    "Aggregate original-path counts exclude all diagnostic work. Eligible count is exact selected-source fingerprints invoked during its original borrow calls, not all resolved source validation.",
+    "No argument graph, return digest, row or provider/account value is retained in metadata; the only pure seal is released before original borrow/handoff work resumes.",
+    "The earlier30-call diagnostic remains invalid/incomplete; this independent run uses a256-call metadata counter bound, with no change to production limits."
+  ],
+  "limits": {
+    "max_calls": 256,
+    "max_elapsed_ns": 3600000000000,
+    "max_metadata_bytes": 32768
+  },
+  "probe": {
+    "actual_eligible_aggregate_model_ratio": 0.15626856538961237,
+    "actual_eligible_calls": 72,
+    "actual_eligible_sampled_model_ratio": 0.21561739107861072,
+    "admitted": true,
+    "bindings": 55207,
+    "concurrent_seals_maximum": 1,
+    "containers": 4708,
+    "data_check_calls": 3,
+    "data_check_ns": 14851293,
+    "data_drop_ns": 191083,
+    "data_issue_ns": 39015625,
+    "full_owner_require_ns": 99655458,
+    "max_bindings": 131072,
+    "max_containers": 16384,
+    "optimistic_issue_full_owner_plus_n_checks_over_n_fingerprints": {
+      "12": 0.5178736917238395,
+      "18": 0.39697117146574795,
+      "3": 1.605996374046663,
+      "30": 0.30024915525927476,
+      "6": 0.8805812524981139
+    },
+    "optimistic_saved_ns_vs_eligible_aggregate": 2674206674.0,
+    "original_fingerprint_calls": 3,
+    "original_fingerprint_ns": 95712208,
+    "ratio_definition": "(one measured full owner.require_resolved + one data issuance + drop + N times mean of3 data checks) / (N times mean of3 original fingerprints). Missing production proof costs make this optimistic; lower than1 is faster.",
+    "saving_model_limitation": "Compares sampled pure proof costs with actual instrumented eligible fingerprint aggregate. Missing proof costs can only add overhead; sample variation means this is an optimistic estimate, not an uninstrumented performance or guaranteed savings claim.",
+    "seal_released_before_original_borrow": true
+  },
+  "pytest_exitstatus": 0,
+  "schema": "fixture-retained-attempt-proof-economics/1",
+  "scope": "Only target factory.execute operation on its calling thread; excludes setup, construction, assertions, factory close and fixture cleanup.",
+  "selected_episode_borrow_calls": 24,
+  "selected_episode_closed": true,
+  "source_sha256_after": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_attempt_fingerprint_profile.py": "3ee245f0e1e3baf80653c143621e9379e734ae75dab6c7d4f610de50c844e94e",
+    "aqt_retained_proof_economics.py": "3fff840779445dcae0bd4e00bde2b1ae420bea16d8f3828e7255af94043fbe38",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/persistence/_factory_attempt_fingerprint.py": "558c12db81c59b11788f642676fab3d836644531caa2a158190b776546508382",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "source_sha256_before": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_attempt_fingerprint_profile.py": "3ee245f0e1e3baf80653c143621e9379e734ae75dab6c7d4f610de50c844e94e",
+    "aqt_retained_proof_economics.py": "3fff840779445dcae0bd4e00bde2b1ae420bea16d8f3828e7255af94043fbe38",
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+    "packages/persistence/_factory_attempt_fingerprint.py": "558c12db81c59b11788f642676fab3d836644531caa2a158190b776546508382",
+    "packages/persistence/continuous_integrity.py": "10309a19dcaf83231520ec2fa032c03e19f38205449d5a5138f7e73ac3c41eb8",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "4af9f803a01d96c76977f675fba971dd89d1b6ec45febd0f01a250e18d6ff30e",
+    "packages/persistence/detached_journal_capture.py": "e3b105bbce75a87f85d33062679c7028de914439538bae95a9e89870cdd601d2",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "target": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "types": {
+    "prepared": {
+      "calls": 0,
+      "failed_calls": 0,
+      "inclusive_elapsed_ns": 0
+    },
+    "resolved": {
+      "calls": 80,
+      "failed_calls": 0,
+      "inclusive_elapsed_ns": 3441409456
+    }
+  }
+}

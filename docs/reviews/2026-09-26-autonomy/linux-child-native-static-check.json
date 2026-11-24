@@ -1,0 +1,16 @@
+{
+  "schema": "temporary-linux-child-observation-static-v1",
+  "source": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/packages/application/continuous_process.py",
+  "source_sha256": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+  "candidate": "/private/tmp/aqt-autonomy-audit/continuous_process_native_candidate.py",
+  "candidate_sha256": "8b7a1bdba6b74126f6ff3eae9053c47072c56a905a1059e956c1ba071138ed50",
+  "checks": {
+    "original_ps_function_ast_unchanged": true,
+    "all_other_original_module_ast_unchanged": true,
+    "candidate_compile": true
+  },
+  "limitations": [
+    "No project imports, tests, process observations or speed measurements.",
+    "Temporary candidate only; repository production source unchanged."
+  ]
+}

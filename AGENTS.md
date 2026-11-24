@@ -1,34 +1,98 @@
-# AutoQuantTrader continuation instructions
+# AutoQuantTrader operating instructions
 
-Planning baseline reviewed 2026-09-08 against code at `107fa79`.
+## Start and resume
 
-## Canonical documents and location
+- Run `git status --short --branch` and `git log -5 --oneline`; preserve unrelated changes.
+- Read `docs/SPEC.md`, `docs/STATUS.md`, `docs/PLAN.md`, then relevant architecture,
+  testing, decisions, source and tests. The repository is durable memory.
+- Work in the selected feature checkout. The surrounding AutoQuantTrader directory
+  contains old worktrees and private artifacts; do not infer the active revision
+  from its name. Do not bulk-read `.env`, credentials or runtime directories.
+- `docs/PLAN.md` breaks the existing `docs/IMPLEMENTATION_PLAN.md` wave roadmap
+  into resumable tasks. Frozen `docs/contracts/personal-v1/` requirements and the
+  dated account amendment remain authoritative; historical ADRs describe their
+  own scope. See `docs/DECISIONS.md` for precedence.
 
-- The active repository is `/Users/spencer.karrat/Documents/GitHub/AutoQuantTrader`.
-- Read `docs/IMPLEMENTATION_PLAN.md` for current work and accepted evidence; read `docs/ARCHITECTURE.md` for the target design.
-- Those are the only current plan and architecture. `docs/reviews/2026-09-08-design-review.md` explains the consolidation and static code findings. Historical ADRs/runbooks are scoped implementation records, not competing roadmaps.
-- Do not resume the former Phase 2A/2B checkpoint or infer accepted work from an old phase/wave title. Inspect current revision, worktree status and the plan's status table before acting.
+## Execute autonomously
 
-## Current handoff
+Read spec/status/plan → select highest-priority unblocked task → implement → test
+→ inspect results → fix failures → retest → update docs/status → commit a focused
+change when appropriate → continue to the next unblocked task.
 
-Waves 0/1 closed through GitHub PR #52, merged as ec63ca793ed4fe8a68397dc752000e102741da59. PR CI passed 1,271 Python tests with PostgreSQL plus browser/migration/packaging checks. Root verified the merged tree matches the tested PR and all 140 bound artifacts. Post-merge CI also passed; exact results are recorded in docs/reviews/2026-09-09-wave2/wave1-merged-verification.json.
+Preserve existing working behavior unless the specification requires a change.
+Prefer root-cause fixes and small, independently verifiable changes. Do not
+rewrite working systems, relax tests, extend safety limits, or turn a skip into
+acceptance. A task is complete only when its acceptance criteria and applicable
+validation pass. Record commands, outcomes, skips and remaining limitations.
 
-Wave 2 is complete through GitHub PR #53, merged as 6ea218addaa38d1c36c69b6a7ffbe564d701f834. PR CI passed 1,640 Python tests including PostgreSQL plus browser, migration and installed-wheel process checks. Post-merge CI also passed. Root verified the exact tested/merged tree and all 83 bound artifacts; read docs/reviews/2026-09-09-wave3/wave2-merged-verification.json.
+For continuous-account ownership repairs, preserve injected codec/planner
+compatibility, public call/read order, SQL transaction boundaries and source,
+fence and lease checks. Review every affected per-key cleanup attempt and retain
+primary and cleanup errors; local registry rollback does not undo arbitrary
+callback effects or establish stronger lifetime guarantees.
 
-Wave 3 local exit gates passed on codex/personal-v1-w3-integration from that merge. Read canonical plan section 18 and docs/reviews/2026-09-09-wave3/README.md. Actual browser dataset/run/report/comparison, 12 predeclared descriptive trials, independent arithmetic/exports and worker recovery passed. After PR #54 exposed browser fixture timeouts, PostgreSQL insert-result ambiguity and Linux peak accounting, corrected-source local checks passed 1,990 Python tests (eight PostgreSQL and one Linux-only skip), 139 Vitest and 33 bundle cases, lint/types/contracts/architecture, two identical corrected wheels and actual installed workflow. A fresh 12-trial synthetic ASGI/CLI check passed independent arithmetic, exports and idempotent restart. Original browser/recovery evidence retains its original source pins. GitHub PR/CI/review/merge and exact merged-content verification remain required before Wave 4 starts. Preserve W2 accepted evidence and old fixture contracts/history. Root owns shared integration; delegated new DTO/schema/projection ownership is recorded in the plan. At most three additional workers globally; no nested workers. No provider calls or deployment occurred in W3.
+Continue without asking permission for routine reversible engineering. Ask only
+for unresolved consequential product/architecture choices, conflicting
+requirements, missing necessary credentials/access, irreversible actions, live
+capital effects, or a blocker after reasonable investigation. Continue independent
+work while a dependency is blocked. Do not infer approval from elapsed time.
 
-The account amendment permits explicitly selected dedicated CASH or MARGIN accounts, while strategy funding remains cash-funded, long-only and without borrowing. Production read traversal passed; sandbox balance identity remains blocked. Currency, liability/restriction/cash semantics, quote rights/freshness, actual quotas, recovery identities and reconciliation remain connected-execution gates. Trading authority is false. W3 implementation is offline research work and requires no provider calls or credentials. Never display keys, tokens, private session paths or provider payloads. Owner authorization for earlier reads does not authorize orders or deployment.
+Keep `docs/STATUS.md` concise and update it after each meaningful task, failed
+validation or handoff. Put detailed evidence under `docs/reviews/`; record
+significant decisions in `docs/DECISIONS.md`. Correct inaccurate spec/plan/architecture
+as verified facts emerge. Never overwrite earlier failed evidence with a pass.
 
-## Working constraints
+## Safety and architecture
 
-- Preserve unrelated uncommitted changes and historical evidence. Do not merge or delete old worktrees automatically.
-- Keep secrets and private data out of logs, artifacts and Git. Do not read `.env` or private runtime artifacts simply to infer readiness.
-- Use repository-owned fixtures for offline tests. Provider requests, new subscriptions, infrastructure activation and live actions require appropriate owner authorization; planning is not authorization for those effects.
-- Work on an isolated feature branch for changes. Run checks proportionate to the change, including financial/transactional tests when those boundaries change. Documentation-only planning needs document/link/diff checks, not service startup or the entire trading suite.
-- The owner requests a standing end-of-wave workflow: after all wave exit gates pass, commit the reviewed in-scope changes, push the feature branch, open a GitHub PR, satisfy required CI/review checks, merge through GitHub, verify the merged revision, and start the next eligible wave through this orchestration task. No repeated approval is needed for this workflow. Preserve unrelated work and do not bypass branch protection, force-push, or treat an incomplete wave as closed. Trading/deployment remain separately scoped; CI, restart or code merge cannot enable them.
+- Live trading, real orders/positions/funds, authentication weakening, risk
+  increases and simulation-to-live transitions require explicit owner approval.
+  Never use production credentials for testing. Development defaults to offline fixtures.
+- Never print or commit secrets, provider payloads or private session paths.
+  Provider reads, OAuth and deployment remain separately scoped operations.
+- Strategies emit targets; portfolio/risk authorize intents. Preserve exact
+  accounting, causal availability and later-event fills, durable attempts before
+  I/O, UNKNOWN on ambiguity, account leases/fencing and authoritative reconciliation.
+- Startup remains HALTED and trading authority false. Healthy services, successful
+  builds, fixture results and data hashes do not confer execution permission.
+- Preserve one canonical causal engine. Domain/pure code cannot import effect
+  authority; packages cannot import application composition roots.
+- Treat execution, sizing, leverage, stops, limits, kill switches, adapters and
+  credentials as safety-critical: require adverse/restart/concurrency tests and
+  documented limits before acceptance. Backtests imply no future profitability.
+- Do not casually change frozen contracts, ledger/schema migrations, lease or
+  timeout bounds, native/signing/seal machinery, CI gates, historical evidence,
+  generated API contracts or lockfiles. Inspect owners/callers and migration
+  requirements first. Never remove old worktrees or activate native services as cleanup.
+- At most three additional workers globally; no nested workers. Assign exclusive
+  files and coordinate shared schema/accounting changes.
 
-## Accepted evidence and limits
+## Validation (from this checkout)
 
-W1 integrated gate: 1,264 Python tests passed, 7 PostgreSQL tests skipped; Ruff format/lint, mypy 291 files, API contracts, standard architecture and Compose model passed. Two standard wheel builds were byte-identical; installed CLI start/duplicate/SIGTERM/restart behavior passed outside the checkout. The real 20-bar Tiingo sample remains exploratory current-vintage data with explicit 20:00 ET historical-availability assumptions, not PIT or full-study-period evidence. W0 frozen contracts/old worktree history remain unchanged; the dated amendment supplies the current account scope revision.
+See `docs/TESTING.md` for clean-environment commands and prerequisites. Run the
+architecture check before project imports. Reuse a verified Python 3.12 runtime;
+never source `.env` or start the application stack to validate a code change.
 
-No financial schemas/migrations, deployed resources, native lifecycle or trading changed. Browser code is unchanged; W1 PR CI passed the browser regressions. The previous .venv launcher remains preserved/broken; use the runbook's separate environment or exact temporary verification environment in evidence. OAuth daily expiry is conservatively 2026-09-10T04:00:00Z with a two-hour idle admission window. Never rewrite activity times to prolong access. New supervised renewal publishes a private reference and preserves original issuance and expiry.
+| Check | Command with prepared dependencies |
+|---|---|
+| Architecture | `.venv/bin/python -I -B scripts/check_personal_architecture.py` |
+| Formatting | `.venv/bin/ruff format --check .` (apply: `.venv/bin/ruff format <changed-paths>`) |
+| Lint | `.venv/bin/ruff check .` |
+| Types | `.venv/bin/mypy apps packages` |
+| Standard tests | `.venv/bin/python -B scripts/run_personal_tests.py` |
+| PostgreSQL tests | Same runner with `--postgres-url "$AQT_DISPOSABLE_TEST_DB"` (disposable DB only) |
+| API contracts | `.venv/bin/python -B -m scripts.generate_api_contracts --check` |
+| Browser | `make frontend-check` (lint, typecheck, tests, bundle tests, build) |
+| Wheel | `uv build --wheel --no-sources --build-constraints build_support/native_build_constraints.txt --require-hashes --out-dir "$AQT_BUILD_OUTPUT"` |
+| Compose model | `make compose-check` (configuration only) |
+| Documentation | `git diff --check` plus local link/command review |
+
+`make check` is the broader wrapper, but may synchronize dependencies. Raw `pytest`
+selects historical/native suites too; use the standard runner or scoped tests with
+sanitized environment. A PostgreSQL skip is not concurrency acceptance. Use focused
+checks for small changes; require affected financial/integration gates for behavior
+changes and exact-revision Linux CI for release. Fix new failures before dependent work.
+
+Existing end-of-wave closeout remains: after all exit gates pass, commit/push,
+open a PR, satisfy CI/review, merge through GitHub and verify the merged revision
+before the next wave. No force push or bypassing protection; incomplete Wave 4
+cannot be closed by documentation or component passes.

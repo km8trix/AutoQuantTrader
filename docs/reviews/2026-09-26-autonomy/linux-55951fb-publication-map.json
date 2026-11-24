@@ -1,0 +1,43 @@
+{
+  "schema": "aqt-ci-publication-map/1",
+  "run_id": 36293614203,
+  "files": [
+    {
+      "source_name": "ci-55951fb-final-summary.json",
+      "published_name": "linux-55951fb-ci-failure.json",
+      "sha256": "86bbe0f672be24c632f79dfb67f07f9439380934c934c127dca506332ef8f627",
+      "bytes": 64317
+    },
+    {
+      "source_name": "ci-55951fb-diagnostic-final.json",
+      "published_name": "linux-55951fb-diagnostic-failure.json",
+      "sha256": "88ac7c763ff9101508e772c24ede2b5b2e8ce111db73ea9313f6f2dbeac0e7cc",
+      "bytes": 13148
+    },
+    {
+      "source_name": "ci-55951fb-artifact-10923314952/profile.json",
+      "published_name": "linux-55951fb-diagnostic-profile.json",
+      "sha256": "22d6e05571620a7170938a59f0881b848e176317cf128cb5766bf44f5b1fb52f",
+      "bytes": 99440
+    },
+    {
+      "source_name": "ci-55951fb-artifact-10923314952/test-exit.json",
+      "published_name": "linux-55951fb-diagnostic-test-exit.json",
+      "sha256": "f9b9f2a49fed4bd9383d9b90e9496ff7fbe07cddc84617fcfc78ad5b60004b25",
+      "bytes": 89
+    },
+    {
+      "source_name": "ci-55951fb-financial-final.json",
+      "published_name": "linux-55951fb-financial-summary.json",
+      "sha256": "09ca71fad7d350dae49e95e310028a135141a949b3488b92dbc2120a059545be",
+      "bytes": 13598
+    },
+    {
+      "source_name": "ci-55951fb-financial-failure-traces.json",
+      "published_name": "linux-55951fb-financial-failure-traces.json",
+      "sha256": "b22e2958719530add2dd5ed31db7e0b13c70557b5659a3ba41401ef8e5acf74c",
+      "bytes": 10170
+    }
+  ],
+  "note": "Raw evidence preserves temporary original paths; this map resolves published exact copies. Full logs/archive remain temporary and are bound by the final run manifest."
+}

@@ -1,0 +1,80 @@
+"""Finite synthetic screen; no production replacement or retained fixture."""
+import ast
+import hashlib
+import inspect
+import json
+import statistics
+import textwrap
+import time
+import types
+from dataclasses import dataclass
+from pathlib import Path
+from types import MappingProxyType
+
+from packages.persistence.daily_runtime_risk import SqlDailyRuntimeRisk
+
+original = SqlDailyRuntimeRisk._assignment_identity_fields
+source = textwrap.dedent(inspect.getsource(original))
+needle = '        if type(item) is tuple:\n'
+replacement = '        current_type = type(item)\n        if current_type is tuple:\n            del current_type\n'
+assert source.count(needle) == 1
+candidate_source = source.replace(needle, replacement).replace(
+    '        item_type = type(item)\n', '        item_type = current_type\n        del current_type\n'
+)
+module = ast.parse(candidate_source)
+node = module.body[0]
+node.decorator_list = []
+compiled = compile(module, '<identity-type-lookup-screen>', 'exec')
+code = next(x for x in compiled.co_consts if isinstance(x, types.CodeType))
+candidate = types.FunctionType(code, original.__globals__, 'candidate')
+
+@dataclass
+class Node:
+    left: object
+    right: object
+
+shapes = {
+    'scalar_wide': tuple((str(i), i, None, True, b'row') for i in range(1500)),
+    'record_tree': tuple(Node(str(i), Node(i, (None, b'row'))) for i in range(1500)),
+    'mapping_alias': tuple(MappingProxyType({'row': Node(str(i), (i, i))}) for i in range(1000)),
+}
+rows = []
+for name, value in shapes.items():
+    expected = original(value)
+    actual = candidate(value)
+    assert len(actual) == len(expected)
+    assert all(a is b for a, b in zip(expected, actual, strict=True))
+    for function in (original, candidate):
+        function(value)
+    samples = {'original': [], 'candidate': []}
+    for sample in range(9):
+        order = (('original', original), ('candidate', candidate))
+        if sample % 2:
+            order = tuple(reversed(order))
+        for kind, function in order:
+            start = time.perf_counter_ns()
+            for _ in range(10):
+                function(value)
+            samples[kind].append(time.perf_counter_ns() - start)
+    before = statistics.median(samples['original'])
+    after = statistics.median(samples['candidate'])
+    rows.append({'shape': name, 'bindings': len(expected), 'samples_ns': samples,
+                 'candidate_original_median_ratio': after / before})
+report = {
+    'schema': 'identity-type-lookup-screen/1',
+    'original_file_sha256': hashlib.sha256(Path(inspect.getsourcefile(original)).read_bytes()).hexdigest(),
+    'original_function_sha256': hashlib.sha256(source.encode()).hexdigest(),
+    'candidate_source': candidate_source,
+    'scope': 'Adjacent type-only reuse; preserve old item_type on tuple iterations and both native id calls.',
+    'rows': rows,
+    'limitations': [
+        'Finite synthetic cost rejection screen; no complete behavior qualification.',
+        'No retained fixture or paired end-to-end speedup measurement.',
+        'No production source, validation, authority or limit change.'
+    ]
+}
+out = Path('/private/tmp/aqt-autonomy-audit/identity-type-lookup-screen.json')
+with out.open('x') as stream:
+    json.dump(report, stream, indent=2)
+    stream.write('\n')
+print(json.dumps([{'shape': r['shape'], 'candidate_original_ratio': r['candidate_original_median_ratio']} for r in rows]))

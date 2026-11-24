@@ -1,0 +1,236 @@
+FF..FF..FF..FF......FFFFFFFFFFFF..FFFFFFFFF                              [100%]
+=================================== FAILURES ===================================
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[root-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[root-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[tuple-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[tuple-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[nested_tuple-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[nested_tuple-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[record-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_field_getter_error_keeps_generator_boundary_and_complete_chaining[record-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:83: in test_field_getter_error_keeps_generator_boundary_and_complete_chaining
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...), ('first',)) == ((<class 'Run...), ('first',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original getter failure', ('original getter failure',), True, (<class 'ValueError'>, 'original cause', ('original cause',), False, None, True), False), True)
+E     Use -v to get more diff
+_ test_root_reflection_remains_outside_the_child_generator[tuple-class_fields] _
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...s_fields__',)) == ((<class 'Run...s_fields__',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+__ test_root_reflection_remains_outside_the_child_generator[tuple-__module__] __
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...:__module__')) == ((<class 'Run...:__module__'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_root_reflection_remains_outside_the_child_generator[tuple-__qualname__] _
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes..._qualname__')) == ((<class 'Run..._qualname__'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+____ test_root_reflection_remains_outside_the_child_generator[tuple-fields] ____
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...ance:fields')) == ((<class 'Run...ance:fields'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original fields failure', ('original fields failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original fields failure', ('original fields failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_root_reflection_remains_outside_the_child_generator[record-class_fields] _
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...s_fields__',)) == ((<class 'Run...s_fields__',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_root_reflection_remains_outside_the_child_generator[record-__module__] __
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...:__module__')) == ((<class 'Run...:__module__'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_root_reflection_remains_outside_the_child_generator[record-__qualname__] _
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes..._qualname__')) == ((<class 'Run..._qualname__'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original reflection failure', ('original reflection failure',), False, None, True), True)
+E     Use -v to get more diff
+___ test_root_reflection_remains_outside_the_child_generator[record-fields] ____
+tests/unit/test_personal_semantic_stopiteration.py:120: in test_root_reflection_remains_outside_the_child_generator
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...ance:fields')) == ((<class 'Run...ance:fields'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original fields failure', ('original fields failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original fields failure', ('original fields failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_original_field_name_reads_keep_error_boundary_and_order[StopIteration-1] _
+tests/unit/test_personal_semantic_stopiteration.py:156: in test_original_field_name_reads_keep_error_boundary_and_order
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto..., ('name:1',)) == ((<class 'Run..., ('name:1',))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original field-name failure', ('original field-name failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original field-name failure', ('original field-name failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_original_field_name_reads_keep_error_boundary_and_order[StopIteration-2] _
+tests/unit/test_personal_semantic_stopiteration.py:156: in test_original_field_name_reads_keep_error_boundary_and_order
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...1', 'name:2')) == ((<class 'Run...1', 'name:2'))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original field-name failure', ('original field-name failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original field-name failure', ('original field-name failure',), False, None, True), True)
+E     Use -v to get more diff
+____ test_original_field_name_reads_keep_error_boundary_and_order[_Stop-1] _____
+tests/unit/test_personal_semantic_stopiteration.py:156: in test_original_field_name_reads_keep_error_boundary_and_order
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes..., ('name:1',)) == ((<class 'Run..., ('name:1',))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original field-name failure', ('original field-name failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original field-name failure', ('original field-name failure',), False, None, True), True)
+E     Use -v to get more diff
+____ test_original_field_name_reads_keep_error_boundary_and_order[_Stop-2] _____
+tests/unit/test_personal_semantic_stopiteration.py:156: in test_original_field_name_reads_keep_error_boundary_and_order
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...1', 'name:2')) == ((<class 'Run...1', 'name:2'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original field-name failure', ('original field-name failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original field-name failure', ('original field-name failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-LookupError] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Loo...'get:second')) == ((<class 'Loo...e:temporary'))
+E     
+E     At index 1 diff: ('get:first', 'get:second') != ('get:first', 'get:second', 'release:temporary')
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-LookupError] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Loo...'get:second')) == ((<class 'Loo...e:temporary'))
+E     
+E     At index 1 diff: ('get:first', 'get:second') != ('get:first', 'get:second', 'release:temporary')
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-StopIteration] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Sto...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'StopIteration'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-_Stop] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'tes...'get:second')) == ((<class 'Run...e:temporary'))
+E     
+E     At index 0 diff: (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True) != (<class 'RuntimeError'>, 'generator raised StopIteration', ('generator raised StopIteration',), True, (<class 'test_personal_semantic_stopiteration._Stop'>, 'original later failure', ('original later failure',), False, None, True), True)
+E     Use -v to get more diff
+_ test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-LookupError] _
+tests/unit/test_personal_semantic_stopiteration.py:186: in test_previous_temporary_result_releases_before_error_handler_with_traceback_alive
+    assert actual == expected
+E   AssertionError: assert ((<class 'Loo...'get:second')) == ((<class 'Loo...e:temporary'))
+E     
+E     At index 1 diff: ('get:first', 'get:second') != ('get:first', 'get:second', 'release:temporary')
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[root-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[root-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[tuple-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[tuple-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[nested_tuple-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[nested_tuple-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[record-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_field_getter_error_keeps_generator_boundary_and_complete_chaining[record-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[tuple-class_fields]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[tuple-__module__]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[tuple-__qualname__]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[tuple-fields]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[record-class_fields]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[record-__module__]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[record-__qualname__]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_root_reflection_remains_outside_the_child_generator[record-fields]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_original_field_name_reads_keep_error_boundary_and_order[StopIteration-1]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_original_field_name_reads_keep_error_boundary_and_order[StopIteration-2]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_original_field_name_reads_keep_error_boundary_and_order[_Stop-1]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_original_field_name_reads_keep_error_boundary_and_order[_Stop-2]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[root-LookupError]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[tuple-LookupError]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-StopIteration]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-_Stop]
+FAILED tests/unit/test_personal_semantic_stopiteration.py::test_previous_temporary_result_releases_before_error_handler_with_traceback_alive[record-LookupError]
+29 failed, 14 passed in 0.28s

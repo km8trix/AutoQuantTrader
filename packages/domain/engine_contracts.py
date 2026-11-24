@@ -14,6 +14,7 @@ from packages.domain.accounting_contracts import (
     ExecutionObservation,
     ExecutionPolicy,
 )
+from packages.domain.continuous_reconciliation_contracts import ContinuousReconciliationBatch
 from packages.domain.daily_reference import ReferenceConfiguration
 from packages.domain.models import OrderIntent, PositionTarget
 from packages.domain.personal_contracts import (
@@ -192,7 +193,7 @@ class RunSpec(ContractRecord):
 
 @dataclass(frozen=True, slots=True)
 class ObservationProvenance(ContractRecord):
-    data_class: ResearchDataClass
+    data_class: ResearchDataClass | Literal["recorded_as_observed"]
     source_namespace: str
     normalized_sha256: str
     observed_at: datetime | None = None
@@ -263,7 +264,12 @@ class ScheduleSignal(ContractRecord):
 
 
 type EnginePayload = (
-    DailyPrice | BenchmarkPrice | ScheduleSignal | AccountingCommand | ExecutionObservation
+    DailyPrice
+    | BenchmarkPrice
+    | ScheduleSignal
+    | AccountingCommand
+    | ExecutionObservation
+    | ContinuousReconciliationBatch
 )
 
 

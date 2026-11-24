@@ -1,0 +1,33 @@
+{
+  "schema": "aqt-lifecycle-test-hook-correction/1",
+  "date": "2026-09-27",
+  "parent_code_commit": "7ac47bbbe65d885de1979637f5659873b441c0d4",
+  "test_source": {
+    "path": "tests/integration/test_continuous_process_lifecycle.py",
+    "sha256": "278f884b89f496b328be346e938724960c038d96255ee6b252159ea87305d0bb"
+  },
+  "production_source": {
+    "path": "packages/application/continuous_process.py",
+    "sha256": "a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655",
+    "changed_by_this_correction": false
+  },
+  "cause": "A positive test handshake was also active inside final cleanup after the SQL producer was stopped; its assertion masked the original supervisor outcome. The old initial failure reason remains unknown.",
+  "correction": "Scope only the test handshake out of real cleanup. Preserve original positive node and all original assertions; add a one-shot real-Z observation TimeoutExpired case proving original failure, no result acceptance, one wait, complete group cleanup, stopped producer and artifact cleanup.",
+  "validation": {
+    "command": "env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<checkout> PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC <verified-python> -B -m pytest -q -p no:cacheprovider tests/integration/test_continuous_simulation_worker.py tests/integration/test_continuous_process_lifecycle.py",
+    "python": "CPython 3.12.13",
+    "platform": "Darwin",
+    "passed": 20,
+    "elapsed_seconds": 62.01,
+    "exit_code": 0,
+    "architecture_before_imports": "passed",
+    "ruff_check": "passed after helper argument shadowing was corrected",
+    "ruff_format": "passed",
+    "log_sha256": "43636dc23ce4269a4910ef327420eb239331534644380373a4054c9661bf1d4d"
+  },
+  "limitations": [
+    "Local Darwin validation does not qualify Linux native observation.",
+    "New Linux CI must expose or resolve the masked original failure; this test correction alone is not its root-cause repair.",
+    "All production time, lease and resource limits are unchanged."
+  ]
+}

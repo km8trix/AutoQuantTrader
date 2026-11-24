@@ -1,0 +1,25 @@
+{
+  "python": "3.12.13",
+  "implementation": "cpython",
+  "native_state_type": "_abc._abc_data",
+  "referents": 3,
+  "referent_types": [
+    "set",
+    "set",
+    "set"
+  ],
+  "roles": [
+    "registry",
+    "positive",
+    "negative"
+  ],
+  "set_identity_survives_cache_clear": true,
+  "registry_count": 1,
+  "positive_count": 1,
+  "negative_count": 1,
+  "limitations": [
+    "Finite native traversal-layout observation on this interpreter, not a Python API guarantee.",
+    "_get_dump used only as independent oracle after exact set lengths bound to less than4 each.",
+    "A production profile must pin native functions and exact native type; unknown shape/runtime falls back."
+  ]
+}

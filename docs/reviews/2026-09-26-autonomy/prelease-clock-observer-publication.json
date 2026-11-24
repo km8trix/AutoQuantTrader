@@ -1,0 +1,93 @@
+{
+  "schema": "prelease-clock-observer-publication/1",
+  "source_head": "e83d0ac",
+  "files": [
+    {
+      "source_name": "prelease-clock-observer-plan.md",
+      "published_name": "prelease-clock-observer-plan.md",
+      "sha256": "2fe60cb8addaf2b7552ac258e5ed8c99c8ceb606113201c7a7a1ed18efb34807",
+      "bytes": 12036
+    },
+    {
+      "source_name": "prelease-clock-observer-plan-review.md",
+      "published_name": "prelease-clock-observer-plan-review.md",
+      "sha256": "bc80fd1fcd637d7ce66c77cf47c5b2397fe1b065de22de8121489199c2100958",
+      "bytes": 9325
+    },
+    {
+      "source_name": "prelease-clock-observer-run-plan.md",
+      "published_name": "prelease-clock-observer-run-plan.md",
+      "sha256": "fd3f90d469fb19eb9f2f11125ce903c4b2fbffb66f2600cdfe22df68c2dee2b4",
+      "bytes": 2876
+    },
+    {
+      "source_name": "prelease-clock-observer-run-plan-reviewed.md",
+      "published_name": "prelease-clock-observer-run-plan-reviewed.md",
+      "sha256": "c26e4722497484173f3b854bdf1b83e564dcc94fc5f2dcb467ebcf7991c67767",
+      "bytes": 2610
+    },
+    {
+      "source_name": "prelease-clock-observer-mechanics.json",
+      "published_name": "prelease-clock-observer-mechanics.json",
+      "sha256": "10bd05f2779dd5a09ad71daeb677432a244f6545501ebf6dea57c3bcbf811663",
+      "bytes": 1926
+    },
+    {
+      "source_name": "prelease-clock-selfchecks-first-raw.txt",
+      "published_name": "prelease-clock-selfchecks-first-raw.txt",
+      "sha256": "f7007061b2e9b713b2916d72229f1fa762b3fe1fc1ecf7dc1c89d6721635bd8f",
+      "bytes": 1738
+    },
+    {
+      "source_name": "prelease-clock-selfchecks-first-result.txt",
+      "published_name": "prelease-clock-selfchecks-first-result.txt",
+      "sha256": "fc44378a5d7fd4db9db660460a9e102b9e209155cd062f9b590ca438d450a147",
+      "bytes": 363
+    },
+    {
+      "source_name": "prelease-clock-selfchecks-final.txt",
+      "published_name": "prelease-clock-selfchecks-final.txt",
+      "sha256": "c7830d2f13f8e0f9b8ec8e0c14b457d7634c13c96f3c88b5841197d54704f008",
+      "bytes": 99
+    },
+    {
+      "source_name": "prelease-clock-collect-only.txt",
+      "published_name": "prelease-clock-collect-only.txt",
+      "sha256": "602877ef2b0764bfc317628c252d91e8b6a404ff4c488ed2aa7a74c3a413fb03",
+      "bytes": 165
+    },
+    {
+      "source_name": "prelease-clock-mechanics-independent-review.md",
+      "published_name": "prelease-clock-mechanics-independent-review.md",
+      "sha256": "b6d10e581717ad777f1c96f971e41c5397cce53c24068ad8ea3a05de1d580d4a",
+      "bytes": 5792
+    },
+    {
+      "source_name": "prelease-clock-mechanics-independent-tests.txt",
+      "published_name": "prelease-clock-mechanics-independent-tests.txt",
+      "sha256": "a95a04c8efbf2682ab6651b8bd5b7e4490b090b1c1332b4485f40e6f10b6295f",
+      "bytes": 99
+    },
+    {
+      "source_name": "aqt_prelease_clock_cost.py",
+      "published_name": "aqt_prelease_clock_cost.py.txt",
+      "sha256": "71b13b67ae6a5293bf1c979a044e2ceacacdac6b93e6695673e6b83b4a73246c",
+      "bytes": 25243
+    },
+    {
+      "source_name": "test_aqt_prelease_clock_cost.py",
+      "published_name": "test_aqt_prelease_clock_cost.py.txt",
+      "sha256": "15f26dcc27a8a53552358c5c5e1c56fb0e0a742e1d2040397cb9506b74f91149",
+      "bytes": 13547
+    },
+    {
+      "source_name": "test_aqt_prelease_clock_cost_independent.py",
+      "published_name": "test_aqt_prelease_clock_cost_independent.py.txt",
+      "sha256": "170100c286202a606ceb041140b8b0fd30bd86fde1afba42877f29858ba53f72",
+      "bytes": 8978
+    }
+  ],
+  "reviewed_plan_note": "Independent mechanics review hashes the pre-release run plan. Its exact bytes are preserved as prelease-clock-observer-run-plan-reviewed.md; the released plan adds only the root release note.",
+  "fixture_status": "One original measurement running; result published separately after completion.",
+  "source_changes": "Documentation/evidence only; original code/tests/limits unchanged."
+}

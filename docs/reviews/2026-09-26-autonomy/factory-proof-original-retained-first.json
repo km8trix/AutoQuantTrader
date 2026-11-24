@@ -1,0 +1,24 @@
+{
+  "scope": "original unprofiled retained restore gate; no monitoring/profiling plugin",
+  "passed": 1,
+  "failed": 0,
+  "seconds": 222.75,
+  "fixture_setup_seconds": 179.754,
+  "restore_seconds": 40.246,
+  "source_hashes": {
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "source_unchanged": true,
+  "lease_seconds": 60,
+  "operation_seconds": 120,
+  "parent_seconds": 150,
+  "original_assertions_and_cleanup_passed": true,
+  "limitations": [
+    "Local CPython3.12.13 on macOS only; exact-source Linux CI still required.",
+    "This single restore duration is not an isolated complete-cost attribution or a guaranteed speedup."
+  ]
+}

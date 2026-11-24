@@ -1,0 +1,63 @@
+{
+  "scope": "Independent new unit tests only; candidate tests, not a baseline run; no heavy fixture or production edit by validation audit.",
+  "python": "3.12.13",
+  "oracle": {
+    "fallback_body_ast_equal_modulo_recursive_and_utc_helper_names": true,
+    "separate_copied_utc_helper_body_ast_equal": true
+  },
+  "first_candidate": {
+    "passed": 81,
+    "failed": 1,
+    "cause": "Author incorrectly marked tuple[int, bool, str, None] valid; literal original oracle rejects None annotation. Preserved rejection and added valid type(None) case."
+  },
+  "corrected_candidate": {
+    "passed": 83,
+    "failed": 0,
+    "seconds": 0.18
+  },
+  "final_candidate": {
+    "passed": 83,
+    "failed": 0,
+    "seconds": 0.19
+  },
+  "lint": {
+    "first": "7 findings: copied UTC nested if, intentional typing.Union syntax, immediate loop closures. Fixed structure and bound closures; explicit UP007 exclusion only for exercising typing.Union.",
+    "final": "All checks passed; Ruff format left file unchanged."
+  },
+  "architecture": {
+    "result": "Passed before project imports, 3.05s; root separately passed after candidate source insertion.",
+    "command": "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -I -B scripts/check_personal_architecture.py"
+  },
+  "pytest_command": "env -i PATH=/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin:/usr/bin:/bin PYTHONPATH=/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC /Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python -B -m pytest -q -p no:cacheprovider tests/unit/test_personal_contract_type_dispatch.py",
+  "files": [
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/packages/domain/personal_contracts.py",
+      "sha256": "968012e5de4add2d4c19d7c8042a37255d5c1682ab0e91f2bd8dd492847df98b"
+    },
+    {
+      "path": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/tests/unit/test_personal_contract_type_dispatch.py",
+      "sha256": "5b22ec534c0df638856ed51c763f5aeb1131c8f7adc0835db85491c66235ff58"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-first.txt",
+      "sha256": "48c31bd44e122dc490c302ff62caa89b85d7584e867f210bc6f6dd2e603404cf"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-corrected.txt",
+      "sha256": "c5cc0762a37d0e6448a2804e7688984d4dba834df3ec0f963e345aec0745c5b2"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-candidate-final.txt",
+      "sha256": "90950769469c434949ca58c179c20eb2e785131e8c8d55fbb4a3749720e7e800"
+    },
+    {
+      "path": "/private/tmp/aqt-autonomy-audit/check-type-dispatch-ruff-final.txt",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    }
+  ],
+  "limits": [
+    "No baseline suite was run: source prefix was already applied.",
+    "Finite behavioral compatibility evidence, not universal interpreter/resource-exhaustion equivalence.",
+    "No timing or full retained restore claim from these unit tests."
+  ]
+}

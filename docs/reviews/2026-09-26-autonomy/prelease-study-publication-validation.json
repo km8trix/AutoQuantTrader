@@ -1,0 +1,28 @@
+{
+  "schema": "prelease-study-publication-validation/1",
+  "date": "2026-09-27",
+  "exact_copy_artifacts_verified": [
+    "prelease-clock-observer-plan.md",
+    "prelease-clock-observer-plan-review.md",
+    "prelease-clock-observer-run-plan.md",
+    "prelease-clock-observer-run-plan-reviewed.md",
+    "prelease-clock-observer-mechanics.json",
+    "prelease-clock-selfchecks-first-raw.txt",
+    "prelease-clock-selfchecks-first-result.txt",
+    "prelease-clock-selfchecks-final.txt",
+    "prelease-clock-collect-only.txt",
+    "prelease-clock-mechanics-independent-review.md",
+    "prelease-clock-mechanics-independent-tests.txt",
+    "aqt_prelease_clock_cost.py.txt",
+    "test_aqt_prelease_clock_cost.py.txt",
+    "test_aqt_prelease_clock_cost_independent.py.txt",
+    "prelease-clock-original-first.json",
+    "prelease-clock-original-first.txt"
+  ],
+  "source_before_after_current_hashes_verified": 14,
+  "evidence_json_files_parsed": 78,
+  "markdown_documents_checked": 18,
+  "local_markdown_links_resolved": 274,
+  "production_tests_scripts_workflows_unchanged_from": "26631c66854c754533f5d6d82749e1fb8b5e3dcf",
+  "behavioral_retest": "Not repeated for documentation-only publication; original observation and mechanics results preserved separately."
+}

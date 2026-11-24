@@ -54,6 +54,7 @@ class AccountFactConflict(AccountProjectionError):
 
 class CostBasisPolicy(StrEnum):
     FIFO_TRADE_DATE = "fifo_trade_date_v1"
+    FIFO_TRADE_DATE_OBSERVED_ORDER_V1 = "fifo_trade_date_observed_order_v1"
 
 
 def _require_text(value: str, field_name: str) -> None:
@@ -940,7 +941,7 @@ def _prepare_fifo_evidence(
     _require_text(account_id, "account_id")
     require_utc(valuation_at, "valuation_at")
     _require_currency(currency)
-    if policy is not CostBasisPolicy.FIFO_TRADE_DATE:
+    if type(policy) is not CostBasisPolicy:
         raise AccountProjectionError("unsupported cost-basis policy")
     states = tuple(order_states)
     flows = tuple(cash_flows)
@@ -1001,21 +1002,33 @@ def _reduce_unvalued_fifo(
             datetime,
             int,
             str,
+            str,
             StockSplitAction | CashDividendAccrual | FifoExecution,
         ]
     ] = []
     timeline.extend(
-        (split.effective_at, 0, split.split_id, split)
+        (split.effective_at, 0, split.split_id, "", split)
         for split in corporate_action_ledger.stock_splits
     )
     timeline.extend(
-        (dividend.effective_at, 1, dividend.dividend_id, dividend)
+        (dividend.effective_at, 1, dividend.dividend_id, "", dividend)
         for dividend in corporate_action_ledger.cash_dividends
     )
     timeline.extend(
-        (execution.occurred_at, 2, execution.execution_id, execution) for execution in executions
+        (
+            execution.occurred_at,
+            2,
+            execution.order_id
+            if policy is CostBasisPolicy.FIFO_TRADE_DATE_OBSERVED_ORDER_V1
+            else execution.execution_id,
+            execution.execution_id,
+            execution,
+        )
+        for execution in executions
     )
-    for _, _, _, account_event in sorted(timeline, key=lambda item: item[:3]):
+    # New observed accounting makes cross-order FIFO ties explicit. Preserve the
+    # historical execution-ID timeline for every existing default-policy replay.
+    for _, _, _, _, account_event in sorted(timeline, key=lambda item: item[:4]):
         if isinstance(account_event, StockSplitAction):
             instrument_lots = lots.get(account_event.instrument_id, [])
             held_quantity = exact_decimal_sum(lot.quantity for lot in instrument_lots)

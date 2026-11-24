@@ -1,0 +1,49 @@
+{
+  "schema": "aqt-identity-type-lookup-independent-screen/1",
+  "decision": "Reject this temporary type-only candidate before full adverse or retained-fixture qualification; retain current source.",
+  "read_only": true,
+  "new_tests_or_benchmarks": false,
+  "source_sha256_verified": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+  "arithmetic": [
+    {
+      "shape": "scalar_wide",
+      "original_median_ns_per_10_calls": 7051375,
+      "candidate_median_ns_per_10_calls": 6808542,
+      "candidate_over_original": 0.9655623194057896,
+      "percent_reduction": 3.4437680594210374
+    },
+    {
+      "shape": "record_tree",
+      "original_median_ns_per_10_calls": 29691958,
+      "candidate_median_ns_per_10_calls": 29555000,
+      "candidate_over_original": 0.9953873705465972,
+      "percent_reduction": 0.46126294534027945
+    },
+    {
+      "shape": "mapping_alias",
+      "original_median_ns_per_10_calls": 21616791,
+      "candidate_median_ns_per_10_calls": 21692083,
+      "candidate_over_original": 1.0034830331662086,
+      "percent_reduction": -0.3483033166208571
+    }
+  ],
+  "ratio_definition": "Ratio of candidate sample median to original sample median, nine alternating samples per implementation, ten calls per sample; not median of paired ratios.",
+  "source_review": [
+    "Only the two adjacent type lookups are consolidated; original id calls remain unchanged.",
+    "Separate current_type is deleted before exact-tuple branch; old item_type remains retained on that path.",
+    "Current-type transfer and deletion occur at the original non-tuple item_type point; scalar aliases/identity comparisons/generator traversal stay in source order.",
+    "FunctionType receives original.__globals__, preserving actual imported aliases/helpers instead of a synthetic copied namespace.",
+    "Candidate is a separately compiled temporary function; no original module/class method substitution."
+  ],
+  "qualification_limits": [
+    "Three finite identity-vector comparisons are normal-case checks only; no audit, mutation, class lifetime, exception/finalizer or broad public-behavior equivalence established.",
+    "Synthetic shapes are not the actual restored graph; no confidence interval or full weighted workload claim.",
+    "The strongest selected shape is only3.44% faster; record shape improves0.46%, mapping/alias shape regresses0.35%. No materially useful actual restore benefit is established.",
+    "Earlier original helper total2.1675s is separate instrumented evidence. Applying the best synthetic ratio to all of it would suggest only about0.075s, an intentionally optimistic illustration, not an upper bound or measured saving.",
+    "Do not escalate this rejected screen into a heavy fixture, broader proof/cache, id-event change or limit relaxation."
+  ],
+  "evidence": {
+    "identity-type-lookup-screen.py": "dbc6eec0be1724b0deab137862327b797f4abc1ab7a9679db354edfcdf428f3a",
+    "identity-type-lookup-screen.json": "b1e92ee990bf5198677a105e54f8dea02e2817e95493e52eeccb07734c8ec0dd"
+  }
+}

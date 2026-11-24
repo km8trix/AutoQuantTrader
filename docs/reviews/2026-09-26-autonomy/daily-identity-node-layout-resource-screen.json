@@ -1,0 +1,59 @@
+{
+  "independent_result_review_sha256": "3ae361ab98d7f51ade43c638062a5cc8222f26c39cc00619742a1f432c19286a",
+  "measurement_sha256": "99789c8f6417efaf0650d11c1d4233556f9674300002bc1d67442e3d931d6ee9",
+  "new_genuine_fixture": false,
+  "new_graph_or_authority": false,
+  "original_success_log_sha256": "a9768b965d9e930e361215c4defbe4c908d6c4cd246c68246365e9f18e84e820",
+  "project_imports": false,
+  "prototype_hashes": {
+    "daily-identity-node-layout.md": "53753c0f99ece7703690e0a685a199e929f27c51ad7340f5b5a7eeb694ad5cf0",
+    "daily_identity_node_screen.py": "d4b32b71df304ffef99b3ac69e22373174e9b6dff212de8762dca455bc2e53c3",
+    "test_daily_identity_node_screen.py": "3a2d1fa1b2fc6dda38828f2b25f2a4f8e5b15d62097b9df6469cc8a9913ca3ee"
+  },
+  "resource_screen": {
+    "acceptance": false,
+    "admission": false,
+    "caps": {
+      "bindings": 131072,
+      "containers": 16384
+    },
+    "combined_lower_bound": {
+      "bindings": 139661,
+      "containers": 16743
+    },
+    "excess": {
+      "bindings": 8589,
+      "containers": 359
+    },
+    "existing": {
+      "bindings": 66259,
+      "containers": 7387
+    },
+    "measured_edges": 54690,
+    "measured_nodes": 9356,
+    "omitted_charges": "Nonnegative accessor/schema/behavior/owner/context/construction/temporary charges; not implemented and not presumed zero.",
+    "outcome": "rejected_this_per_node_layout",
+    "proposed_lower_bound": {
+      "bindings": 73402,
+      "containers": 9356
+    },
+    "remaining": {
+      "bindings": 64813,
+      "containers": 8997
+    },
+    "universal_impossibility": false
+  },
+  "schema": "aqt-daily-identity-per-node-resource-screen/1",
+  "scope": "First scalar lower-bound screen of the declared established per-node layout only.",
+  "source_and_observer_hashes": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_daily_identity_cost.py": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/daily_runtime_risk.py": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+    "test_aqt_daily_identity_cost.py": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  }
+}

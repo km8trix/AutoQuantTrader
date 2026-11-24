@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import http.client
 import json
+import math
 import queue
 import re
 import socket
@@ -52,6 +53,7 @@ class EtradeReadError(ValueError):
 
 
 class EtradeReadOperation(StrEnum):
+    QUOTES = "quotes"
     ACCOUNTS = "accounts"
     BALANCES = "balances"
     PORTFOLIO = "portfolio"
@@ -378,6 +380,7 @@ class EtradeReadRequest:
     operation: EtradeReadOperation
     account_key: EtradeAccountIdKey | None = field(default=None, repr=False)
     query: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+    symbols: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -385,6 +388,22 @@ class EtradeReadRequest:
             or type(self.operation) is not EtradeReadOperation
         ):
             raise EtradeReadError("READ_OPERATION_OR_ENVIRONMENT_INVALID")
+        if self.operation is EtradeReadOperation.QUOTES:
+            if (
+                type(self.symbols) is not tuple
+                or not 1 <= len(self.symbols) <= 4
+                or any(
+                    type(s) is not str or s not in ("DIA", "IWM", "QQQ", "SPY")
+                    for s in self.symbols
+                )
+                or self.symbols != tuple(sorted(set(self.symbols)))
+                or self.account_key is not None
+                or self.query != (("detailFlag", "ALL"),)
+            ):
+                raise EtradeReadError("QUOTE_SCOPE_INVALID")
+            return
+        if type(self.symbols) is not tuple or self.symbols != ():
+            raise EtradeReadError("ACCOUNT_READ_SYMBOLS_FORBIDDEN")
         if self.operation is EtradeReadOperation.ACCOUNTS:
             if self.account_key is not None or self.query:
                 raise EtradeReadError("DISCOVERY_SCOPE_INVALID")
@@ -419,6 +438,8 @@ class EtradeReadRequest:
 
     @property
     def path(self) -> str:
+        if self.operation is EtradeReadOperation.QUOTES:
+            return "/v1/market/quote/" + ",".join(self.symbols)
         if self.operation is EtradeReadOperation.ACCOUNTS:
             return "/v1/accounts/list"
         assert self.account_key is not None
@@ -506,10 +527,39 @@ class EtradeHTTPSGetTransport:
     def get(
         self, request: EtradeReadRequest, *, authorization: str, deadline_seconds: float
     ) -> EtradeReadResponse:
-        request.__post_init__()
-        if not 0 < deadline_seconds <= REQUEST_DEADLINE_SECONDS:
+        if (
+            type(deadline_seconds) not in (int, float)
+            or not math.isfinite(deadline_seconds)
+            or not 0 < deadline_seconds <= REQUEST_DEADLINE_SECONDS
+        ):
             raise EtradeReadError("REQUEST_DEADLINE_INVALID")
+        return self.get_bounded(
+            request,
+            authorization=authorization,
+            deadline_monotonic=time.monotonic() + deadline_seconds,
+            max_response_bytes=MAX_RESPONSE_BYTES,
+        )
+
+    def get_bounded(
+        self,
+        request: EtradeReadRequest,
+        *,
+        authorization: str,
+        deadline_monotonic: float,
+        max_response_bytes: int,
+    ) -> EtradeReadResponse:
+        """Use the caller's original absolute budget, without renewing its origin."""
+        request.__post_init__()
         started = time.monotonic()
+        if (
+            type(deadline_monotonic) not in (int, float)
+            or not math.isfinite(deadline_monotonic)
+            or not 0 < deadline_monotonic - started <= REQUEST_DEADLINE_SECONDS
+        ):
+            raise EtradeReadError("REQUEST_DEADLINE_INVALID")
+        if type(max_response_bytes) is not int or not 0 < max_response_bytes <= MAX_RESPONSE_BYTES:
+            raise EtradeReadError("RESPONSE_LIMIT_INVALID")
+        deadline_seconds = deadline_monotonic - started
         hostname = (
             "apisb.etrade.com"
             if request.environment is EtradeEnvironment.SANDBOX
@@ -520,6 +570,8 @@ class EtradeHTTPSGetTransport:
             hostname, timeout=deadline_seconds, context=context
         )
         deadline_timer: threading.Timer | None = None
+        response: http.client.HTTPResponse | None = None
+        transport_socket: socket.socket | None = None
         try:
             # DNS gets a separate daemon that never sees credentials. A timed-out
             # resolver may finish later, but cannot send an HTTP request.
@@ -528,7 +580,7 @@ class EtradeHTTPSGetTransport:
                 target=_resolve_hostname, args=(hostname, resolved), daemon=True
             )
             resolver.start()
-            remaining = deadline_seconds - (time.monotonic() - started)
+            remaining = deadline_monotonic - time.monotonic()
             if remaining <= 0:
                 raise EtradeReadError("READ_DEADLINE_EXCEEDED")
             try:
@@ -538,14 +590,14 @@ class EtradeHTTPSGetTransport:
             if not addresses:
                 raise EtradeReadError("READ_TRANSPORT_FAILED")
             for family, kind, protocol, _, address in addresses[:4]:
-                remaining = deadline_seconds - (time.monotonic() - started)
+                remaining = deadline_monotonic - time.monotonic()
                 if remaining <= 0:
                     raise EtradeReadError("READ_DEADLINE_EXCEEDED")
                 raw_socket = socket.socket(family, kind, protocol)
                 try:
                     raw_socket.settimeout(remaining)
                     raw_socket.connect(address)
-                    remaining = deadline_seconds - (time.monotonic() - started)
+                    remaining = deadline_monotonic - time.monotonic()
                     if remaining <= 0:
                         raise EtradeReadError("READ_DEADLINE_EXCEEDED")
                     raw_socket.settimeout(remaining)
@@ -559,7 +611,7 @@ class EtradeHTTPSGetTransport:
             # Keep the socket even when getresponse handles Connection: close by
             # clearing connection.sock while the response still owns its stream.
             transport_socket = connection.sock
-            remaining = deadline_seconds - (time.monotonic() - started)
+            remaining = deadline_monotonic - time.monotonic()
             if remaining <= 0 or transport_socket is None:
                 raise EtradeReadError("READ_DEADLINE_EXCEEDED")
             transport_socket.settimeout(remaining)
@@ -575,20 +627,24 @@ class EtradeHTTPSGetTransport:
                 "GET", path, headers={"Authorization": authorization, "Accept": "application/json"}
             )
             response = connection.getresponse()
+            if response.getheader("Content-Encoding", "identity").strip().lower() != "identity":
+                raise EtradeReadError("RESPONSE_ENCODING_UNSUPPORTED")
             chunks: list[bytes] = []
             length = 0
             while True:
-                remaining = deadline_seconds - (time.monotonic() - started)
+                remaining = deadline_monotonic - time.monotonic()
                 if remaining <= 0:
                     raise EtradeReadError("READ_DEADLINE_EXCEEDED")
                 transport_socket.settimeout(remaining)
-                chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - length))
+                chunk = response.read1(min(65536, max_response_bytes + 1 - length))
                 if not chunk:
                     break
                 chunks.append(chunk)
                 length += len(chunk)
-                if length > MAX_RESPONSE_BYTES:
+                if length > max_response_bytes:
                     raise EtradeReadError("RESPONSE_TOO_LARGE")
+            if time.monotonic() >= deadline_monotonic:
+                raise EtradeReadError("READ_DEADLINE_EXCEEDED")
             return EtradeReadResponse(
                 request.digest,
                 response.status,
@@ -600,7 +656,15 @@ class EtradeHTTPSGetTransport:
         finally:
             if deadline_timer is not None:
                 deadline_timer.cancel()
-            connection.close()
+            cleanup_failed = False
+            for item in (response, transport_socket, connection):
+                if item is not None:
+                    try:
+                        item.close()
+                    except Exception:
+                        cleanup_failed = True
+            if cleanup_failed:
+                raise EtradeReadError("READ_TRANSPORT_CLEANUP_FAILED") from None
 
 
 def _resolve_hostname(hostname: str, output: queue.Queue[list[Any] | None]) -> None:

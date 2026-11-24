@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "pr": "https://github.com/km8trix/AutoQuantTrader/pull/54",
+  "tested_head": "adf39a99d3717d6800186dabd532399534bfe65c",
+  "merged_revision": "e1bcea18eaa18ad144bc3b03a4891d11ecdd9b06",
+  "merged_at": "2026-09-10T16:54:26Z",
+  "tested_tree": "b90bf91f6b710cf7f2aa722de6eb15623c31adca",
+  "merged_tree": "b90bf91f6b710cf7f2aa722de6eb15623c31adca",
+  "accepted_manifest_sha256": "f01123af19e3ee993f99901818cd5e6407cf899158fb512d5003b7492cb1741d",
+  "bound_files_verified": 147,
+  "ci": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34503819336",
+  "ci_status": "success",
+  "ci_python_passed": 1999,
+  "ci_python_skipped": 0,
+  "ci_browser_passed": 139,
+  "ci_bundle_passed": 33,
+  "independent_reviews": "accepted; retained in accepted-content bindings",
+  "trading_authorized": false,
+  "post_merge_ci_status": "success",
+  "post_merge_ci": "https://github.com/km8trix/AutoQuantTrader/actions/runs/34504953837",
+  "post_merge_python_passed": 1999
+}

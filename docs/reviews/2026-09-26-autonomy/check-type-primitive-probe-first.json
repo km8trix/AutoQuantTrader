@@ -1,0 +1,1598 @@
+{
+  "schema": "aqt-finite-check-type-primitive-probe/1",
+  "source_sha256": "e33f82ecfe99a35ee50fb516f22f8f99449a18caee408cf4cd9a69d37ebaf5e6",
+  "script_sha256": "f3240b03c41e90f09c4fab6782e2892d7c514e657d38a3ca2af4bb61cd632617",
+  "candidate_source_sha256": "c639ff1d1605c2ebf80db9339baca90407e7a9a10a6d859a0b154eda53ca4251",
+  "python": "3.12.13",
+  "scope": "Standalone exact matching primitive prefix only; original body and recursive fallback preserved; no repository edits, cached verdicts, fixture, source owner, SQL, artifacts, fences or operational effects.",
+  "oracle_ast_matches_project": true,
+  "compatibility_count": 52,
+  "mismatch_count": 0,
+  "compatibility": [
+    {
+      "case": "none",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "true",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "false",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "zero",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "negative",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "large_integer",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "empty_string",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "unicode_string",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "text_boundary",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "text_overflow",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample exceeds text bound",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample exceeds text bound",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample exceeds text bound",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "unicode_boundary",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "bool_as_int",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "int_as_bool",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "none_as_str",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "str_as_none",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be null",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be null",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be null",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "subclass_value_as_str",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "subclass_str_annotation",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "subclass_value_as_int",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "subclass_int_annotation",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "str_enum_annotation",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "str_enum_as_str",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "int_enum_annotation",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "int_enum_as_int",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "type_alias_match",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "type_alias_mismatch",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "optional_alias_text",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "optional_alias_none",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "optional_alias_bad",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "union_first",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "union_later",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "union_reject",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "typing_union_none",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "literal_match",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "literal_mismatch",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "literal_bool_int",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported literal",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "literal_stopiteration",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "RuntimeError",
+        "message": "generator raised StopIteration",
+        "cause": "StopIteration",
+        "context": "StopIteration",
+        "is_sentinel": false,
+        "cause_is_sentinel": true,
+        "trace": [
+          "literal.__eq__"
+        ]
+      },
+      "candidate": {
+        "status": "error",
+        "type": "RuntimeError",
+        "message": "generator raised StopIteration",
+        "cause": "StopIteration",
+        "context": "StopIteration",
+        "is_sentinel": false,
+        "cause_is_sentinel": true,
+        "trace": [
+          "literal.__eq__"
+        ]
+      },
+      "project": {
+        "status": "error",
+        "type": "RuntimeError",
+        "message": "generator raised StopIteration",
+        "cause": "StopIteration",
+        "context": "StopIteration",
+        "is_sentinel": false,
+        "cause_is_sentinel": true,
+        "trace": [
+          "literal.__eq__"
+        ]
+      }
+    },
+    {
+      "case": "fixed_tuple",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "fixed_tuple_mismatch",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "fixed_tuple_length",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample tuple shape differs",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample tuple shape differs",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample tuple shape differs",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "mutable_tuple_input",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be immutable tuple",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be immutable tuple",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be immutable tuple",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "variable_tuple",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "nested_tuple",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "tuple_empty",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "finite_decimal",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "nonfinite_decimal",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be finite",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be finite",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample must be finite",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "aware_datetime",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "naive_datetime",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample requires an aware UTC datetime",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample requires an aware UTC datetime",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample requires an aware UTC datetime",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": []
+      }
+    },
+    {
+      "case": "date",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": []
+      }
+    },
+    {
+      "case": "unsupported_annotation",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read"
+        ]
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read"
+        ]
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read",
+          "annotation.__class__.read"
+        ]
+      }
+    },
+    {
+      "case": "failing_annotation",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "StopIteration",
+        "message": "literal annotation failure",
+        "cause": null,
+        "context": null,
+        "is_sentinel": true,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.raise"
+        ]
+      },
+      "candidate": {
+        "status": "error",
+        "type": "StopIteration",
+        "message": "literal annotation failure",
+        "cause": null,
+        "context": null,
+        "is_sentinel": true,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.raise"
+        ]
+      },
+      "project": {
+        "status": "error",
+        "type": "StopIteration",
+        "message": "literal annotation failure",
+        "cause": null,
+        "context": null,
+        "is_sentinel": true,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__.raise"
+        ]
+      }
+    },
+    {
+      "case": "observed_metaclass",
+      "matches": true,
+      "original": {
+        "status": "returned",
+        "is_none": true,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      },
+      "candidate": {
+        "status": "returned",
+        "is_none": true,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      },
+      "project": {
+        "status": "returned",
+        "is_none": true,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      }
+    },
+    {
+      "case": "observed_metaclass_mismatch",
+      "matches": true,
+      "original": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      },
+      "candidate": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      },
+      "project": {
+        "status": "error",
+        "type": "ValueError",
+        "message": "sample has an unsupported value type",
+        "cause": null,
+        "context": null,
+        "is_sentinel": false,
+        "cause_is_sentinel": false,
+        "trace": [
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__",
+          "annotation.__class__"
+        ]
+      }
+    }
+  ],
+  "benchmark": {
+    "iterations": 300,
+    "repeats": 7,
+    "ratio_definition": "candidate median / original median; less than 1 is faster",
+    "workloads": [
+      {
+        "workload": "matching_primitives",
+        "top_level_calls_per_sample": 14400,
+        "times_ns": {
+          "original": [
+            6931958,
+            6964292,
+            7067000,
+            6904750,
+            6917208,
+            6984084,
+            7305667
+          ],
+          "candidate": [
+            1962916,
+            1935125,
+            1908458,
+            1905292,
+            1921125,
+            1904667,
+            1935666
+          ]
+        },
+        "median_ns": {
+          "original": 6964292,
+          "candidate": 1921125
+        },
+        "candidate_over_original": 0.2758535971782918
+      },
+      {
+        "workload": "fallback_control",
+        "top_level_calls_per_sample": 14400,
+        "times_ns": {
+          "original": [
+            10521500,
+            10440083,
+            10413208,
+            10436917,
+            10480709,
+            10474709,
+            10676750
+          ],
+          "candidate": [
+            9329625,
+            9396917,
+            9216333,
+            9284583,
+            9389667,
+            9241958,
+            9194625
+          ]
+        },
+        "median_ns": {
+          "original": 10474709,
+          "candidate": 9284583
+        },
+        "candidate_over_original": 0.8863809963598989
+      },
+      {
+        "workload": "mixed_synthetic",
+        "top_level_calls_per_sample": 14400,
+        "times_ns": {
+          "original": [
+            8732958,
+            8740625,
+            8710500,
+            8890417,
+            8699250,
+            8858334,
+            8762875
+          ],
+          "candidate": [
+            5553166,
+            5801667,
+            5603417,
+            5625167,
+            5594041,
+            5590750,
+            5596791
+          ]
+        },
+        "median_ns": {
+          "original": 8740625,
+          "candidate": 5596791
+        },
+        "candidate_over_original": 0.6403193135502324
+      },
+      {
+        "workload": "version_pin_declared_string_fields",
+        "top_level_calls_per_sample": 14400,
+        "times_ns": {
+          "original": [
+            7377250,
+            7507167,
+            7445792,
+            7393958,
+            7368541,
+            7524708,
+            7614000
+          ],
+          "candidate": [
+            1907875,
+            1903208,
+            1916334,
+            1912917,
+            1910375,
+            1985291,
+            1902750
+          ]
+        },
+        "median_ns": {
+          "original": 7445792,
+          "candidate": 1910375
+        },
+        "candidate_over_original": 0.2565710941159785
+      }
+    ]
+  },
+  "limitations": [
+    "Finite synthetic samples are not per-annotation frequencies, retained restore timings, Linux acceptance, or measured end-to-end savings.",
+    "Follows existing codec exact-primitive dispatch precedent. Does not promise identical observations from dynamically replaced imported typing/introspection helpers or tracing hooks on the skipped native-only reflection path.",
+    "Unknown, custom-metaclass and subclass annotations use the original body. Decimal/datetime, aliases, unions, Literals, tuples and errors are not bypassed.",
+    "A production proposal still requires broader constructor/read-order compatibility tests and source-bound validation; no implementation release is implied."
+  ]
+}

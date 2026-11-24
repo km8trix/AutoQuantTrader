@@ -1,0 +1,397 @@
+"""Synthetic monitoring mechanics only. No production imports or authority."""
+import gc
+from pathlib import Path
+import sys
+import threading
+from types import MappingProxyType, SimpleNamespace
+import weakref
+
+import pytest
+
+import aqt_prelease_clock_cost as p
+
+
+class Record:
+    __slots__ = ('record_id', 'schema_id', 'payload')
+
+    def __init__(self, payload=b'bytes', schema=p.CLOCK):
+        self.record_id, self.schema_id, self.payload = 'synthetic', schema, payload
+
+
+class Clock:
+    pass
+
+
+NEXT_ERROR = None
+OUTER_ERROR = None
+IN_DECODE = False
+
+
+def encode_record(value):
+    if not IN_DECODE and OUTER_ERROR is not None:
+        raise OUTER_ERROR
+    return b'bytes'
+
+
+def decode_record(payload, expected_type):
+    global IN_DECODE
+    if NEXT_ERROR is not None:
+        raise NEXT_ERROR
+    value = Clock()
+    IN_DECODE = True
+    try:
+        encode_record(value)
+    finally:
+        IN_DECODE = False
+    return value
+
+
+CODEC = SimpleNamespace(decode_record=decode_record, encode_record=encode_record)
+
+
+class Journal:
+    def __init__(self, engine):
+        self._engine, self._codec = engine, CODEC
+        self._types = MappingProxyType({p.CLOCK: Clock})
+
+    def _validate_record(self, record):
+        expected = self._types.get(record.schema_id)
+        value = self._codec.decode_record(record.payload, expected)
+        if type(value) is not expected or self._codec.encode_record(value) != record.payload:
+            raise ValueError('synthetic canonicality')
+
+
+class Reader:
+    def __init__(self, journals):
+        self.journals = journals
+
+
+class Sources:
+    def __init__(self, operating):
+        self.operating = operating
+
+
+class Operating:
+    def __init__(self, journal):
+        self.journal = journal
+
+
+class Factory:
+    def __init__(self):
+        self.engine = object()
+        journals = tuple(Journal(self.engine) for _ in range(8))
+        self.integrity = Reader(journals)
+        self.runtime_sources = Sources(Operating(journals[5]))
+        self.records = [Record(), Record()]
+        self.action = None
+
+    def execute(self, *, operation_id):
+        if self.action is not None:
+            return self.action(self)
+        for record in self.records:
+            self.runtime_sources.operating.journal._validate_record(record)
+        return b'result'
+
+
+def capture():
+    return p.Capture(factory=Factory, reader=Reader, sources=Sources, operating=Operating,
+        journal=Journal, record=Record, clock=Clock, codec=CODEC)
+
+
+def run(factory=None, observer=None, operation=p.OPERATION):
+    factory = factory or Factory()
+    observer = observer or capture()
+    observer.start()
+    try:
+        factory.execute(operation_id=operation)
+    finally:
+        observer.stop(preserve=sys.exc_info()[0] is not None)
+    return observer
+
+
+@pytest.fixture(autouse=True)
+def restored_globals():
+    global NEXT_ERROR, OUTER_ERROR
+    assert sys.monitoring.get_tool(p.TOOL) is None
+    yield
+    NEXT_ERROR = OUTER_ERROR = None
+    assert sys.monitoring.get_tool(p.TOOL) is None
+
+
+def test_success_disjoint_children_and_repetition():
+    c = run()
+    assert not c.faults and not c.live and c.factory_ref is None
+    assert c.rows['clock_validator']['returned'] == 2
+    assert c.rows['clock_decode']['returned'] == c.rows['clock_outer_encode']['returned'] == 2
+    assert c.success['decode_calls'] == c.success['outer_encode_calls'] == 2
+    assert c.first_success_ns > 0 and c.repeated_success_ns > 0
+    assert c.first_success_ns + c.repeated_success_ns == c.success['decode_ns'] + c.success['outer_encode_ns']
+    assert len(c.groups) == len(c.payloads) == 1
+    report = c.report(0, {}, {}, {'call': 'passed', 'teardown': 'passed'})
+    assert report['capture_status'] == 'valid'
+    assert report['grouping']['repeated_success_calls'] == 1
+    assert report['grouping']['hash_input_bytes'] == 2 * (len(b'bytes') + len(b'synthetic'))
+
+
+@pytest.mark.parametrize('error', [ValueError('x'), TimeoutError('deadline'), KeyboardInterrupt(), SystemExit(7)])
+def test_original_unwind_preserves_error_and_does_not_count_eligibility(error):
+    global NEXT_ERROR
+    NEXT_ERROR = error
+    c = capture()
+    with pytest.raises(type(error)) as caught:
+        run(observer=c)
+    assert caught.value is error
+    assert c.rows['execute']['unwound'] == c.rows['clock_validator']['unwound'] == 1
+    assert c.rows['clock_decode']['unwound'] == 1
+    assert c.success['decode_calls'] == c.success['outer_encode_calls'] == 0
+    assert not c.live and not c.incomplete
+    assert c.report(1, {}, {}, {})['observation_extent'] == 'partial_original_unwind'
+
+
+def test_decode_success_outer_failure_not_reusable():
+    global OUTER_ERROR
+    OUTER_ERROR = ValueError('encode')
+    c = capture()
+    with pytest.raises(ValueError):
+        run(observer=c)
+    assert c.rows['clock_decode']['returned'] == 1
+    assert c.rows['clock_outer_encode']['unwound'] == 1
+    assert c.success['decode_calls'] == 0 and c.first_success_ns == 0
+
+
+def test_outer_success_parent_canonicality_failure_not_reusable():
+    f, c = Factory(), capture()
+    f.records = [Record(b'changed')]
+    with pytest.raises(ValueError):
+        run(f, c)
+    assert c.rows['clock_decode']['returned'] == c.rows['clock_outer_encode']['returned'] == 1
+    assert c.success['decode_calls'] == c.success['outer_encode_calls'] == 0
+
+
+def test_failed_then_two_successes_group_correctly():
+    global NEXT_ERROR
+    def action(f):
+        global NEXT_ERROR
+        j, r = f.runtime_sources.operating.journal, f.records[0]
+        NEXT_ERROR = ValueError('first')
+        try:
+            j._validate_record(r)
+        except ValueError:
+            pass
+        NEXT_ERROR = None
+        j._validate_record(r)
+        j._validate_record(r)
+    f = Factory()
+    f.action = action
+    c = run(f)
+    value = next(iter(c.groups.values()))
+    assert value == {'entered': 3, 'returned': 2, 'unwound': 1}
+    assert c.first_success_ns > 0 and c.repeated_success_ns > 0
+
+
+def test_other_owners_schemas_and_operation_are_not_clock_cost():
+    f = Factory()
+    def action(factory):
+        factory.integrity.journals[0]._validate_record(Record())
+        Journal(factory.engine)._validate_record(Record())
+        foreign = threading.Thread(target=lambda: factory.runtime_sources.operating.journal._validate_record(Record()))
+        foreign.start()
+        foreign.join()
+    f.action = action
+    c = run(f)
+    assert c.rows['other_owner_validator']['returned'] == c.rows['other_validator']['returned'] == 1
+    assert not c.groups and c.foreign_thread > 0
+    c = run(operation='different')
+    assert not c.selected and not c.groups
+
+
+@pytest.mark.parametrize('constant,value,fault', [
+    ('MAX_SPANS', 1, 'event_span_or_depth_bound'),
+    ('MAX_EVENTS', 2, 'event_span_or_depth_bound'),
+    ('MAX_DEPTH', 1, 'event_span_or_depth_bound'),
+    ('MAX_KEYS', 1, 'distinct_key_bound'),
+    ('MAX_BYTES', 1, 'hash_byte_bound'),
+    ('MAX_PAYLOAD', 1, 'record_shape_bound'),
+])
+def test_fixed_caps_truncate_diagnostic_without_stopping_original(monkeypatch, constant, value, fault):
+    monkeypatch.setattr(p, constant, value)
+    c = run()
+    assert fault in c.faults and c.truncated
+    assert c.rows['execute']['returned'] == 1
+    assert c.report(0, {}, {}, {})['capture_status'] == 'invalid'
+
+
+def test_hash_and_distinct_bounds_exactly_fit(monkeypatch):
+    monkeypatch.setattr(p, 'MAX_BYTES', 2 * (len(b'bytes') + len(b'synthetic')))
+    monkeypatch.setattr(p, 'MAX_KEYS', 2)
+    c = run()
+    assert not c.faults
+
+
+def test_unknown_record_does_not_call_getter_or_validate_itself():
+    reached = []
+    class Unknown:
+        @property
+        def schema_id(self):
+            reached.append('schema')
+            return p.CLOCK
+    f = Factory()
+    f.records = [Unknown()]
+    c = capture()
+    with pytest.raises(AttributeError):
+        run(f, c)
+    # Only the original validator reads schema; observer rejects before reading it.
+    assert reached == ['schema']
+    assert 'record_exact_type' in c.faults
+
+
+def test_original_slot_descriptor_bypasses_replaced_getter(monkeypatch):
+    c, f = capture(), Factory()
+    original = Record.payload
+    reached = []
+    monkeypatch.setattr(Record, 'payload', property(lambda self: reached.append(1) or original.__get__(self, Record)))
+    run(f, c)
+    # Original validator reads payload twice per call; observer uses the saved native slot.
+    assert len(reached) == 4
+
+
+def test_occupied_tool_and_profiler_preserved():
+    sys.monitoring.use_tool_id(p.TOOL, 'existing')
+    try:
+        with pytest.raises(pytest.UsageError):
+            capture().start()
+        assert sys.monitoring.get_tool(p.TOOL) == 'existing'
+    finally:
+        sys.monitoring.free_tool_id(p.TOOL)
+    previous = sys.getprofile()
+    profiler = lambda *args: None
+    sys.setprofile(profiler)
+    try:
+        with pytest.raises(pytest.UsageError):
+            capture().start()
+        assert sys.getprofile() is profiler
+    finally:
+        sys.setprofile(previous)
+
+
+def test_unwind_bookkeeping_fault_keeps_original(monkeypatch):
+    global NEXT_ERROR
+    NEXT_ERROR = ValueError('original')
+    c = capture()
+    original = c.observe
+    def observe(event, code, frame):
+        if event == 'unwind' and code is c.codes['decode']:
+            raise RuntimeError('observer')
+        return original(event, code, frame)
+    monkeypatch.setattr(c, 'observe', observe)
+    with pytest.raises(ValueError) as caught:
+        run(observer=c)
+    assert caught.value is NEXT_ERROR
+    assert 'observer_failure_during_original_unwind' in c.faults
+    assert c.incomplete
+
+
+def test_return_observer_failure_propagates_and_frees_tool(monkeypatch):
+    c = capture()
+    original = c.observe
+    def observe(event, code, frame):
+        if event == 'return' and code is c.codes['decode']:
+            raise TimeoutError('observer deadline')
+        return original(event, code, frame)
+    monkeypatch.setattr(c, 'observe', observe)
+    with pytest.raises(TimeoutError):
+        run(observer=c)
+    assert 'observer_failure' in c.faults
+
+
+def test_no_retained_owner_record_or_result():
+    f, c = Factory(), capture()
+    ref = weakref.ref(f)
+    run(f, c)
+    del f
+    gc.collect()
+    assert ref() is None and not c.live and c.factory_ref is None and c.journal_refs == ()
+    assert all(type(part) in (bytes, int) for key in c.groups for part in key)
+
+
+def test_hash_change_invalidates_and_output_is_exclusive(tmp_path):
+    c = run()
+    report = c.report(0, {'a': 'one'}, {'a': 'two'}, {})
+    assert report['capture_status'] == 'invalid'
+    output = tmp_path / 'new.json'
+    p.emit(output, report)
+    with pytest.raises(FileExistsError):
+        p.emit(output, report)
+    assert len(output.read_bytes()) <= p.MAX_OUTPUT
+
+
+def test_event_reservations_do_not_exceed_exact_cap(monkeypatch):
+    monkeypatch.setattr(p, 'MAX_EVENTS', 14)
+    c = run()
+    assert c.events == 14 and not c.faults
+    monkeypatch.setattr(p, 'MAX_EVENTS', 13)
+    c = run()
+    assert c.events <= 13 and 'event_span_or_depth_bound' in c.faults
+
+
+def test_rejected_distinct_group_hash_cost_still_charged(monkeypatch):
+    monkeypatch.setattr(p, 'MAX_KEYS', 1)
+    c = run()
+    assert not c.groups and c.hash_bytes == len(b'bytes') + len(b'synthetic')
+    assert c.hash_ns > 0
+
+
+@pytest.mark.parametrize('preserve', [False, True])
+def test_cleanup_attempts_every_mask_callback_and_free(monkeypatch, preserve):
+    c = capture()
+    c.start()
+    m = sys.monitoring
+    original_local, original_callback = m.set_local_events, m.register_callback
+    calls = []
+    failure = RuntimeError('cleanup first')
+    def local(tool, code, events):
+        calls.append(('local', code))
+        if code is c.codes['execute']:
+            raise failure
+        return original_local(tool, code, events)
+    def callback(tool, event, value):
+        calls.append(('callback', event))
+        return original_callback(tool, event, value)
+    monkeypatch.setattr(m, 'set_local_events', local)
+    monkeypatch.setattr(m, 'register_callback', callback)
+    if preserve:
+        c.stop(preserve=True)
+    else:
+        with pytest.raises(RuntimeError) as caught:
+            c.stop()
+        assert caught.value is failure
+    assert len([x for x in calls if x[0] == 'local']) == 4
+    assert len([x for x in calls if x[0] == 'callback']) == 3
+    assert not c.installed and m.get_tool(p.TOOL) is None
+    assert 'monitor_cleanup_failure' in c.faults
+
+
+def test_hook_generator_close_still_releases_monitor(monkeypatch):
+    c = capture()
+    monkeypatch.setattr(p, 'real_capture', lambda: c)
+    config = SimpleNamespace(_aqt_prelease_clock={'capture': None})
+    item = SimpleNamespace(nodeid=p.TARGET, config=config)
+    hook = p.pytest_runtest_call(item)
+    next(hook)
+    assert c.installed
+    hook.close()
+    assert not c.installed and sys.monitoring.get_tool(p.TOOL) is None
+
+
+def test_report_write_failure_keeps_original_failed_status(monkeypatch, tmp_path, capfd):
+    config = SimpleNamespace(option=SimpleNamespace(collectonly=False), _aqt_prelease_clock={
+        'capture': None, 'root': tmp_path, 'before': {}, 'path': tmp_path / 'missing' / 'out.json',
+        'phases': {'call': 'failed'},
+    })
+    monkeypatch.setattr(p, 'source_hashes', lambda root: {})
+    session = SimpleNamespace(config=config, exitstatus=1)
+    p.pytest_sessionfinish(session, 1)
+    assert session.exitstatus == 1
+    assert 'AQT_CLOCK_OBSERVER_REPORT_FAILED' in capfd.readouterr().err
+    with pytest.raises(FileNotFoundError):
+        p.pytest_sessionfinish(session, 0)

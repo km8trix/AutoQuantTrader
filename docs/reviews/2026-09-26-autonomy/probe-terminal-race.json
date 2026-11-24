@@ -1,0 +1,43 @@
+{
+  "scope": "Deterministic mocked-child schedule proves terminal probe handoff race only. CI failure has ambiguous probe_stalled site; this does not identify the actual CI branch.",
+  "source_sha256": "13df2e1e8c03326e161f782760e125265726a46bc4a462c5cf39d50773a3d00b",
+  "original": {
+    "reason": "probe_stalled",
+    "status": "failed",
+    "receipt": false,
+    "post_exit_callbacks": 2,
+    "seconds": 0.26561833289451897,
+    "events": [
+      "prepare",
+      "modeled_launch",
+      "modeled_cleanup",
+      "post_exit_observe_1",
+      "parent_received_post_exit",
+      "post_exit_observe_2",
+      "parent_resumed",
+      "probe_finished"
+    ],
+    "probe_age": 0.5,
+    "limits": 4
+  },
+  "candidate": {
+    "reason": "completed",
+    "status": "completed",
+    "receipt": true,
+    "post_exit_callbacks": 1,
+    "seconds": 0.15512624999973923,
+    "events": [
+      "prepare",
+      "modeled_launch",
+      "modeled_cleanup",
+      "post_exit_observe_1",
+      "probe_finished",
+      "parent_received_post_exit",
+      "parent_resumed",
+      "require_result"
+    ],
+    "probe_age": 0.5,
+    "limits": 4
+  },
+  "temporary_candidate": "Exit probe producer after publishing its sampled-exit observation, preserving reason-first return and all existing acceptance checks/bounds."
+}

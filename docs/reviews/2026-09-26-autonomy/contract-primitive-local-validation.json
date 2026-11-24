@@ -1,0 +1,191 @@
+{
+  "schema": "aqt-exact-primitive-local-validation/1",
+  "date": "2026-09-27",
+  "parent_head": "071dd5c5624b35bef114275d4431823c9c82edeb",
+  "cwd": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development",
+  "clean_environment": {
+    "PATH": "/usr/bin:/bin",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "TZ": "UTC"
+  },
+  "new_oracle_tests": {
+    "passed": 83,
+    "seconds": 0.19,
+    "evidence": "check-type-dispatch-validation.json"
+  },
+  "existing_unit_selections": [
+    {
+      "log": "contract-primitive-existing-units-first.txt",
+      "passed": 311,
+      "seconds": 0.97,
+      "command": [
+        "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_personal_contract_semantics.py",
+        "tests/unit/test_personal_semantic_dispatch.py",
+        "tests/unit/test_personal_semantic_stopiteration.py",
+        "tests/unit/test_personal_canonical_tuple_dispatch.py",
+        "tests/unit/test_personal_canonical_deferred_dispatch.py",
+        "tests/unit/test_personal_canonical_fragment_join.py",
+        "tests/unit/test_personal_codec.py",
+        "tests/unit/test_personal_codec_primitive_dispatch.py"
+      ]
+    },
+    {
+      "log": "contract-primitive-economic-units-first.txt",
+      "passed": 85,
+      "seconds": 4.2,
+      "command": [
+        "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_personal_engine_contracts.py",
+        "tests/unit/test_personal_engine_inputs.py",
+        "tests/unit/test_personal_accounting.py",
+        "tests/unit/test_causal_engine.py"
+      ]
+    },
+    {
+      "log": "contract-primitive-financial-units-first.txt",
+      "passed": 348,
+      "seconds": 5.27,
+      "command": [
+        "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "tests/unit/test_daily_risk.py",
+        "tests/unit/test_daily_reference.py",
+        "tests/unit/test_daily_target_conversion.py",
+        "tests/unit/test_accounting.py",
+        "tests/unit/test_ledger_reducer.py",
+        "tests/unit/test_corporate_action_ledger.py",
+        "tests/unit/test_settlement_ledger.py",
+        "tests/unit/test_batch_risk.py",
+        "tests/unit/test_risk_and_execution.py",
+        "tests/unit/test_submission_attempt.py",
+        "tests/unit/test_account_coordinator.py",
+        "tests/unit/test_account_reconciliation.py",
+        "tests/unit/test_applied_reconciliation.py",
+        "tests/unit/test_causal_checkpoint.py"
+      ]
+    }
+  ],
+  "factory_integration_first": {
+    "passed": 172,
+    "failed": 2,
+    "seconds": 808.46,
+    "evidence": "contract-primitive-factory-first-failure.json"
+  },
+  "test_isolation_correction": {
+    "unit_passed": 5,
+    "ordered_integration_passed": 5,
+    "evidence": "contract-copy-isolation-correction.json",
+    "production_guard": "unchanged"
+  },
+  "original_retained": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 221.51,
+    "fixture_setup_seconds": 179.032,
+    "restore_seconds": 39.764,
+    "cleanup": "original teardown/assertions passed",
+    "log": "contract-primitive-original-retained.txt",
+    "command": [
+      "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-s",
+      "-p",
+      "no:cacheprovider",
+      "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+    ]
+  },
+  "original_worker_lifecycle": {
+    "passed": 19,
+    "failed": 0,
+    "seconds": 57.0,
+    "log": "contract-primitive-original-worker-lifecycle.txt",
+    "command": [
+      "/Users/spencer.karrat/Documents/AutoQuantTrader/.wave4-runtime/2026-09-13/venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests/integration/test_continuous_simulation_worker.py",
+      "tests/integration/test_continuous_process_lifecycle.py"
+    ],
+    "execution": "Approved sandbox escalation for observing/cleaning test-owned child processes; clean environment and test assertions unchanged."
+  },
+  "static": {
+    "architecture": "passed before imports and after primitive prefix; no later production source edit",
+    "ruff_check": "passed after test-isolation repair",
+    "ruff_format": "1035 files passed after test-isolation repair",
+    "mypy": "421 source files pass",
+    "api_contracts": "current"
+  },
+  "source_sha256": {
+    "packages/domain/personal_contracts.py": "968012e5de4add2d4c19d7c8042a37255d5c1682ab0e91f2bd8dd492847df98b",
+    "tests/unit/test_personal_contract_type_dispatch.py": "5b22ec534c0df638856ed51c763f5aeb1131c8f7adc0835db85491c66235ff58",
+    "tests/fixtures/copy_isolation.py": "4316fe896665fec5dc2c4d26096965ccec9eb8af5b2f3b4c76928b5897a76054",
+    "tests/unit/test_continuous_copy_isolation.py": "dc4335e6fd88159b3def2c8b0e07ad29ff761b29291ec4ecf562c9f59effae16",
+    "tests/integration/test_continuous_integrity_daily_episode.py": "451cdad3ee8b4febca347c3b3510fb69e52283a1ded7454686b050d9eb3725ac",
+    "tests/integration/test_continuous_factory_integrity_result.py": "821edce3c01d34d10a8889a64cfb0df32b0acdc82ae8c5b3878980469b3ddc20",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/application/continuous_process.py": "0f4f9b925c14d14f4535086d9a05ad8d0d3e9a7b088bde5c712d53f1a57c6517",
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "tests/integration/test_continuous_simulation_worker.py": "a7fd409943b8e42178cc77264b7930ad53ea8b1f27dcb8dedfd9f62c7ebee753",
+    "tests/integration/test_continuous_process_lifecycle.py": "4908ac88f240ef37474834aec31d21fb1747010e0de91a2ec704c59feb5991ef",
+    "scripts/run_personal_tests.py": "1f9a882b6ca8cc8a810766430923049f478042091a11d9f7a267a11a14423849",
+    ".github/workflows/ci.yml": "1b7ad1f7a8f5cf467759a60dc09e2983e150f1d2026704f4f808100f7709d8a0"
+  },
+  "artifacts": [
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-original-retained.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-original-retained.txt",
+      "sha256": "ae79f2eb28e0921f484f3dee1c5e1e15ae2bb0e3bc4d7d438555c41633260583"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-original-worker-lifecycle.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-original-worker-lifecycle.txt",
+      "sha256": "dfd1646ee4515c044b82610f79bfd6c78e68830a38abe2e7f3ab3269bf5efb96"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-final-ruff.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-final-ruff.txt",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "source": "/private/tmp/aqt-autonomy-audit/contract-primitive-final-format.txt",
+      "published": "docs/reviews/2026-09-26-autonomy/contract-primitive-final-format.txt",
+      "sha256": "509a079f767f1e45e1cbd35e7bcf9cc076889895357f39ab4b2cdfac71708ed1"
+    }
+  ],
+  "limits": [
+    "Local acceptance only; exact-revision Linux/PostgreSQL CI remains required.",
+    "Restore timing is one unprofiled observation, not a paired measured speedup.",
+    "Original failing full selection is preserved; affected ordered cases pass after fixture repair.",
+    "Selections can overlap; counts are not aggregated as unique coverage.",
+    "Native Linux observation candidate is outside the repository and did not run in this checkpoint.",
+    "No provider, account initialization, real orders, lease/risk/resource limit changes, merge or deployment."
+  ]
+}

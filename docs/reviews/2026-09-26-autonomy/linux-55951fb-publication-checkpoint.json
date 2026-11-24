@@ -1,0 +1,162 @@
+{
+  "schema": "aqt-ci-publication-checkpoint/1",
+  "read_at_utc": "2026-09-27T05:11:21.774336+00:00",
+  "run_id": 36293614203,
+  "run": {
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36293614203",
+    "updated_at": "2026-09-27T04:54:49Z"
+  },
+  "source_binding": {
+    "head_sha": "55951fb2870f5776b1b89302bccf0092725387fd",
+    "candidate_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "actions_merge_sha": "5f5cd54bdad7baa95c71eb7169457b6a690569c1",
+    "merge_parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "55951fb2870f5776b1b89302bccf0092725387fd"
+    ],
+    "merge_tree": "db5b5349dcf4a56a377008420522c39a503dfac9",
+    "same_tree": true
+  },
+  "financial": {
+    "completed": 14,
+    "total_shards": 16,
+    "counts": {
+      "passed": 4350,
+      "failed": 2,
+      "skipped": 0
+    },
+    "incomplete_shards": [
+      12,
+      15
+    ]
+  },
+  "completed_financial_log_hashes_verified": 14,
+  "failures": [
+    {
+      "shard": 4,
+      "job_id": 108548506619,
+      "counts": {
+        "passed": 340,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4626,
+        "warnings": 1,
+        "seconds": 727.24
+      },
+      "failed_nodes": [
+        "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]"
+      ],
+      "failure_diagnostics": [
+        "2026-09-27T04:37:17.1428206Z actual factory restore result: failed; elapsed=61.250s",
+        "2026-09-27T04:37:17.1428993Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T04:37:17.1429706Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+        "2026-09-27T04:37:17.1430364Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T04:37:17.1431004Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T04:37:17.1431609Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T04:37:17.1432156Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T04:37:17.1432748Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T04:37:17.1433349Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T04:37:17.1433889Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T04:37:17.1434387Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T04:37:17.1434910Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T04:37:17.1435442Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T04:37:17.1436250Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T04:37:17.1436851Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T04:37:17.1437450Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T04:37:17.1438036Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T04:37:17.1438713Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T04:37:17.1439328Z actual factory execute frame: packages/persistence/continuous_integrity.py:2171:_validate_accounts",
+        "2026-09-27T04:37:17.1439932Z actual factory execute frame: packages/persistence/continuous_account.py:1418:resolve_snapshot",
+        "2026-09-27T04:37:17.1440520Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T04:37:17.1441119Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:37:17.1441735Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T04:37:17.1442366Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T04:37:17.1443022Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T04:37:17.1443624Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T04:37:17.1444178Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T04:37:17.1444789Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T04:37:17.1445447Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T04:37:17.1446141Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:37:17.1446708Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T04:37:17.1447405Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T04:37:17.1448048Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T04:37:17.1448768Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:37:17.1449333Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T04:37:17.1449861Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T04:37:17.1450392Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T04:37:17.1450914Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:37:17.1451431Z AQT_FACTORY_PROOF_DIAGNOSTIC {\"case\": \"original\", \"private_entry_seen\": true}"
+      ],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard4.log",
+        "sha256": "12097180be97fdf508900b632ec6dfb306e22dc0905e58a0c440f2212618132a",
+        "bytes": 55926
+      }
+    },
+    {
+      "shard": 7,
+      "job_id": 108548506680,
+      "counts": {
+        "passed": 303,
+        "failed": 1,
+        "skipped": 0,
+        "deselected": 4663,
+        "warnings": 1,
+        "seconds": 1045.77
+      },
+      "failed_nodes": [
+        "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease"
+      ],
+      "failure_diagnostics": [
+        "2026-09-27T04:48:41.4090655Z actual factory restore result: failed; elapsed=61.384s",
+        "2026-09-27T04:48:41.4091395Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED",
+        "2026-09-27T04:48:41.4092526Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory",
+        "2026-09-27T04:48:41.4093627Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute",
+        "2026-09-27T04:48:41.4094617Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed",
+        "2026-09-27T04:48:41.4095580Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute",
+        "2026-09-27T04:48:41.4096455Z actual factory execute frame: packages/persistence/continuous_integrity.py:259:__enter__",
+        "2026-09-27T04:48:41.4097595Z actual factory execute frame: packages/persistence/continuous_integrity.py:1247:_factory_operation",
+        "2026-09-27T04:48:41.4098558Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema",
+        "2026-09-27T04:48:41.4099399Z actual factory execute frame: packages/persistence/database.py:219:validate",
+        "2026-09-27T04:48:41.4100155Z actual factory execute frame: packages/persistence/database.py:381:validate",
+        "2026-09-27T04:48:41.4101227Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED",
+        "2026-09-27T04:48:41.4102099Z actual factory execute frame: packages/persistence/database.py:379:validate",
+        "2026-09-27T04:48:41.4102971Z actual factory execute frame: packages/persistence/continuous_integrity.py:1948:validate_snapshot",
+        "2026-09-27T04:48:41.4103948Z actual factory execute error: ContinuousAccountConflict: CONTINUOUS_RETAINED_INDEX_INVALID",
+        "2026-09-27T04:48:41.4104906Z actual factory execute frame: packages/persistence/continuous_integrity.py:1940:validate_snapshot",
+        "2026-09-27T04:48:41.4105860Z actual factory execute frame: packages/persistence/continuous_integrity.py:1982:_validate",
+        "2026-09-27T04:48:41.4106818Z actual factory execute frame: packages/persistence/continuous_integrity.py:2008:_validate_original",
+        "2026-09-27T04:48:41.4108022Z actual factory execute frame: packages/persistence/continuous_integrity.py:2167:_validate_accounts",
+        "2026-09-27T04:48:41.4108976Z actual factory execute frame: packages/persistence/continuous_account.py:1376:resolve_index",
+        "2026-09-27T04:48:41.4109954Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:48:41.4110915Z actual factory execute frame: packages/persistence/continuous_composition.py:1439:prepare_capture",
+        "2026-09-27T04:48:41.4111948Z actual factory execute frame: packages/persistence/continuous_composition.py:621:_historical_current",
+        "2026-09-27T04:48:41.4113004Z actual factory execute frame: packages/persistence/continuous_integrity.py:1859:_borrow_original_daily",
+        "2026-09-27T04:48:41.4113996Z actual factory execute frame: packages/persistence/account_coordinator.py:1308:revalidate",
+        "2026-09-27T04:48:41.4114920Z actual factory execute frame: packages/persistence/account_coordinator.py:1288:revalidate",
+        "2026-09-27T04:48:41.4115912Z actual factory execute frame: packages/persistence/account_coordinator.py:1111:revalidate_in_transaction",
+        "2026-09-27T04:48:41.4117178Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction",
+        "2026-09-27T04:48:41.4118380Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt",
+        "2026-09-27T04:48:41.4119332Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED",
+        "2026-09-27T04:48:41.4120473Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory",
+        "2026-09-27T04:48:41.4121553Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close",
+        "2026-09-27T04:48:41.4122468Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired",
+        "2026-09-27T04:48:41.4123365Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close",
+        "2026-09-27T04:48:41.4124207Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release",
+        "2026-09-27T04:48:41.4125056Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release",
+        "2026-09-27T04:48:41.4125919Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt"
+      ],
+      "log": {
+        "path": "/private/tmp/aqt-autonomy-audit/ci-55951fb-shard7.log",
+        "sha256": "8b8f0c5e556e8900d26a70775efc5ab9342afeba4d3dfd743987b57eb8c870d5",
+        "bytes": 55762
+      }
+    }
+  ],
+  "limitations": [
+    "Provisional checkpoint only; matrix and diagnostic are not complete.",
+    "Production/tests/CI unchanged; repeated results are not a repair."
+  ]
+}

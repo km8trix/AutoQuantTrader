@@ -1,0 +1,147 @@
+{
+  "schema": "native-observation-publication-source-binding/1",
+  "run": {
+    "id": 36301165143,
+    "attempt": 1,
+    "event": "pull_request",
+    "head_sha": "e15f8b48c316811ea92a34db63ceac36f3060b20",
+    "head_branch": "codex/autonomous-development",
+    "status": "completed",
+    "conclusion": "failure",
+    "updated_at": "2026-09-27T06:49:15Z",
+    "url": "https://github.com/km8trix/AutoQuantTrader/actions/runs/36301165143",
+    "pr": 56
+  },
+  "candidate": {
+    "sha": "e15f8b48c316811ea92a34db63ceac36f3060b20",
+    "tree_sha": "c78d305010571771aba051c31bc25009d2276708",
+    "parents": [
+      "7ac47bbbe65d885de1979637f5659873b441c0d4"
+    ],
+    "api": "https://api.github.com/repos/km8trix/AutoQuantTrader/commits/e15f8b48c316811ea92a34db63ceac36f3060b20"
+  },
+  "actions_merge": {
+    "sha": "96c1dc13a36aa0a477b947f316f0c0ab06689930",
+    "tree_sha": "c78d305010571771aba051c31bc25009d2276708",
+    "parents": [
+      "b1156ba96e6f1246a3a213ff041f17e3b15ff78b",
+      "e15f8b48c316811ea92a34db63ceac36f3060b20"
+    ],
+    "api": "https://api.github.com/repos/km8trix/AutoQuantTrader/commits/96c1dc13a36aa0a477b947f316f0c0ab06689930"
+  },
+  "binding": {
+    "merge_parent_includes_candidate": true,
+    "candidate_tree_equals_merge_tree": true,
+    "foundations_checkout_matches_merge": true,
+    "checkout_log_lines": [
+      221,
+      224
+    ]
+  },
+  "foundations": {
+    "job_id": 108568940833,
+    "status": "completed",
+    "conclusion": "failure",
+    "architecture": "passed",
+    "locked_dependency_install": "passed",
+    "formatting": {
+      "status": "passed",
+      "files": 1036
+    },
+    "ruff": "passed",
+    "mypy": {
+      "status": "failed",
+      "error": "packages/application/continuous_process.py:382: error: Statement is unreachable  [unreachable]",
+      "errors": 1,
+      "files_with_errors": 1,
+      "checked_source_files": 421
+    },
+    "api_check": "not reached after mypy failure",
+    "migrations_wheel_installed_checks_compose": "skipped",
+    "log": {
+      "path": "/private/tmp/aqt-autonomy-audit/linux-e15f8b4-foundations-raw.log",
+      "sha256": "5148d5cc258135317cac838544d5913219e31f7d5447ba0a4d787b94836c5b3a",
+      "bytes": 38212
+    }
+  },
+  "other_jobs": {
+    "browser": {
+      "job_id": 108568940707,
+      "conclusion": "success"
+    },
+    "financial_matrix": {
+      "job_id": 108569083613,
+      "conclusion": "skipped",
+      "executed_shards": 0
+    },
+    "diagnostic": {
+      "job_id": 108569083848,
+      "conclusion": "skipped"
+    },
+    "backend_aggregate": {
+      "job_id": 108569083329,
+      "conclusion": "failure"
+    }
+  },
+  "candidate_test_inventory": {
+    "expected_cases": 5247,
+    "method": "Earlier original-runner collection5246 plus statically verified single added unparameterized test; no other test/runner/shard file changed between revisions. Not fresh full collection or execution.",
+    "earlier_collection_map": {
+      "path": "/private/tmp/aqt-autonomy-audit/native-ci-test-map.json",
+      "sha256": "2c31f6147a1a403169fab27548860ae8c99eee264142fbd8032a3449b42c4d14"
+    },
+    "added_node": {
+      "nodeid": "tests/integration/test_continuous_process_lifecycle.py::test_post_exit_probe_hook_preserves_observation_failure_and_cleanup",
+      "shard_index": 9,
+      "decorators": []
+    },
+    "native_cases": 191,
+    "real_linux_cases": 3,
+    "critical_nodes_unchanged": [
+      {
+        "nodeid": "tests/unit/test_continuous_linux_observation.py::test_actual_linux_live_child_current_rss_does_not_reap_or_launch_ps",
+        "shard_index": 4,
+        "collected": true
+      },
+      {
+        "nodeid": "tests/unit/test_continuous_linux_observation.py::test_actual_linux_stopped_child_is_not_exit",
+        "shard_index": 12,
+        "collected": true
+      },
+      {
+        "nodeid": "tests/unit/test_continuous_linux_observation.py::test_actual_linux_zombie_is_observed_before_single_original_owner_wait",
+        "shard_index": 0,
+        "collected": true
+      },
+      {
+        "nodeid": "tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+        "shard_index": 7,
+        "collected": true
+      },
+      {
+        "nodeid": "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[original]",
+        "shard_index": 4,
+        "collected": true
+      },
+      {
+        "nodeid": "tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history",
+        "shard_index": 3,
+        "collected": true
+      }
+    ],
+    "lifecycle_test_candidate_sha256": "278f884b89f496b328be346e938724960c038d96255ee6b252159ea87305d0bb"
+  },
+  "source_sha256": {
+    "packages/application/continuous_process.py": "a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655",
+    "scripts/run_personal_tests.py": "1f9a882b6ca8cc8a810766430923049f478042091a11d9f7a267a11a14423849",
+    "tests/conftest.py": "adb6bbf13d4d883a23f59d181fb29f9efbbcf22a654b3267c8453b4b4a75f4e7",
+    ".github/workflows/ci.yml": "1b7ad1f7a8f5cf467759a60dc09e2983e150f1d2026704f4f808100f7709d8a0",
+    "tests/unit/test_continuous_linux_observation.py": "14e487773ce8ed7cdcc4e026dea49d08b3fee8333c71387add1baf24237d78d0"
+  },
+  "limitations": [
+    "Failed run is not active and supplies no financial/native Linux test acceptance.",
+    "Tree equality binds the actual Actions merge contents to the candidate; it does not imply successful validation.",
+    "5247 is a static inventory delta, not a passing count.",
+    "No production/test edits, reruns, workflow actions, provider accesses or expensive tests performed by this evidence task."
+  ]
+}

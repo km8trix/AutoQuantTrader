@@ -1,0 +1,37 @@
+................F......                                                  [100%]
+=================================== FAILURES ===================================
+_________ test_unknown_record_does_not_call_getter_or_validate_itself __________
+
+    def test_unknown_record_does_not_call_getter_or_validate_itself():
+        reached = []
+        class Unknown:
+            @property
+            def schema_id(self):
+                reached.append('schema')
+                return p.CLOCK
+        f = Factory()
+        f.records = [Unknown()]
+>       c = run(f)
+            ^^^^^^
+
+test_aqt_prelease_clock_cost.py:240: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_aqt_prelease_clock_cost.py:106: in run
+    factory.execute(operation_id=operation)
+test_aqt_prelease_clock_cost.py:92: in execute
+    self.runtime_sources.operating.journal._validate_record(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <test_aqt_prelease_clock_cost.Journal object at 0x10a78e8d0>
+record = <test_aqt_prelease_clock_cost.test_unknown_record_does_not_call_getter_or_validate_itself.<locals>.Unknown object at 0x10a78f530>
+
+    def _validate_record(self, record):
+        expected = self._types.get(record.schema_id)
+>       value = self._codec.decode_record(record.payload, expected)
+                                          ^^^^^^^^^^^^^^
+E       AttributeError: 'Unknown' object has no attribute 'payload'
+
+test_aqt_prelease_clock_cost.py:59: AttributeError
+=========================== short test summary info ============================
+FAILED test_aqt_prelease_clock_cost.py::test_unknown_record_does_not_call_getter_or_validate_itself
+1 failed, 22 passed in 0.08s

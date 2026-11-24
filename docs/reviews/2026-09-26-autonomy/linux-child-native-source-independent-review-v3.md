@@ -1,0 +1,13 @@
+# Independent source approval: temporary Linux observation v3
+
+The actual temporary candidate is approved for root's focused validation. No source blocker remains after the two identified corrections. This supersedes the provisional21a3684d review; it is not a claim that tests or Linux acceptance passed.
+
+Candidate `a7b98cf8e11036068a002f7ca56516c973bf84e7315ae9fbf4e031b42cdd6655` includes the mandatory unique bounded post-memory `nonvoluntary_ctxt_switches` marker and strict ASCII identifier keys. The marker prevents a newline-ended prefix from qualifying as a complete no-mm record. Invalid keys cannot conceal a malformed memory row as unrelated data. Keys are neither stripped nor case-normalized; unrelated values remain opaque bytes. The code does not claim attestation against fabricated/selectively edited procfs data.
+
+I reread both corrected branches against the test delta. Required fields and memory rows must precede the marker; unrelated architecture tail rows remain accepted. Tests retain complete no-mm nonexit and exit cases, both no-RSS and present-RSS incomplete prefixes, marker duplicate/malformed/order cases, malformed keys before/after marker, valid underscore/digit keys, and raw Name values. The unexecuted real-live-child check uses nonnegative RSS, matching the original accepted current-RSS contract rather than assuming strictly positive RSS.
+
+Whole-module AST comparison again passes after removing only the new native parser/reader/dispatcher/constant and renaming the retained ps helper back. The original ps implementation, supervisor branches, deadlines/limits and termination/reap/group checks are unchanged. The existing-test patch redirects exactly three deliberate ps mock calls to that retained helper; it removes no assertion. The original Darwin transition/reap model still reaches the dispatcher.
+
+The reader retains one descriptor, one acquisition byte bound and one caller deadline. Short reads progress without a new observation or timeout. It checks the deadline around I/O and after successful parse/close; original body errors survive secondary close OSError, and successful-body close errors prevent success. It adds no process spawn, wait, signal, cache, source fallback or acceptance authority.
+
+Ruff check, format check and AST syntax checks passed for the final temporary test file. No pytest collection/execution, project imports, Linux procfs access, child launch or repository edits were performed by this reviewer. The three genuine Linux cases remain Linux-gated; macOS skips cannot qualify them. Architecture, finite pytest, original worker/lifecycle and exact-revision Linux CI remain root-owned gates. The separate retained lease failures remain independent.

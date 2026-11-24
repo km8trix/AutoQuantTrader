@@ -1,0 +1,44 @@
+{
+  "scope": "Final targeted genuine run of revised nested-data injection, after original guard prefix and before proof data verification; production unchanged. All original limits, signed history and cleanup retained.",
+  "original_combined_result": {
+    "status": "passed",
+    "cases": 100,
+    "seconds": 321.91,
+    "reported_by": "root",
+    "limitation": "Nested mutation occurred before historical-prefix guard in this run, so it proved rejection but not specifically data-seal enforcement."
+  },
+  "new_checks": {
+    "microchecks": 15,
+    "seconds": 3.16,
+    "status": "passed",
+    "ruff": "passed",
+    "genuine_nested_rerun": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 204.63,
+      "output": "factory-proof-nested-final.txt",
+      "command": "env -i PATH=<verified-venv>/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<checkout> PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 TZ=UTC <verified-python> -B -m pytest -q -s -p no:cacheprovider 'tests/integration/test_continuous_attempt_factory_proof_lifecycle.py::test_genuine_factory_proof_lifecycle_preserves_original_history[nested_data]'"
+    }
+  },
+  "new_assertions": [
+    "Exact authentic source state/data identity and source/value/proof/use at private source immediate caller",
+    "Original guards have returned before injection at data.require entry",
+    "Permit phase checking before detached row mutation",
+    "No matching _end_factory_fingerprint_use entry",
+    "Exact _AttemptDataChanged with FACTORY_ATTEMPT_DATA_BINDING_CHANGED in bounded context chain",
+    "Original daily/factory failure latches set and original registries retired"
+  ],
+  "sha256": {
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "tests/integration/test_continuous_attempt_factory_proof_lifecycle.py": "54f2a5e034759616b5941e97abad0009a420f99757834dc123e563a6e01e38bd"
+  },
+  "evidence_sha256": {
+    "test_proof_local_monitoring.py": "a11a369f1d95ab41173513fde96cdf228b0656c519e726c2a4486cc4010feb22",
+    "proof-local-monitoring-selected-selfchecks.txt": "e23f20b635f32e415173a148cf87959606c9efc7ce4aa1b71c25e2cbd50f8701"
+  },
+  "source_hashes_unchanged": true
+}

@@ -1,0 +1,138 @@
+{
+  "scope": "Finite AST copy of current helper; no project imports, repo edits or operational effects",
+  "source_sha256": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+  "candidate_scope": "Scalar dispatch only; tuple path and both original generator expressions unchanged; custom metaclasses retain the literal old chain",
+  "counterexamples": {
+    "deleted_later_alias": {
+      "original": {
+        "status": "returned",
+        "identity_count": 1,
+        "trace": [
+          "field"
+        ]
+      },
+      "frozen_native_set": {
+        "status": "returned",
+        "identity_count": 1,
+        "trace": [
+          "field"
+        ]
+      },
+      "live_native_tuple": {
+        "status": "error",
+        "type": "NameError",
+        "cause_type": null,
+        "context_type": null,
+        "trace": [
+          "field"
+        ]
+      }
+    },
+    "rebound_scalar_alias": {
+      "original": {
+        "status": "returned",
+        "identity_count": 1,
+        "trace": [
+          "root getter"
+        ]
+      },
+      "frozen_native_set": {
+        "status": "error",
+        "type": "ValueError",
+        "cause_type": null,
+        "context_type": null,
+        "trace": [
+          "root getter",
+          "unexpected child getter"
+        ]
+      },
+      "live_native_tuple": {
+        "status": "returned",
+        "identity_count": 1,
+        "trace": [
+          "root getter"
+        ]
+      }
+    },
+    "unknown_custom_metaclass": {
+      "original": {
+        "status": "error",
+        "type": "AssertionError",
+        "cause_type": null,
+        "context_type": null,
+        "trace": [
+          "original reflection",
+          "custom hash"
+        ]
+      },
+      "frozen_native_set": {
+        "status": "error",
+        "type": "AssertionError",
+        "cause_type": null,
+        "context_type": null,
+        "trace": [
+          "original reflection",
+          "custom hash"
+        ]
+      },
+      "live_native_tuple": {
+        "status": "error",
+        "type": "AssertionError",
+        "cause_type": null,
+        "context_type": null,
+        "trace": [
+          "original reflection",
+          "custom hash"
+        ]
+      }
+    }
+  },
+  "benchmarks": [
+    {
+      "shape": "string_int_rows",
+      "identity_count": 320,
+      "samples": 5,
+      "iterations": 25,
+      "median_ns": {
+        "original": 2012083,
+        "frozen_native_set": 2077416,
+        "live_native_tuple": 2524750
+      },
+      "candidate_over_current_ratios": {
+        "frozen_native_set": 1.0324703304982945,
+        "live_native_tuple": 1.2547941610758602
+      }
+    },
+    {
+      "shape": "mixed_scalar_rows",
+      "identity_count": 320,
+      "samples": 5,
+      "iterations": 25,
+      "median_ns": {
+        "original": 2163125,
+        "frozen_native_set": 2042250,
+        "live_native_tuple": 2615208
+      },
+      "candidate_over_current_ratios": {
+        "frozen_native_set": 0.9441201964750072,
+        "live_native_tuple": 1.2089953192718867
+      }
+    },
+    {
+      "shape": "scalar_tuple",
+      "identity_count": 576,
+      "samples": 5,
+      "iterations": 25,
+      "median_ns": {
+        "original": 1173750,
+        "frozen_native_set": 1021750,
+        "live_native_tuple": 1959958
+      },
+      "candidate_over_current_ratios": {
+        "frozen_native_set": 0.8705005324813632,
+        "live_native_tuple": 1.6698257720979766
+      }
+    }
+  ],
+  "recommendation": "Reject both as behavior-preserving replacements: frozen membership changes live scalar-alias behavior; eager live membership changes short-circuit error behavior. Microbenchmarks are synthetic diagnostics only and cannot override these counterexamples."
+}

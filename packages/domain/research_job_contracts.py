@@ -21,7 +21,9 @@ LEASE_SECONDS = 60
 HEARTBEAT_SECONDS = 10
 MAX_ATTEMPTS = 3
 MAX_JOB_EVENTS = 4096
-type ObjectCodec = Literal["personal-record/1", "personal-research-dataset-v1"]
+type ObjectCodec = Literal[
+    "personal-record/1", "personal-research-dataset-v1", "personal-provider-json/1"
+]
 
 type JobStatus = Literal["queued", "running", "completed", "incomplete", "failed", "cancelled"]
 type AttemptOutcome = Literal[

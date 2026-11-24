@@ -8,6 +8,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from packages.persistence.applied_reconciliation_schema import APPLIED_RECONCILIATION_TABLES
+from packages.persistence.continuous_account_schema import CONTINUOUS_ACCOUNT_TABLES
+from packages.persistence.daily_runtime_risk_schema import DAILY_RUNTIME_TABLES
+from packages.persistence.durable_journal_schema import JOURNAL_TABLES
 from packages.persistence.postgres_tls import pinned_verify_full_connect_args
 from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
 from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
@@ -28,7 +32,15 @@ if database_url:
 
 target_metadata = metadata
 assert all(
-    table.metadata is target_metadata for table in (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
+    table.metadata is target_metadata
+    for table in (
+        *RESEARCH_TABLES_V2,
+        *RESEARCH_CATALOG_TABLES,
+        *JOURNAL_TABLES,
+        *APPLIED_RECONCILIATION_TABLES,
+        *DAILY_RUNTIME_TABLES,
+        *CONTINUOUS_ACCOUNT_TABLES,
+    )
 )
 
 
@@ -46,6 +58,8 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     configured_url = config.get_main_option("sqlalchemy.url")
+    if configured_url is None:
+        raise RuntimeError("migration database URL is required")
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

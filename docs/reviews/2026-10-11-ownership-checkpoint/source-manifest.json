@@ -1,0 +1,41 @@
+{
+  "schema": "aqt-public-ownership-checkpoint-source/1",
+  "base_commit": "821f068c99af7709964acc0a1e49264dc701d4ed",
+  "files": [
+    {
+      "path": "packages/persistence/continuous_account.py",
+      "sha256": "6a08a27d0c93a30c405ce56f338c22ffbe8e063c8b6096ea72d8bff0d9de0697",
+      "bytes": 86870
+    },
+    {
+      "path": "tests/integration/test_continuous_reference_capture_issuance.py",
+      "sha256": "807ff9a421ef92dd9ab2dd5a34605a0c05319a43e862e705acc9d375c2ea7421",
+      "bytes": 10283
+    },
+    {
+      "path": "tests/integration/test_continuous_reference_resolution_issuance.py",
+      "sha256": "6cf28192cd9ebb7173fdb185019ae52e60173d1f0c5d0c680371baa32a09614e",
+      "bytes": 15204
+    },
+    {
+      "path": "tests/unit/test_continuous_index_plan_contract.py",
+      "sha256": "16378d4d06c3f262118fb83ed8a4a31e928542697e70592e52e0abb395812bcd",
+      "bytes": 9130
+    },
+    {
+      "path": "tests/unit/test_continuous_ownership_issuance.py",
+      "sha256": "b53e0a377f121a9ce4a3cedb5dd21714f7417778dffcdc605e55f74c2c5d22da",
+      "bytes": 10937
+    },
+    {
+      "path": "tests/unit/test_continuous_ownership_rollback_errors.py",
+      "sha256": "72e0023866150905a93f1524fae1d4391511c6f05db86e68fb6e1525ebc1a208",
+      "bytes": 7715
+    },
+    {
+      "path": "tests/unit/test_continuous_previous_resolution_guards.py",
+      "sha256": "af2865d351b407ee659eb28d0ac5cc0a427b553723c0f9ccbb8f59ad8066b0cd",
+      "bytes": 5029
+    }
+  ]
+}

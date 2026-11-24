@@ -1,0 +1,585 @@
+﻿2026-09-27T05:32:45.5181902Z Current runner version: '2.337.0'
+2026-09-27T05:32:45.5212175Z ##[group]Runner Image Provisioner
+2026-09-27T05:32:45.5213269Z Hosted Compute Agent
+2026-09-27T05:32:45.5213938Z Version: 20260828.587
+2026-09-27T05:32:45.5214865Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-27T05:32:45.5215844Z Build Date: 2026-08-28T16:44:25Z
+2026-09-27T05:32:45.5216597Z Worker ID: {207c85c9-3797-4b9d-acf1-efe4be3b8b43}
+2026-09-27T05:32:45.5217495Z Azure Region: westus
+2026-09-27T05:32:45.5218144Z ##[endgroup]
+2026-09-27T05:32:45.5219817Z ##[group]Operating System
+2026-09-27T05:32:45.5220621Z Ubuntu
+2026-09-27T05:32:45.5221203Z 24.04.5
+2026-09-27T05:32:45.5221791Z LTS
+2026-09-27T05:32:45.5222399Z ##[endgroup]
+2026-09-27T05:32:45.5222995Z ##[group]Runner Image
+2026-09-27T05:32:45.5223742Z Image: ubuntu-24.04
+2026-09-27T05:32:45.5224347Z Version: 20260920.314.1
+2026-09-27T05:32:45.5226533Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260920.314/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-27T05:32:45.5228231Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260920.314
+2026-09-27T05:32:45.5229621Z ##[endgroup]
+2026-09-27T05:32:45.5230886Z ##[group]GITHUB_TOKEN Permissions
+2026-09-27T05:32:45.5233382Z Contents: read
+2026-09-27T05:32:45.5234026Z Metadata: read
+2026-09-27T05:32:45.5234964Z ##[endgroup]
+2026-09-27T05:32:45.5238061Z Secret source: Actions
+2026-09-27T05:32:45.5239214Z Cache mode: write
+2026-09-27T05:32:45.5240018Z Prepare workflow directory
+2026-09-27T05:32:45.5798021Z Prepare all required actions
+2026-09-27T05:32:45.5851713Z Getting action download info
+2026-09-27T05:32:46.0011943Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-27T05:32:46.1334030Z Download action repository 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b' (SHA:08807647e7069bb48b6ef5acd8ec9567f424441b)
+2026-09-27T05:32:46.8080634Z Complete job name: Retained financial regressions (shard index 3 of 16)
+2026-09-27T05:32:46.8666034Z ##[group]Checking docker version
+2026-09-27T05:32:46.8680412Z ##[command]/usr/bin/docker version --format '{{.Server.APIVersion}}'
+2026-09-27T05:32:46.9727510Z '1.48'
+2026-09-27T05:32:46.9737738Z Docker daemon API version: '1.48'
+2026-09-27T05:32:46.9738779Z ##[command]/usr/bin/docker version --format '{{.Client.APIVersion}}'
+2026-09-27T05:32:46.9947675Z '1.48'
+2026-09-27T05:32:46.9961691Z Docker client API version: '1.48'
+2026-09-27T05:32:46.9968870Z ##[endgroup]
+2026-09-27T05:32:46.9971867Z ##[group]Clean up resources from previous jobs
+2026-09-27T05:32:46.9979123Z ##[command]/usr/bin/docker ps --all --quiet --no-trunc --filter "label=e09d4e"
+2026-09-27T05:32:47.0149010Z ##[command]/usr/bin/docker network prune --force --filter "label=e09d4e"
+2026-09-27T05:32:47.0313973Z ##[endgroup]
+2026-09-27T05:32:47.0315065Z ##[group]Create local container network
+2026-09-27T05:32:47.0326777Z ##[command]/usr/bin/docker network create --label e09d4e github_network_b4c8524e0f864b5d8bacc44803e3767e
+2026-09-27T05:32:47.0913584Z cbf4c269cff36e748c6b297ff3f9d0849226e7a7364113af914ed0137ba6e6e3
+2026-09-27T05:32:47.0939912Z ##[endgroup]
+2026-09-27T05:32:47.0969662Z ##[group]Starting postgres service container
+2026-09-27T05:32:47.0993417Z ##[command]/usr/bin/docker pull postgres:16-alpine
+2026-09-27T05:32:47.9858767Z 16-alpine: Pulling from library/postgres
+2026-09-27T05:32:48.2400757Z e2de96513ba9: Pulling fs layer
+2026-09-27T05:32:48.2402698Z 1b7f9cd581ee: Pulling fs layer
+2026-09-27T05:32:48.2403874Z 210b280f9556: Pulling fs layer
+2026-09-27T05:32:48.2405375Z 81717818649a: Pulling fs layer
+2026-09-27T05:32:48.2406670Z 3ae6141cfd99: Pulling fs layer
+2026-09-27T05:32:48.2407903Z 25b77f59fd95: Pulling fs layer
+2026-09-27T05:32:48.2409224Z 6c25da34e03f: Pulling fs layer
+2026-09-27T05:32:48.2410468Z a88782f92806: Pulling fs layer
+2026-09-27T05:32:48.2411730Z d8d21be4bf02: Pulling fs layer
+2026-09-27T05:32:48.2413092Z 6117bd39f23f: Pulling fs layer
+2026-09-27T05:32:48.2414741Z 509688edf37b: Pulling fs layer
+2026-09-27T05:32:48.2416721Z 6c25da34e03f: Waiting
+2026-09-27T05:32:48.2417926Z a88782f92806: Waiting
+2026-09-27T05:32:48.2419153Z d8d21be4bf02: Waiting
+2026-09-27T05:32:48.2420349Z 6117bd39f23f: Waiting
+2026-09-27T05:32:48.2421514Z 509688edf37b: Waiting
+2026-09-27T05:32:48.2422603Z 81717818649a: Waiting
+2026-09-27T05:32:48.2423761Z 3ae6141cfd99: Waiting
+2026-09-27T05:32:48.2425212Z 25b77f59fd95: Waiting
+2026-09-27T05:32:48.4681488Z 1b7f9cd581ee: Verifying Checksum
+2026-09-27T05:32:48.4682396Z 1b7f9cd581ee: Download complete
+2026-09-27T05:32:48.5349717Z 210b280f9556: Verifying Checksum
+2026-09-27T05:32:48.5355660Z 210b280f9556: Download complete
+2026-09-27T05:32:48.5633398Z e2de96513ba9: Verifying Checksum
+2026-09-27T05:32:48.5636693Z e2de96513ba9: Download complete
+2026-09-27T05:32:48.6780253Z e2de96513ba9: Pull complete
+2026-09-27T05:32:48.7015759Z 1b7f9cd581ee: Pull complete
+2026-09-27T05:32:48.7235236Z 81717818649a: Verifying Checksum
+2026-09-27T05:32:48.7237607Z 81717818649a: Download complete
+2026-09-27T05:32:48.7380623Z 210b280f9556: Pull complete
+2026-09-27T05:32:48.7516155Z 81717818649a: Pull complete
+2026-09-27T05:32:48.7801249Z 3ae6141cfd99: Verifying Checksum
+2026-09-27T05:32:48.7802487Z 3ae6141cfd99: Download complete
+2026-09-27T05:32:48.7895656Z 3ae6141cfd99: Pull complete
+2026-09-27T05:32:48.9683067Z 6c25da34e03f: Verifying Checksum
+2026-09-27T05:32:48.9683872Z 6c25da34e03f: Download complete
+2026-09-27T05:32:49.0313532Z a88782f92806: Verifying Checksum
+2026-09-27T05:32:49.0315514Z a88782f92806: Download complete
+2026-09-27T05:32:49.2232253Z d8d21be4bf02: Verifying Checksum
+2026-09-27T05:32:49.2238737Z d8d21be4bf02: Download complete
+2026-09-27T05:32:49.2496978Z 25b77f59fd95: Verifying Checksum
+2026-09-27T05:32:49.2498130Z 25b77f59fd95: Download complete
+2026-09-27T05:32:49.2775111Z 6117bd39f23f: Verifying Checksum
+2026-09-27T05:32:49.2775756Z 6117bd39f23f: Download complete
+2026-09-27T05:32:49.4813078Z 509688edf37b: Verifying Checksum
+2026-09-27T05:32:49.4813741Z 509688edf37b: Download complete
+2026-09-27T05:32:51.7687083Z 25b77f59fd95: Pull complete
+2026-09-27T05:32:51.7843228Z 6c25da34e03f: Pull complete
+2026-09-27T05:32:51.7946377Z a88782f92806: Pull complete
+2026-09-27T05:32:51.8038543Z d8d21be4bf02: Pull complete
+2026-09-27T05:32:51.8173066Z 6117bd39f23f: Pull complete
+2026-09-27T05:32:51.8281371Z 509688edf37b: Pull complete
+2026-09-27T05:32:51.8325269Z Digest: sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+2026-09-27T05:32:51.8341479Z Status: Downloaded newer image for postgres:16-alpine
+2026-09-27T05:32:51.8356554Z docker.io/library/postgres:16-alpine
+2026-09-27T05:32:51.8429367Z ##[command]/usr/bin/docker create --name 119d11ff6de441d2a52ce3554bb3fa22_postgres16alpine_356f48 --label e09d4e --network github_network_b4c8524e0f864b5d8bacc44803e3767e --network-alias postgres -p 5432:5432 --health-cmd "pg_isready -U autoquant -d autoquant_test" --health-interval 2s --health-timeout 3s --health-retries 20 -e "POSTGRES_USER=autoquant" -e "POSTGRES_PASSWORD=autoquant" -e "POSTGRES_DB=autoquant_test" -e GITHUB_ACTIONS=true -e CI=true postgres:16-alpine
+2026-09-27T05:32:51.8740114Z caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:51.8770649Z ##[command]/usr/bin/docker start caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:52.2637479Z caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:52.2667226Z ##[command]/usr/bin/docker ps --all --filter id=caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5 --filter status=running --no-trunc --format "{{.ID}} {{.Status}}"
+2026-09-27T05:32:52.2833834Z caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5 Up Less than a second (health: starting)
+2026-09-27T05:32:52.2859181Z ##[command]/usr/bin/docker port caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:52.3026202Z 5432/tcp -> 0.0.0.0:5432
+2026-09-27T05:32:52.3026920Z 5432/tcp -> [::]:5432
+2026-09-27T05:32:52.3082079Z ##[endgroup]
+2026-09-27T05:32:52.3092076Z ##[group]Waiting for all services to be ready
+2026-09-27T05:32:52.3107855Z ##[command]/usr/bin/docker inspect --format="{{if .Config.Healthcheck}}{{print .State.Health.Status}}{{end}}" caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:52.3309468Z starting
+2026-09-27T05:32:52.3335892Z postgres service is starting, waiting 2 seconds before checking again.
+2026-09-27T05:32:54.3348725Z ##[command]/usr/bin/docker inspect --format="{{if .Config.Healthcheck}}{{print .State.Health.Status}}{{end}}" caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:32:54.3500116Z healthy
+2026-09-27T05:32:54.3522444Z postgres service is healthy.
+2026-09-27T05:32:54.3523239Z ##[endgroup]
+2026-09-27T05:32:54.3971587Z ##[group]Run actions/checkout@v7
+2026-09-27T05:32:54.3972263Z with:
+2026-09-27T05:32:54.3972568Z   repository: km8trix/AutoQuantTrader
+2026-09-27T05:32:54.3976151Z   token: ***
+2026-09-27T05:32:54.3976413Z   ssh-strict: true
+2026-09-27T05:32:54.3976662Z   ssh-user: git
+2026-09-27T05:32:54.3976946Z   persist-credentials: true
+2026-09-27T05:32:54.3977215Z   clean: true
+2026-09-27T05:32:54.3977470Z   sparse-checkout-cone-mode: true
+2026-09-27T05:32:54.3977774Z   fetch-depth: 1
+2026-09-27T05:32:54.3978002Z   fetch-tags: false
+2026-09-27T05:32:54.3978235Z   show-progress: true
+2026-09-27T05:32:54.3978474Z   lfs: false
+2026-09-27T05:32:54.3978686Z   submodules: false
+2026-09-27T05:32:54.3978923Z   set-safe-directory: true
+2026-09-27T05:32:54.3979219Z   allow-unsafe-pr-checkout: false
+2026-09-27T05:32:54.3979908Z env:
+2026-09-27T05:32:54.3980168Z   PYTHONDONTWRITEBYTECODE: 1
+2026-09-27T05:32:54.3980458Z   SOURCE_DATE_EPOCH: 0
+2026-09-27T05:32:54.3980713Z   AQT_ENVIRONMENT: local
+2026-09-27T05:32:54.3981028Z ##[endgroup]
+2026-09-27T05:32:54.5164036Z Syncing repository: km8trix/AutoQuantTrader
+2026-09-27T05:32:54.5166666Z ##[group]Getting Git version info
+2026-09-27T05:32:54.5167421Z Working directory is '/home/runner/work/AutoQuantTrader/AutoQuantTrader'
+2026-09-27T05:32:54.5168505Z [command]/usr/bin/git version
+2026-09-27T05:32:54.5224015Z git version 2.55.0
+2026-09-27T05:32:54.5248204Z ##[endgroup]
+2026-09-27T05:32:54.5260938Z Temporarily overriding HOME='/home/runner/work/_temp/99b52163-afc5-41a4-baa1-077b7c43c026' before making global git config changes
+2026-09-27T05:32:54.5262512Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-27T05:32:54.5269699Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/AutoQuantTrader/AutoQuantTrader
+2026-09-27T05:32:54.5331457Z Deleting the contents of '/home/runner/work/AutoQuantTrader/AutoQuantTrader'
+2026-09-27T05:32:54.5335893Z ##[group]Determining repository object format
+2026-09-27T05:32:54.5338036Z ##[endgroup]
+2026-09-27T05:32:54.5338964Z ##[group]Initializing the repository
+2026-09-27T05:32:54.5344068Z [command]/usr/bin/git init /home/runner/work/AutoQuantTrader/AutoQuantTrader
+2026-09-27T05:32:54.5472127Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-27T05:32:54.5479769Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-27T05:32:54.5481506Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-27T05:32:54.5482267Z hint: call:
+2026-09-27T05:32:54.5482720Z hint:
+2026-09-27T05:32:54.5483363Z hint: 	git config --global init.defaultBranch <name>
+2026-09-27T05:32:54.5483977Z hint:
+2026-09-27T05:32:54.5484763Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-27T05:32:54.5485693Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-27T05:32:54.5486400Z hint:
+2026-09-27T05:32:54.5486764Z hint: 	git branch -m <name>
+2026-09-27T05:32:54.5487254Z hint:
+2026-09-27T05:32:54.5487909Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-27T05:32:54.5489352Z Initialized empty Git repository in /home/runner/work/AutoQuantTrader/AutoQuantTrader/.git/
+2026-09-27T05:32:54.5491921Z [command]/usr/bin/git remote add origin https://github.com/km8trix/AutoQuantTrader
+2026-09-27T05:32:54.5579162Z ##[endgroup]
+2026-09-27T05:32:54.5579643Z ##[group]Disabling automatic garbage collection
+2026-09-27T05:32:54.5586453Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-27T05:32:54.5650105Z ##[endgroup]
+2026-09-27T05:32:54.5651059Z ##[group]Setting up auth
+2026-09-27T05:32:54.5651797Z Removing SSH command configuration
+2026-09-27T05:32:54.5659387Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-27T05:32:54.5711789Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-27T05:32:54.6149610Z Removing HTTP extra header
+2026-09-27T05:32:54.6157072Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-27T05:32:54.6205271Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-27T05:32:54.6500724Z Removing includeIf entries pointing to credentials config files
+2026-09-27T05:32:54.6501665Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-27T05:32:54.6552223Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-27T05:32:54.6826386Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-27T05:32:54.6882580Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git.path /home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:32:54.6933287Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:32:54.6984409Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:32:54.7032699Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:32:54.7088029Z ##[endgroup]
+2026-09-27T05:32:54.7088692Z ##[group]Fetching the repository
+2026-09-27T05:32:54.7090052Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d:refs/remotes/pull/56/merge
+2026-09-27T05:32:56.5358792Z From https://github.com/km8trix/AutoQuantTrader
+2026-09-27T05:32:56.5359900Z  * [new ref]         9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d -> pull/56/merge
+2026-09-27T05:32:56.5364869Z ##[endgroup]
+2026-09-27T05:32:56.5365721Z ##[group]Determining the checkout info
+2026-09-27T05:32:56.5366767Z ##[endgroup]
+2026-09-27T05:32:56.5373861Z [command]/usr/bin/git sparse-checkout disable
+2026-09-27T05:32:56.5442431Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-27T05:32:56.5486079Z ##[group]Checking out the ref
+2026-09-27T05:32:56.5493068Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/56/merge
+2026-09-27T05:32:56.7648120Z Note: switching to 'refs/remotes/pull/56/merge'.
+2026-09-27T05:32:56.7648712Z
+2026-09-27T05:32:56.7649143Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-09-27T05:32:56.7649951Z changes and commit them, and you can discard any commits you make in this
+2026-09-27T05:32:56.7650549Z state without impacting any branches by switching back to a branch.
+2026-09-27T05:32:56.7650899Z
+2026-09-27T05:32:56.7651262Z If you want to create a new branch to retain commits you create, you may
+2026-09-27T05:32:56.7652173Z do so (now or later) by using -c with the switch command. Example:
+2026-09-27T05:32:56.7652488Z
+2026-09-27T05:32:56.7652622Z   git switch -c <new-branch-name>
+2026-09-27T05:32:56.7652880Z
+2026-09-27T05:32:56.7653008Z Or undo this operation with:
+2026-09-27T05:32:56.7653206Z
+2026-09-27T05:32:56.7653307Z   git switch -
+2026-09-27T05:32:56.7653482Z
+2026-09-27T05:32:56.7653741Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-09-27T05:32:56.7654232Z
+2026-09-27T05:32:56.7655193Z HEAD is now at 9c9948a Merge 071dd5c5624b35bef114275d4431823c9c82edeb into b1156ba96e6f1246a3a213ff041f17e3b15ff78b
+2026-09-27T05:32:56.7669046Z ##[endgroup]
+2026-09-27T05:32:56.7729971Z [command]/usr/bin/git log -1 --format=%H
+2026-09-27T05:32:56.7769644Z 9c9948ab0d0a5e4f448c8a882e4f20e369f77d2d
+2026-09-27T05:32:56.8075026Z ##[group]Run astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+2026-09-27T05:32:56.8075522Z with:
+2026-09-27T05:32:56.8075751Z   python-version: 3.12.13
+2026-09-27T05:32:56.8076002Z   version: 0.11.28
+2026-09-27T05:32:56.8076225Z   enable-cache: true
+2026-09-27T05:32:56.8076478Z   cache-dependency-glob: uv.lock
+2026-09-27T05:32:56.8076768Z   activate-environment: false
+2026-09-27T05:32:56.8077032Z   no-project: false
+2026-09-27T05:32:56.8077379Z   working-directory: /home/runner/work/AutoQuantTrader/AutoQuantTrader
+2026-09-27T05:32:56.8080232Z   github-token: ***
+2026-09-27T05:32:56.8080481Z   restore-cache: true
+2026-09-27T05:32:56.8080722Z   save-cache: true
+2026-09-27T05:32:56.8080951Z   prune-cache: true
+2026-09-27T05:32:56.8081179Z   cache-python: false
+2026-09-27T05:32:56.8081424Z   ignore-nothing-to-cache: false
+2026-09-27T05:32:56.8081709Z   ignore-empty-workdir: false
+2026-09-27T05:32:56.8081984Z   add-problem-matchers: true
+2026-09-27T05:32:56.8082317Z   resolution-strategy: highest
+2026-09-27T05:32:56.8082576Z env:
+2026-09-27T05:32:56.8082797Z   PYTHONDONTWRITEBYTECODE: 1
+2026-09-27T05:32:56.8083075Z   SOURCE_DATE_EPOCH: 0
+2026-09-27T05:32:56.8083317Z   AQT_ENVIRONMENT: local
+2026-09-27T05:32:56.8083555Z ##[endgroup]
+2026-09-27T05:32:57.0070417Z Fetching manifest data from https://raw.githubusercontent.com/astral-sh/versions/main/v1/uv.ndjson ...
+2026-09-27T05:32:57.1007045Z Downloading uv from "https://releases.astral.sh/github/uv/releases/download/0.11.28/uv-x86_64-unknown-linux-gnu.tar.gz" ...
+2026-09-27T05:32:57.3239360Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/13313b05-f62f-4117-92ae-56d13bbbc659 -f /home/runner/work/_temp/c2cd53df-3355-4f99-8829-303da0ddaa0b
+2026-09-27T05:32:57.8376205Z Added /home/runner/.local/bin to the path
+2026-09-27T05:32:57.8380078Z Added /opt/hostedtoolcache/uv/0.11.28/x86_64 to the path
+2026-09-27T05:32:57.8384355Z Set UV_PYTHON_INSTALL_DIR to /home/runner/work/_temp/uv-python-dir
+2026-09-27T05:32:57.8385650Z Added /home/runner/work/_temp/uv-python-dir to the path
+2026-09-27T05:32:57.8386371Z Set UV_PYTHON to 3.12.13
+2026-09-27T05:32:57.8411562Z Set UV_CACHE_DIR to /home/runner/work/_temp/setup-uv-cache
+2026-09-27T05:32:57.8412286Z Successfully installed uv version 0.11.28
+2026-09-27T05:32:57.8413250Z Searching files using cache dependency glob: /home/runner/work/AutoQuantTrader/AutoQuantTrader/uv.lock
+2026-09-27T05:32:57.8439513Z /home/runner/work/AutoQuantTrader/AutoQuantTrader/uv.lock
+2026-09-27T05:32:57.8463393Z Found 1 files to hash.
+2026-09-27T05:32:57.8549849Z Trying to restore cache from GitHub Actions cache with key: setup-uv-2-x86_64-unknown-linux-gnu-ubuntu-24.04-3.12.13-pruned-085bf8a192fbfd13e4c477dc3c6aab26617c6902e7fed542c6e23777a73ad439
+2026-09-27T05:32:58.0964468Z Cache hit for: setup-uv-2-x86_64-unknown-linux-gnu-ubuntu-24.04-3.12.13-pruned-085bf8a192fbfd13e4c477dc3c6aab26617c6902e7fed542c6e23777a73ad439
+2026-09-27T05:32:59.3966653Z Received 0 of 6378860 (0.0%), 0.0 MBs/sec
+2026-09-27T05:32:59.7581988Z Received 6378860 of 6378860 (100.0%), 4.5 MBs/sec
+2026-09-27T05:32:59.7583146Z Cache Size: ~6 MB (6378860 B)
+2026-09-27T05:32:59.7615694Z [command]/usr/bin/tar -xf /home/runner/work/_temp/e92b2b43-8418-4e62-aca1-c2fd1c2fa8f6/cache.tzst -P -C /home/runner/work/AutoQuantTrader/AutoQuantTrader --use-compress-program unzstd
+2026-09-27T05:32:59.8179780Z Cache restored successfully
+2026-09-27T05:32:59.8188546Z cache restored from GitHub Actions cache with key: setup-uv-2-x86_64-unknown-linux-gnu-ubuntu-24.04-3.12.13-pruned-085bf8a192fbfd13e4c477dc3c6aab26617c6902e7fed542c6e23777a73ad439
+2026-09-27T05:32:59.8895552Z ##[group]Run uv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py
+2026-09-27T05:32:59.8896882Z [36;1muv run --isolated --no-project --no-config --offline --python 3.12 python -I -B scripts/check_personal_architecture.py[0m
+2026-09-27T05:32:59.9159052Z shell: /usr/bin/bash -e {0}
+2026-09-27T05:32:59.9159571Z env:
+2026-09-27T05:32:59.9159974Z   PYTHONDONTWRITEBYTECODE: 1
+2026-09-27T05:32:59.9160468Z   SOURCE_DATE_EPOCH: 0
+2026-09-27T05:32:59.9160927Z   AQT_ENVIRONMENT: local
+2026-09-27T05:32:59.9161515Z   UV_PYTHON_INSTALL_DIR: /home/runner/work/_temp/uv-python-dir
+2026-09-27T05:32:59.9162160Z   UV_PYTHON: 3.12.13
+2026-09-27T05:32:59.9162646Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+2026-09-27T05:32:59.9163221Z ##[endgroup]
+2026-09-27T05:33:06.8193016Z Personal architecture check passed (layers, pure code, simulation import closure).
+2026-09-27T05:33:06.8577805Z ##[group]Run uv sync --all-groups --locked --no-install-project --no-build
+2026-09-27T05:33:06.8578633Z [36;1muv sync --all-groups --locked --no-install-project --no-build[0m
+2026-09-27T05:33:06.8648662Z shell: /usr/bin/bash -e {0}
+2026-09-27T05:33:06.8649056Z env:
+2026-09-27T05:33:06.8649363Z   PYTHONDONTWRITEBYTECODE: 1
+2026-09-27T05:33:06.8649742Z   SOURCE_DATE_EPOCH: 0
+2026-09-27T05:33:06.8650076Z   AQT_ENVIRONMENT: local
+2026-09-27T05:33:06.8650531Z   UV_PYTHON_INSTALL_DIR: /home/runner/work/_temp/uv-python-dir
+2026-09-27T05:33:06.8651064Z   UV_PYTHON: 3.12.13
+2026-09-27T05:33:06.8651438Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+2026-09-27T05:33:06.8651903Z ##[endgroup]
+2026-09-27T05:33:06.9901370Z Downloading cpython-3.12.13-linux-x86_64-gnu (download) (32.6MiB)
+2026-09-27T05:33:08.0968060Z  Downloaded cpython-3.12.13-linux-x86_64-gnu (download)
+2026-09-27T05:33:08.2496878Z Using CPython 3.12.13
+2026-09-27T05:33:08.2497551Z Creating virtual environment at: .venv
+2026-09-27T05:33:08.2546987Z Resolved 57 packages in 0.78ms
+2026-09-27T05:33:08.2896023Z Downloading pygments (1.2MiB)
+2026-09-27T05:33:08.2901554Z Downloading pyarrow (40.8MiB)
+2026-09-27T05:33:08.2916984Z Downloading uvloop (4.2MiB)
+2026-09-27T05:33:08.2923281Z Downloading pydantic-core (2.0MiB)
+2026-09-27T05:33:08.2927201Z Downloading psycopg-binary (4.9MiB)
+2026-09-27T05:33:08.2931890Z Downloading cryptography (4.5MiB)
+2026-09-27T05:33:08.2934464Z Downloading mypy (14.1MiB)
+2026-09-27T05:33:08.2938810Z Downloading sqlalchemy (3.2MiB)
+2026-09-27T05:33:08.2941337Z Downloading ruff (11.0MiB)
+2026-09-27T05:33:08.7069807Z  Downloaded pydantic-core
+2026-09-27T05:33:08.9481343Z  Downloaded psycopg-binary
+2026-09-27T05:33:08.9931661Z  Downloaded uvloop
+2026-09-27T05:33:09.1172425Z  Downloaded cryptography
+2026-09-27T05:33:09.1639548Z  Downloaded pygments
+2026-09-27T05:33:09.2677925Z  Downloaded sqlalchemy
+2026-09-27T05:33:09.3542616Z  Downloaded ruff
+2026-09-27T05:33:09.5803268Z  Downloaded pyarrow
+2026-09-27T05:33:09.6986918Z  Downloaded mypy
+2026-09-27T05:33:09.6990439Z Prepared 54 packages in 1.44s
+2026-09-27T05:33:09.7721726Z Installed 54 packages in 72ms
+2026-09-27T05:33:09.7722367Z  + alembic==1.18.5
+2026-09-27T05:33:09.7722823Z  + annotated-doc==0.0.4
+2026-09-27T05:33:09.7723311Z  + annotated-types==0.7.0
+2026-09-27T05:33:09.7723786Z  + anyio==4.14.2
+2026-09-27T05:33:09.7724227Z  + certifi==2026.6.17
+2026-09-27T05:33:09.7725001Z  + cffi==2.1.0
+2026-09-27T05:33:09.7725462Z  + charset-normalizer==3.4.9
+2026-09-27T05:33:09.7726110Z  + click==8.4.2
+2026-09-27T05:33:09.7727014Z  + cryptography==49.0.0
+2026-09-27T05:33:09.7727522Z  + fastapi==0.139.0
+2026-09-27T05:33:09.7728017Z  + googleapis-common-protos==1.75.0
+2026-09-27T05:33:09.7728631Z  + greenlet==3.5.3
+2026-09-27T05:33:09.7729042Z  + h11==0.16.0
+2026-09-27T05:33:09.7729469Z  + httpcore==1.0.9
+2026-09-27T05:33:09.7729886Z  + httptools==0.8.0
+2026-09-27T05:33:09.7730307Z  + httpx==0.28.1
+2026-09-27T05:33:09.7730790Z  + idna==3.18
+2026-09-27T05:33:09.7731266Z  + iniconfig==2.3.0
+2026-09-27T05:33:09.7731685Z  + librt==0.13.0
+2026-09-27T05:33:09.7732099Z  + mako==1.3.12
+2026-09-27T05:33:09.7732506Z  + markupsafe==3.0.3
+2026-09-27T05:33:09.7732943Z  + mypy==1.20.2
+2026-09-27T05:33:09.7733382Z  + mypy-extensions==1.1.0
+2026-09-27T05:33:09.7733901Z  + opentelemetry-api==1.44.0
+2026-09-27T05:33:09.7734503Z  + opentelemetry-exporter-otlp-proto-common==1.44.0
+2026-09-27T05:33:09.7735501Z  + opentelemetry-exporter-otlp-proto-http==1.44.0
+2026-09-27T05:33:09.7736207Z  + opentelemetry-proto==1.44.0
+2026-09-27T05:33:09.7736758Z  + opentelemetry-sdk==1.44.0
+2026-09-27T05:33:09.7737360Z  + opentelemetry-semantic-conventions==0.65b0
+2026-09-27T05:33:09.7737982Z  + packaging==26.2
+2026-09-27T05:33:09.7738429Z  + pathspec==1.1.1
+2026-09-27T05:33:09.7738877Z  + pluggy==1.6.0
+2026-09-27T05:33:09.7739351Z  + protobuf==7.35.1
+2026-09-27T05:33:09.7739798Z  + psycopg==3.3.4
+2026-09-27T05:33:09.7740236Z  + psycopg-binary==3.3.4
+2026-09-27T05:33:09.7740708Z  + pyarrow==21.0.0
+2026-09-27T05:33:09.7741465Z  + pycparser==3.0
+2026-09-27T05:33:09.7741951Z  + pydantic==2.13.4
+2026-09-27T05:33:09.7742428Z  + pydantic-core==2.46.4
+2026-09-27T05:33:09.7742918Z  + pygments==2.20.0
+2026-09-27T05:33:09.7743341Z  + pytest==8.4.2
+2026-09-27T05:33:09.7743736Z  + python-dotenv==1.2.2
+2026-09-27T05:33:09.7744193Z  + pyyaml==6.0.3
+2026-09-27T05:33:09.7749904Z  + requests==2.34.2
+2026-09-27T05:33:09.7750321Z  + ruff==0.15.21
+2026-09-27T05:33:09.7750645Z  + sqlalchemy==2.0.51
+2026-09-27T05:33:09.7750901Z  + starlette==1.3.1
+2026-09-27T05:33:09.7751158Z  + typing-extensions==4.16.0
+2026-09-27T05:33:09.7751460Z  + typing-inspection==0.4.2
+2026-09-27T05:33:09.7751719Z  + urllib3==2.7.0
+2026-09-27T05:33:09.7752126Z  + uvicorn==0.51.0
+2026-09-27T05:33:09.7752480Z  + uvloop==0.22.1
+2026-09-27T05:33:09.7752915Z  + watchfiles==1.2.0
+2026-09-27T05:33:09.7753244Z  + websockets==16.1
+2026-09-27T05:33:09.7859790Z ##[group]Run .venv/bin/python -B scripts/run_personal_tests.py --postgres-url ***localhost:5432/autoquant_test --shard-count 16 --shard-index 3
+2026-09-27T05:33:09.7861357Z [36;1m.venv/bin/python -B scripts/run_personal_tests.py --postgres-url ***localhost:5432/autoquant_test --shard-count 16 --shard-index 3[0m
+2026-09-27T05:33:09.7930422Z shell: /usr/bin/bash -e {0}
+2026-09-27T05:33:09.7930826Z env:
+2026-09-27T05:33:09.7931144Z   PYTHONDONTWRITEBYTECODE: 1
+2026-09-27T05:33:09.7931536Z   SOURCE_DATE_EPOCH: 0
+2026-09-27T05:33:09.7931866Z   AQT_ENVIRONMENT: local
+2026-09-27T05:33:09.7932318Z   UV_PYTHON_INSTALL_DIR: /home/runner/work/_temp/uv-python-dir
+2026-09-27T05:33:09.7933055Z   UV_PYTHON: 3.12.13
+2026-09-27T05:33:09.7933439Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+2026-09-27T05:33:09.7933894Z ##[endgroup]
+2026-09-27T05:45:23.1273903Z ........................................F............................... [ 22%]
+2026-09-27T05:46:36.1907105Z ........................................................................ [ 44%]
+2026-09-27T05:46:42.4497782Z ........................................................................ [ 66%]
+2026-09-27T05:46:54.0629065Z ........................................................................ [ 88%]
+2026-09-27T05:46:54.4585635Z .......................................                                  [100%]
+2026-09-27T05:46:54.4586371Z =================================== FAILURES ===================================
+2026-09-27T05:46:54.4587153Z _ test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history _
+2026-09-27T05:46:54.4587804Z
+2026-09-27T05:46:54.4589493Z configured = ((<tests.integration.test_continuous_reconciliation_publication.PublicationCase object at 0x7f2d8d641ca0>, <packages.p...n='1', lease_ttl_microseconds=60000000, maximum_in_flight_microseconds=5000000, takeover_safety_microseconds=10000000))
+2026-09-27T05:46:54.4592266Z monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d916a9c70>
+2026-09-27T05:46:54.4592789Z
+2026-09-27T05:46:54.4593244Z     def test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history(
+2026-09-27T05:46:54.4594000Z         configured,
+2026-09-27T05:46:54.4594348Z         monkeypatch,
+2026-09-27T05:46:54.4595106Z     ):
+2026-09-27T05:46:54.4595434Z         fixture, config = configured
+2026-09-27T05:46:54.4595874Z         pair = fixture[0]
+2026-09-27T05:46:54.4596407Z         factory_fixture.install_initial_signed_assignment(fixture)
+2026-09-27T05:46:54.4597103Z         original = pair.account.restore(pair.base.scope)
+2026-09-27T05:46:54.4597649Z         counts = pair.counts()
+2026-09-27T05:46:54.4598187Z         factory_fixture.release(fixture)
+2026-09-27T05:46:54.4598762Z         request = factory_fixture.request_for(fixture, config)
+2026-09-27T05:46:54.4599524Z         private = Path(config.database_path).parent / "supervised"
+2026-09-27T05:46:54.4600144Z         private.mkdir(mode=0o700)
+2026-09-27T05:46:54.4600832Z         supervisor = ContinuousProcessSupervisor(artifact_directory=private)
+2026-09-27T05:46:54.4601615Z         with LocalInstanceGuard(private / "instance.lock") as lock:
+2026-09-27T05:46:54.4602200Z             results = []
+2026-09-27T05:46:54.4602583Z             for iteration in range(1, 3):
+2026-09-27T05:46:54.4603230Z                 diagnostic = ChildObservationDiagnostic(process_module._observe_child)
+2026-09-27T05:46:54.4603969Z                 with monkeypatch.context() as observation_patch:
+2026-09-27T05:46:54.4604964Z                     observation_patch.setattr(process_module, "_observe_child", diagnostic.observe)
+2026-09-27T05:46:54.4605696Z                     outcome = supervisor.run(
+2026-09-27T05:46:54.4606137Z                         request,
+2026-09-27T05:46:54.4606563Z                         lock_descriptor=lock.fileno(),
+2026-09-27T05:46:54.4607059Z                         stop_requested=lambda: False,
+2026-09-27T05:46:54.4607920Z                         lifecycle=SqlContinuousParentProbe(request),
+2026-09-27T05:46:54.4608446Z                     )
+2026-09-27T05:46:54.4608772Z                 try:
+2026-09-27T05:46:54.4609205Z >                   assert outcome.status == "completed", outcome.reason
+2026-09-27T05:46:54.4609804Z E                   AssertionError: child_observation_failed
+2026-09-27T05:46:54.4610356Z E                   assert 'failed' == 'completed'
+2026-09-27T05:46:54.4610784Z E
+2026-09-27T05:46:54.4611138Z E                     - completed
+2026-09-27T05:46:54.4611514Z E                     + failed
+2026-09-27T05:46:54.4611749Z
+2026-09-27T05:46:54.4612082Z tests/integration/test_continuous_simulation_worker.py:47: AssertionError
+2026-09-27T05:46:54.4612858Z ---------------------------- Captured stderr setup -----------------------------
+2026-09-27T05:46:54.4613789Z INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+2026-09-27T05:46:54.4614473Z INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+2026-09-27T05:46:54.4615807Z INFO  [alembic.runtime.migration] Running upgrade  -> 0001_phase0, Create the Phase 0 risk, order, fill, and ledger tables.
+2026-09-27T05:46:54.4617242Z INFO  [alembic.runtime.migration] Running upgrade 0001_phase0 -> 0002_risk_reservations, Add atomic account guards and single-use risk reservations.
+2026-09-27T05:46:54.4618923Z INFO  [alembic.runtime.migration] Running upgrade 0002_risk_reservations -> 0003_submission_attempts, Record the durable risk-authorization to order-submission handoff.
+2026-09-27T05:46:54.4620561Z INFO  [alembic.runtime.migration] Running upgrade 0003_submission_attempts -> 0004_point_in_time_data, Add point-in-time market data catalog
+2026-09-27T05:46:54.4622068Z INFO  [alembic.runtime.migration] Running upgrade 0004_point_in_time_data -> 0005_market_data_admission, Add fail-closed market-data admission evidence
+2026-09-27T05:46:54.4623841Z INFO  [alembic.runtime.migration] Running upgrade 0005_market_data_admission -> 0006_replay_run_manifests, Add sealed-success replay run manifests
+2026-09-27T05:46:54.4625877Z INFO  [alembic.runtime.migration] Running upgrade 0006_replay_run_manifests -> 0007_phase2_durability, Add the independent Phase 2 durable execution foundation.
+2026-09-27T05:46:54.4627517Z INFO  [alembic.runtime.migration] Running upgrade 0007_phase2_durability -> 0008_phase2_research, Add the Phase 2C durable fixture-research workflow.
+2026-09-27T05:46:54.4629383Z INFO  [alembic.runtime.migration] Running upgrade 0008_phase2_research -> 0009_lease_revision_chain, Add gap-free lease revisions and authenticated capacity ordering.
+2026-09-27T05:46:54.4634844Z INFO  [alembic.runtime.migration] Running upgrade 0009_lease_revision_chain -> 0010_phase3_governance, Add durable bounded Phase 3 experiment governance.
+2026-09-27T05:46:54.4636589Z INFO  [alembic.runtime.migration] Running upgrade 0010_phase3_governance -> 0011_phase4_broker_ingress, Add the durable pre-decode Phase 4 broker ingress journal.
+2026-09-27T05:46:54.4638425Z INFO  [alembic.runtime.migration] Running upgrade 0011_phase4_broker_ingress -> 0012_phase4_request_budget, Add durable Phase 4 broker request permits and account-local heads.
+2026-09-27T05:46:54.4640259Z INFO  [alembic.runtime.migration] Running upgrade 0012_phase4_request_budget -> 0013_phase4_account_binding, Add durable authenticated Alpaca paper account bindings.
+2026-09-27T05:46:54.4642421Z INFO  [alembic.runtime.migration] Running upgrade 0013_phase4_account_binding -> 0014_phase4_asset_binding, Add durable authenticated Alpaca paper asset bindings.
+2026-09-27T05:46:54.4644247Z INFO  [alembic.runtime.migration] Running upgrade 0014_phase4_asset_binding -> 0015_phase4_lookup_observation, Add authenticated Alpaca paper UNKNOWN lookup observations.
+2026-09-27T05:46:54.4646225Z INFO  [alembic.runtime.migration] Running upgrade 0015_phase4_lookup_observation -> 0016_phase4_unknown_schedule, Add durable bounded UNKNOWN lookup scheduling.
+2026-09-27T05:46:54.4648195Z INFO  [alembic.runtime.migration] Running upgrade 0016_phase4_unknown_schedule -> 0017_phase4_reconciliation, Add non-applying lookup reconciliation evidence.
+2026-09-27T05:46:54.4649904Z INFO  [alembic.runtime.migration] Running upgrade 0017_phase4_reconciliation -> 0018_phase4_broker_inbox, Add source-scoped broker inbox admission evidence.
+2026-09-27T05:46:54.4651670Z INFO  [alembic.runtime.migration] Running upgrade 0018_phase4_broker_inbox -> 0019_phase4_order_snapshots, Add restart-safe authenticated Alpaca paper order snapshot pages.
+2026-09-27T05:46:54.4653510Z INFO  [alembic.runtime.migration] Running upgrade 0019_phase4_order_snapshots -> 0020_phase4_order_view_cmp, Add durable authenticated Alpaca paper order-view comparisons.
+2026-09-27T05:46:54.4655519Z INFO  [alembic.runtime.migration] Running upgrade 0020_phase4_order_view_cmp -> 0021_phase4_position_snapshots, Add single-use authenticated Alpaca paper position snapshots.
+2026-09-27T05:46:54.4657576Z INFO  [alembic.runtime.migration] Running upgrade 0021_phase4_position_snapshots -> 0022_phase4_position_view_cmp, Add durable authenticated Alpaca paper position-view comparisons.
+2026-09-27T05:46:54.4659575Z INFO  [alembic.runtime.migration] Running upgrade 0022_phase4_position_view_cmp -> 0023_phase4_position_transition, Add durable position-pair transition admission.
+2026-09-27T05:46:54.4661381Z INFO  [alembic.runtime.migration] Running upgrade 0023_phase4_position_transition -> 0024_phase4_order_transition, Add durable order-pair page transition admission.
+2026-09-27T05:46:54.4663191Z INFO  [alembic.runtime.migration] Running upgrade 0024_phase4_order_transition -> 0025_phase5_operational_control, Add the durable Phase 5 operational-control spine.
+2026-09-27T05:46:54.4665250Z INFO  [alembic.runtime.migration] Running upgrade 0025_phase5_operational_control -> 0026_phase5_advanced_risk, Add durable Phase 5B advanced-risk policy and evidence bindings.
+2026-09-27T05:46:54.4670143Z INFO  [alembic.runtime.migration] Running upgrade 0026_phase5_advanced_risk -> 0027_phase5_critical_alerts, Add durable Phase 5D critical-alert delivery evidence.
+2026-09-27T05:46:54.4672072Z INFO  [alembic.runtime.migration] Running upgrade 0027_phase5_critical_alerts -> 0028_phase5_strategy_supervision, Add durable Phase 5C strategy-supervision results.
+2026-09-27T05:46:54.4674046Z INFO  [alembic.runtime.migration] Running upgrade 0028_phase5_strategy_supervision -> 0029_phase4_account_activities, Add authenticated durable Alpaca paper account-activity traversal.
+2026-09-27T05:46:54.4676337Z INFO  [alembic.runtime.migration] Running upgrade 0029_phase4_account_activities -> 0030_phase5_adv_outcomes, Add restart-safe atomic Phase 5B batch outcome receipts.
+2026-09-27T05:46:54.4678188Z INFO  [alembic.runtime.migration] Running upgrade 0030_phase5_adv_outcomes -> 0031_phase5_strategy_claims, Add durable pre-run strategy invocation claims.
+2026-09-27T05:46:54.4680050Z INFO  [alembic.runtime.migration] Running upgrade 0031_phase5_strategy_claims -> 0032_phase5_alert_fail_control, Add local atomic critical-alert total-failure control receipts.
+2026-09-27T05:46:54.4682196Z INFO  [alembic.runtime.migration] Running upgrade 0032_phase5_alert_fail_control -> 0033_phase4_activity_comparison, Add durable authenticated Alpaca paper account-activity comparisons.
+2026-09-27T05:46:54.4684216Z INFO  [alembic.runtime.migration] Running upgrade 0033_phase4_activity_comparison -> 0034_phase6_trusted_time, Add durable provider-neutral trusted-time evidence.
+2026-09-27T05:46:54.4686274Z INFO  [alembic.runtime.migration] Running upgrade 0034_phase6_trusted_time -> 0035_phase6_time_uncertainty, Bind trusted-time samples to conservative source uncertainty.
+2026-09-27T05:46:54.4688143Z INFO  [alembic.runtime.migration] Running upgrade 0035_phase6_time_uncertainty -> 0036_phase6_time_anchors, Add immutable external trusted-time head anchor evidence.
+2026-09-27T05:46:54.4689990Z INFO  [alembic.runtime.migration] Running upgrade 0036_phase6_time_anchors -> 0037_phase3_fixture_worker, Add the bounded Phase 3F fixture-segment worker.
+2026-09-27T05:46:54.4692081Z INFO  [alembic.runtime.migration] Running upgrade 0037_phase3_fixture_worker -> 0038_phase4_etrade_oauth, Add durable E*TRADE OAuth replay/session-head coordination.
+2026-09-27T05:46:54.4694119Z INFO  [alembic.runtime.migration] Running upgrade 0038_phase4_etrade_oauth -> 0039_personal_research, Add bounded personal research jobs, artifacts and immutable trial registration.
+2026-09-27T05:46:55.5142637Z INFO  [alembic.runtime.migration] Running upgrade 0039_personal_research -> 0040_personal_continuous, Add continuous simulation journals, reconciliation and daily account state.
+2026-09-27T05:46:55.5144306Z ----------------------------- Captured stdout call -----------------------------
+2026-09-27T05:46:55.5146985Z AQT_CHILD_OBSERVATION_DIAGNOSTIC {"call_count": 82, "counts": {"OSError": 0, "SubprocessError": 0, "TimeoutExpired": 1, "ValueError": 0, "other": 0, "returned": 81}, "first_failure": {"call": 68, "category": "TimeoutExpired", "elapsed_ns": 379105127, "requested_timeout_seconds": 0.1}, "iteration": 2, "overflow": false}
+2026-09-27T05:46:55.5149171Z =============================== warnings summary ===============================
+2026-09-27T05:46:55.5149894Z .venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+2026-09-27T05:46:55.5151675Z   /home/runner/work/AutoQuantTrader/AutoQuantTrader/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+2026-09-27T05:46:55.5153509Z     from starlette.testclient import TestClient as TestClient  # noqa
+2026-09-27T05:46:55.5154022Z
+2026-09-27T05:46:55.5154386Z -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2026-09-27T05:46:55.5155324Z =========================== short test summary info ============================
+2026-09-27T05:46:55.5157286Z FAILED tests/integration/test_continuous_simulation_worker.py::test_fixed_worker_runs_real_halted_restore_and_restarts_with_identical_financial_history
+2026-09-27T05:46:55.5158481Z 1 failed, 326 passed, 4640 deselected, 1 warning in 823.69s (0:13:43)
+2026-09-27T05:46:56.7196885Z ##[error]Process completed with exit code 1.
+2026-09-27T05:46:56.7335279Z Post job cleanup.
+2026-09-27T05:46:56.8225350Z [command]/usr/bin/git version
+2026-09-27T05:46:56.8271387Z git version 2.55.0
+2026-09-27T05:46:56.8312903Z Temporarily overriding HOME='/home/runner/work/_temp/4bbf49c1-a7ec-4252-9c2f-f9f52756fd20' before making global git config changes
+2026-09-27T05:46:56.8314291Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-27T05:46:56.8316568Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/AutoQuantTrader/AutoQuantTrader
+2026-09-27T05:46:56.8354429Z Removing SSH command configuration
+2026-09-27T05:46:56.8360803Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-27T05:46:56.8407915Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-27T05:46:56.8659655Z Removing HTTP extra header
+2026-09-27T05:46:56.8666473Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-27T05:46:56.8713625Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-27T05:46:56.8966453Z Removing includeIf entries pointing to credentials config files
+2026-09-27T05:46:56.8975551Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-27T05:46:56.9008424Z includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git.path
+2026-09-27T05:46:56.9010222Z includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git/worktrees/*.path
+2026-09-27T05:46:56.9024260Z includeif.gitdir:/github/workspace/.git.path
+2026-09-27T05:46:56.9027197Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-27T05:46:56.9029831Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git.path
+2026-09-27T05:46:56.9049403Z /home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:46:56.9063315Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-514a4681\-55a0\-4a00\-9680\-41ade76dba64\.config
+2026-09-27T05:46:56.9105251Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git/worktrees/*.path
+2026-09-27T05:46:56.9142949Z /home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:46:56.9153446Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/AutoQuantTrader/AutoQuantTrader/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-514a4681\-55a0\-4a00\-9680\-41ade76dba64\.config
+2026-09-27T05:46:56.9193798Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-27T05:46:56.9222548Z /github/runner_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:46:56.9232460Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-514a4681\-55a0\-4a00\-9680\-41ade76dba64\.config
+2026-09-27T05:46:56.9274247Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-27T05:46:56.9303958Z /github/runner_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config
+2026-09-27T05:46:56.9316337Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-514a4681\-55a0\-4a00\-9680\-41ade76dba64\.config
+2026-09-27T05:46:56.9360495Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-27T05:46:56.9608861Z Removing credentials config '/home/runner/work/_temp/git-credentials-514a4681-55a0-4a00-9680-41ade76dba64.config'
+2026-09-27T05:46:56.9743876Z Print service container logs: 119d11ff6de441d2a52ce3554bb3fa22_postgres16alpine_356f48
+2026-09-27T05:46:56.9748642Z ##[command]/usr/bin/docker logs --details caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:46:56.9882241Z  The files belonging to this database system will be owned by user "postgres".
+2026-09-27T05:46:56.9883189Z  This user must also own the server process.
+2026-09-27T05:46:56.9886310Z  sh: locale: not found
+2026-09-27T05:46:56.9887125Z  2026-09-27 05:32:52.753 UTC [35] WARNING:  no usable system locales were found
+2026-09-27T05:46:56.9888047Z  initdb: warning: enabling "trust" authentication for local connections
+2026-09-27T05:46:56.9889314Z  initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-09-27T05:46:56.9890403Z
+2026-09-27T05:46:56.9890929Z  The database cluster will be initialized with locale "en_US.utf8".
+2026-09-27T05:46:56.9891889Z  The default database encoding has accordingly been set to "UTF8".
+2026-09-27T05:46:56.9892730Z  The default text search configuration will be set to "english".
+2026-09-27T05:46:56.9893395Z
+2026-09-27T05:46:56.9893762Z  Data page checksums are disabled.
+2026-09-27T05:46:56.9894243Z
+2026-09-27T05:46:56.9895162Z  fixing permissions on existing directory /var/lib/postgresql/data ... ok
+2026-09-27T05:46:56.9895857Z  creating subdirectories ... ok
+2026-09-27T05:46:56.9896390Z  selecting dynamic shared memory implementation ... posix
+2026-09-27T05:46:56.9897079Z  selecting default max_connections ... 100
+2026-09-27T05:46:56.9897640Z  selecting default shared_buffers ... 128MB
+2026-09-27T05:46:56.9898169Z  selecting default time zone ... UTC
+2026-09-27T05:46:56.9898698Z  creating configuration files ... ok
+2026-09-27T05:46:56.9899172Z  running bootstrap script ... ok
+2026-09-27T05:46:56.9899700Z  performing post-bootstrap initialization ... ok
+2026-09-27T05:46:56.9900392Z  syncing data to disk ... ok
+2026-09-27T05:46:56.9900876Z
+2026-09-27T05:46:56.9901185Z
+2026-09-27T05:46:56.9901584Z  Success. You can now start the database server using:
+2026-09-27T05:46:56.9902115Z
+2026-09-27T05:46:56.9902527Z      pg_ctl -D /var/lib/postgresql/data -l logfile start
+2026-09-27T05:46:56.9903053Z
+2026-09-27T05:46:56.9904049Z  waiting for server to start....2026-09-27 05:32:53.357 UTC [41] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-09-27T05:46:56.9905895Z  2026-09-27 05:32:53.358 UTC [41] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-09-27T05:46:56.9906921Z  2026-09-27 05:32:53.361 UTC [44] LOG:  database system was shut down at 2026-09-27 05:32:53 UTC
+2026-09-27T05:46:56.9907523Z  2026-09-27 05:32:53.365 UTC [41] LOG:  database system is ready to accept connections
+2026-09-27T05:46:56.9908249Z  2026-09-27 05:32:53.634 UTC [1] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-09-27T05:46:56.9908930Z  2026-09-27 05:32:53.634 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-27T05:46:56.9909427Z  2026-09-27 05:32:53.634 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-09-27T05:46:56.9909989Z  2026-09-27 05:32:53.635 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-09-27T05:46:56.9910581Z  2026-09-27 05:32:53.638 UTC [57] LOG:  database system was shut down at 2026-09-27 05:32:53 UTC
+2026-09-27T05:46:56.9911471Z  2026-09-27 05:32:53.644 UTC [1] LOG:  database system is ready to accept connections
+2026-09-27T05:46:56.9911949Z  2026-09-27 05:37:53.738 UTC [55] LOG:  checkpoint starting: time
+2026-09-27T05:46:56.9913029Z  2026-09-27 05:37:57.951 UTC [55] LOG:  checkpoint complete: wrote 45 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.210 s, sync=0.001 s, total=4.213 s; sync files=12, longest=0.001 s, average=0.001 s; distance=261 kB, estimate=261 kB; lsn=0/19671A0, redo lsn=0/1967168
+2026-09-27T05:46:56.9914263Z   done
+2026-09-27T05:46:56.9914486Z  server started
+2026-09-27T05:46:56.9914951Z  CREATE DATABASE
+2026-09-27T05:46:56.9915160Z
+2026-09-27T05:46:56.9915348Z
+2026-09-27T05:46:56.9915685Z  /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+2026-09-27T05:46:56.9916099Z
+2026-09-27T05:46:56.9916485Z  waiting for server to shut down....2026-09-27 05:32:53.511 UTC [41] LOG:  received fast shutdown request
+2026-09-27T05:46:56.9917036Z  2026-09-27 05:32:53.512 UTC [41] LOG:  aborting any active transactions
+2026-09-27T05:46:56.9917649Z  2026-09-27 05:32:53.515 UTC [41] LOG:  background worker "logical replication launcher" (PID 47) exited with exit code 1
+2026-09-27T05:46:56.9918208Z  2026-09-27 05:32:53.516 UTC [42] LOG:  shutting down
+2026-09-27T05:46:56.9918615Z  2026-09-27 05:32:53.517 UTC [42] LOG:  checkpoint starting: shutdown immediate
+2026-09-27T05:46:56.9919717Z  2026-09-27 05:32:53.534 UTC [42] LOG:  checkpoint complete: wrote 926 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.014 s, sync=0.002 s, total=0.018 s; sync files=301, longest=0.001 s, average=0.001 s; distance=4283 kB, estimate=4283 kB; lsn=0/1925D68, redo lsn=0/1925D68
+2026-09-27T05:46:56.9920800Z  2026-09-27 05:32:53.542 UTC [41] LOG:  database system is shut down
+2026-09-27T05:46:56.9921153Z   done
+2026-09-27T05:46:56.9921353Z  server stopped
+2026-09-27T05:46:56.9921566Z
+2026-09-27T05:46:56.9921816Z  PostgreSQL init process complete; ready for start up.
+2026-09-27T05:46:56.9922141Z
+2026-09-27T05:46:56.9928170Z Stop and remove container: 119d11ff6de441d2a52ce3554bb3fa22_postgres16alpine_356f48
+2026-09-27T05:46:56.9933121Z ##[command]/usr/bin/docker rm --force caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:46:57.1215497Z caf7c4fab35bbbcd18334177852bda6615e1fefb6652c689d17bef4f962c67b5
+2026-09-27T05:46:57.1253094Z Remove container network: github_network_b4c8524e0f864b5d8bacc44803e3767e
+2026-09-27T05:46:57.1258989Z ##[command]/usr/bin/docker network rm github_network_b4c8524e0f864b5d8bacc44803e3767e
+2026-09-27T05:46:57.2161182Z github_network_b4c8524e0f864b5d8bacc44803e3767e
+2026-09-27T05:46:57.2244874Z Cleaning up orphan processes

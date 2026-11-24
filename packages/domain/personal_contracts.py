@@ -18,7 +18,21 @@ from packages.domain.canonical import canonical_json_bytes, canonical_persisted_
 
 
 def semantic_value(value: object) -> object:
+    # Exact builtins cannot carry dataclass fields; preserve the reflection
+    # path for every subclass, record and other value without caching results.
+    if type(value) is tuple:
+        return tuple(semantic_value(item) for item in value)
+    if (
+        value is None
+        or type(value) is str
+        or type(value) is int
+        or type(value) is bool
+        or type(value) is bytes
+    ):
+        return value
     if is_dataclass(value) and not isinstance(value, type):
+        # Generator boundaries preserve StopIteration chaining and release prior
+        # results on failure; expression temporaries must not survive the next getter.
         return (
             type(value).__module__ + "." + type(value).__qualname__,
             tuple((f.name, semantic_value(getattr(value, f.name))) for f in fields(value)),
@@ -78,6 +92,14 @@ def _hints(cls: type) -> dict[str, object]:
 
 
 def _check_type(value: object, annotation: object, name: str) -> None:
+    # Matching exact primitives need no typing introspection. Keep mismatches,
+    # aliases, compound annotations and subclasses on the original path.
+    if (
+        annotation is str or annotation is int or annotation is bool or annotation is type(None)
+    ) and type(value) is annotation:
+        if type(value) is str and len(value) > 65536:
+            raise ValueError(f"{name} exceeds text bound")
+        return
     if isinstance(annotation, TypeAliasType):
         _check_type(value, annotation.__value__, name)
         return
@@ -133,7 +155,7 @@ class ContractRecord:
 
     @property
     def semantic_sha256(self) -> str:
-        return content_digest((self.contract_version, semantic_value(self)))
+        return content_digest((self.contract_version, self))
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +195,13 @@ class CausalMark(ContractRecord):
     knowledge_at: datetime
     source_sha256: str
     quality: Literal["current", "last_known", "unavailable"] = "current"
-    basis: Literal["raw_close", "raw_execution", "synthetic_boundary"] = "raw_close"
+    basis: Literal[
+        "raw_close",
+        "raw_execution",
+        "synthetic_boundary",
+        "runtime_quote_ask_v1",
+        "runtime_quote_bid_v1",
+    ] = "raw_close"
 
     def __post_init__(self) -> None:
         super(CausalMark, self).__post_init__()

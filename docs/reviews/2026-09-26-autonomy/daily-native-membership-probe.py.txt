@@ -1,0 +1,148 @@
+"""Finite literal-source probes; no project import, provider, fixture or source edit."""
+import ast
+import copy
+import hashlib
+import json
+import statistics
+import time
+from collections.abc import Mapping
+from dataclasses import dataclass, fields, is_dataclass
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from pathlib import Path
+
+SOURCE = Path('/Users/spencer.karrat/Documents/AutoQuantTrader/autonomous-development/packages/persistence/daily_runtime_risk.py')
+tree = ast.parse(SOURCE.read_text())
+owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'SqlDailyRuntimeRisk')
+original_ast = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == '_assignment_identity_fields')
+SCALARS = (str, int, bytes, type(None), bool, Decimal, datetime, date, object)
+
+
+def load(mode):
+    node = copy.deepcopy(original_ast)
+    node.decorator_list = []
+    loop = next(item for item in node.body if isinstance(item, ast.While))
+    index = next(index for index, item in enumerate(loop.body) if isinstance(item, ast.If)
+                 and isinstance(item.test, ast.BoolOp)
+                 and 'item_type is str' in ast.unparse(item.test))
+    old = loop.body[index]
+    if mode != 'original':
+        members = '_SCALARS' if mode == 'frozen_native_set' else '(str, int, bytes, type(None), bool, Decimal, datetime, date, object)'
+        inner = ast.If(test=ast.parse(f'item_type in {members}', mode='eval').body,
+                       body=copy.deepcopy(old.body), orelse=[])
+        loop.body[index] = ast.If(test=ast.parse('type(item_type) is type', mode='eval').body,
+                                  body=[inner], orelse=[old])
+    module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+    namespace = dict(Mapping=Mapping, fields=fields, is_dataclass=is_dataclass,
+                     Decimal=Decimal, date=date, datetime=datetime, _SCALARS=frozenset(SCALARS))
+    exec(compile(module, '<finite-daily-identity-probe>', 'exec'), namespace)
+    return namespace['_assignment_identity_fields'], namespace
+
+
+def outcome(function, value, trace):
+    try:
+        result = function(value)
+    except BaseException as error:
+        return {'status': 'error', 'type': type(error).__name__,
+                'cause_type': None if error.__cause__ is None else type(error.__cause__).__name__,
+                'context_type': None if error.__context__ is None else type(error.__context__).__name__,
+                'trace': list(trace)}
+    return {'status': 'returned', 'identity_count': len(result), 'trace': list(trace)}
+
+
+def disappearing_alias(mode):
+    function, namespace = load(mode)
+    trace = []
+    @dataclass
+    class Record:
+        field: object
+        def __getattribute__(self, name):
+            if name == 'field':
+                trace.append('field')
+                del namespace['Decimal']
+            return object.__getattribute__(self, name)
+    return outcome(function, Record('exact string leaf'), trace)
+
+
+def rebound_alias(mode):
+    function, namespace = load(mode)
+    trace = []
+    @dataclass
+    class NewScalar:
+        field: object
+        def __getattribute__(self, name):
+            if name == 'field':
+                trace.append('unexpected child getter')
+                raise ValueError('toy callback must be skipped by original live alias')
+            return object.__getattribute__(self, name)
+    @dataclass
+    class Root:
+        field: object
+        def __getattribute__(self, name):
+            if name == 'field':
+                trace.append('root getter')
+                namespace['Decimal'] = NewScalar
+            return object.__getattribute__(self, name)
+    return outcome(function, Root(NewScalar('child')), trace)
+
+
+def custom_meta(mode):
+    function, namespace = load(mode)
+    trace = []
+    class Meta(type):
+        def __hash__(cls):
+            trace.append('custom hash')
+            raise AssertionError
+        def __eq__(cls, other):
+            trace.append('custom equality')
+            raise AssertionError
+        def __getattribute__(cls, name):
+            if name == '__dataclass_fields__':
+                trace.append('original reflection')
+            return super().__getattribute__(name)
+    class Unknown(metaclass=Meta):
+        pass
+    return outcome(function, (Unknown(),), trace)
+
+
+modes = ('original', 'frozen_native_set', 'live_native_tuple')
+report = {'scope': 'Finite AST copy of current helper; no project imports, repo edits or operational effects',
+          'source_sha256': hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+          'candidate_scope': 'Scalar dispatch only; tuple path and both original generator expressions unchanged; custom metaclasses retain the literal old chain',
+          'counterexamples': {name: {mode: probe(mode) for mode in modes}
+                              for name, probe in (('deleted_later_alias', disappearing_alias),
+                                                  ('rebound_scalar_alias', rebound_alias),
+                                                  ('unknown_custom_metaclass', custom_meta))}}
+@dataclass
+class Row:
+    key: object
+    amount: object
+    when: object
+    optional: object
+values = (
+    ('string_int_rows', tuple(Row('field', index, 'value', index) for index in range(64))),
+    ('mixed_scalar_rows', tuple(Row('field', Decimal(index), date(2026, 9, 26), None) for index in range(64))),
+    ('scalar_tuple', tuple([None, True, 1, 'field', b'data', Decimal(1), datetime(2026, 9, 26, tzinfo=UTC), date(2026, 9, 26), object()] * 64)),
+)
+functions = {mode: load(mode)[0] for mode in modes}
+report['benchmarks'] = []
+for name, value in values:
+    expected = functions['original'](value)
+    for function in functions.values():
+        actual = function(value)
+        assert len(actual)==len(expected) and all(a is b for a,b in zip(actual,expected,strict=True))
+    times = {mode: [] for mode in modes}
+    for round_index in range(5):
+        for mode in (modes if round_index % 2 == 0 else tuple(reversed(modes))):
+            started=time.perf_counter_ns()
+            for _ in range(25):
+                functions[mode](value)
+            times[mode].append(time.perf_counter_ns()-started)
+    medians={mode: statistics.median(samples) for mode,samples in times.items()}
+    report['benchmarks'].append({'shape':name,'identity_count':len(expected),'samples':5,'iterations':25,
+      'median_ns':medians,'candidate_over_current_ratios':{mode:medians[mode]/medians['original'] for mode in modes if mode!='original'}})
+report['recommendation']='Reject both as behavior-preserving replacements: frozen membership changes live scalar-alias behavior; eager live membership changes short-circuit error behavior. Microbenchmarks are synthetic diagnostics only and cannot override these counterexamples.'
+output=Path('/private/tmp/aqt-autonomy-audit/daily-native-membership-probe.json')
+with output.open('x') as handle:
+    json.dump(report,handle,indent=2);handle.write('\n')
+print(json.dumps(report,indent=2))

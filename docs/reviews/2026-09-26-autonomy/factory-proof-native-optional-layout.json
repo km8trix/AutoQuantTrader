@@ -1,0 +1,18 @@
+{
+  "qualified_profile": "CPython3.12.13 native _abc_data",
+  "optional_positive_before": [
+    "native type",
+    "registry set",
+    "negative set"
+  ],
+  "positive_after": [
+    "native type",
+    "same registry set",
+    "new positive set",
+    "same negative set"
+  ],
+  "direct_registered_class_uses_registry_without_positive_entry": true,
+  "negative_exact_tuple_witness": true,
+  "dump_oracle_only_after_native_exact_sets_each_bounded_below4": true,
+  "private_native_state_mutation_outside_ordinary_runtime_integrity_assumption": true
+}

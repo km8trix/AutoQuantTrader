@@ -32,6 +32,7 @@ from packages.persistence.account_coordinator import (
     immutable_account_lease_release_values,
     immutable_account_lease_values,
 )
+from packages.persistence.applied_reconciliation_schema import APPLIED_RECONCILIATION_TABLES
 from packages.persistence.batch_risk import (
     LEGACY_CAPACITY_OBSERVATION_CONTRACT,
     _decision_fact_payload,
@@ -39,6 +40,8 @@ from packages.persistence.batch_risk import (
     load_batch_risk_decision,
 )
 from packages.persistence.broker_ingress import SqlBrokerIngressRepository
+from packages.persistence.continuous_account_schema import CONTINUOUS_ACCOUNT_TABLES
+from packages.persistence.daily_runtime_risk_schema import DAILY_RUNTIME_TABLES
 from packages.persistence.database import (
     EXPECTED_SCHEMA_REVISION,
     DatabaseSchemaNotReady,
@@ -46,6 +49,7 @@ from packages.persistence.database import (
     create_database_engine,
     verify_operational_schema,
 )
+from packages.persistence.durable_journal_schema import JOURNAL_TABLES
 from packages.persistence.research_catalog_schema import RESEARCH_CATALOG_TABLES
 from packages.persistence.research_schema_v2 import RESEARCH_TABLES_V2
 from packages.persistence.reservation_lifecycle import SqlReservationLifecycleRepository
@@ -112,6 +116,26 @@ from tests.unit.test_batch_risk import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+PERSONAL_CONTINUOUS_TABLE_NAMES = frozenset(
+    {
+        "personal_journal_streams",
+        "personal_journal_appends",
+        "personal_journal_entries",
+        "personal_reconciliation_commits",
+        "daily_runtime_assignments",
+        "daily_runtime_assignment_heads",
+        "daily_runtime_admissions",
+        "daily_runtime_hold_events",
+        "daily_runtime_hold_heads",
+        "daily_runtime_consumptions",
+        "daily_runtime_outbound",
+        "daily_runtime_attempt_events",
+        "daily_runtime_attempt_heads",
+        "daily_runtime_observed_hold_groups",
+        "personal_continuous_account_commits",
+        "personal_continuous_account_heads",
+    }
+)
 PERSONAL_RESEARCH_TABLE_NAMES = frozenset(
     {
         "research_objects_v2",
@@ -331,9 +355,18 @@ def test_operational_schema_can_be_created_without_postgresql() -> None:
     assert {
         table.name for table in (*RESEARCH_TABLES_V2, *RESEARCH_CATALOG_TABLES)
     } == PERSONAL_RESEARCH_TABLE_NAMES
+    assert {
+        table.name
+        for table in (
+            *JOURNAL_TABLES,
+            *APPLIED_RECONCILIATION_TABLES,
+            *DAILY_RUNTIME_TABLES,
+            *CONTINUOUS_ACCOUNT_TABLES,
+        )
+    } == PERSONAL_CONTINUOUS_TABLE_NAMES
     metadata.create_all(engine)
 
-    assert set(inspect(engine).get_table_names()) == {
+    assert set(inspect(engine).get_table_names()) == PERSONAL_CONTINUOUS_TABLE_NAMES | {
         "calendar_sessions",
         "calendar_versions",
         "corporate_action_revisions",
@@ -2085,6 +2118,7 @@ def test_phase2_durability_migration_is_additive_and_reversible(tmp_path: Path) 
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
         | PERSONAL_RESEARCH_TABLE_NAMES
+        | PERSONAL_CONTINUOUS_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2152,6 +2186,7 @@ def test_phase3_governance_migration_is_additive_and_reversible(tmp_path: Path) 
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
         | PERSONAL_RESEARCH_TABLE_NAMES
+        | PERSONAL_CONTINUOUS_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -2190,6 +2225,7 @@ def test_phase4_broker_ingress_migration_is_additive_and_reversible(
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
         | PERSONAL_RESEARCH_TABLE_NAMES
+        | PERSONAL_CONTINUOUS_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))
@@ -3183,6 +3219,7 @@ def test_phase5_operational_control_migration_is_additive_and_reversible(
         | PHASE5_TABLE_NAMES
         | PHASE6_TABLE_NAMES
         | PERSONAL_RESEARCH_TABLE_NAMES
+        | PERSONAL_CONTINUOUS_TABLE_NAMES
     )
     assert {
         table_name: tuple(column["name"] for column in inspect(engine).get_columns(table_name))

@@ -1,0 +1,174 @@
+{
+  "acceptance": false,
+  "bounds": {
+    "depth": 64,
+    "events": 20000,
+    "histogram_bindings": 131072,
+    "metadata_bytes": 32768,
+    "spans": 4096
+  },
+  "capture_status": "valid",
+  "diagnostic_faults": [],
+  "event_count": 626,
+  "excluded_builder_calls": 94,
+  "excluded_counter_saturated": false,
+  "first_summary_observer_ns": 10365000,
+  "first_vector": {
+    "attempt_proof": {
+      "caps": {
+        "bindings": 131072,
+        "containers": 16384
+      },
+      "components": {
+        "data": {
+          "bindings": 55929,
+          "containers": 4852
+        },
+        "root_behavior": {
+          "bindings": 4452,
+          "containers": 1153
+        },
+        "root_reserve": {
+          "bindings": 512,
+          "containers": 32
+        },
+        "source_behavior": {
+          "bindings": 5110,
+          "containers": 1334
+        },
+        "source_reserve": {
+          "bindings": 256,
+          "containers": 16
+        }
+      },
+      "remaining": {
+        "bindings": 64813,
+        "containers": 8997
+      },
+      "status": "active",
+      "total": {
+        "bindings": 66259,
+        "containers": 7387
+      }
+    },
+    "histogram": {
+      "bool": 422,
+      "bytes": 124,
+      "date": 1116,
+      "datetime": 4253,
+      "decimal": 2331,
+      "declared_daily_record": 70,
+      "dict": 0,
+      "int": 3162,
+      "mapping_proxy": 618,
+      "none": 3056,
+      "opaque_object": 137,
+      "str": 24940,
+      "tuple": 4538,
+      "unknown": 9923
+    },
+    "position": "first",
+    "route": "attempt_proof",
+    "seen_size": 9356,
+    "shape_status": "bounded_exact_type_inventory",
+    "stored_original_length": 54690,
+    "validation": "public_returned",
+    "vector_length": 54690
+  },
+  "graph_call_sites": [
+    {
+      "call_offset": 78,
+      "last_cache_offset": 84,
+      "position": "first"
+    },
+    {
+      "call_offset": 608,
+      "last_cache_offset": 614,
+      "position": "second"
+    }
+  ],
+  "limits": [
+    "Only original calls observed; no extra validation, proof, permit, replay or provider calls.",
+    "PY_START/PY_RETURN are local; PY_UNWIND is global and immediately code-filtered. Global event overhead is not bounded by selected counters.",
+    "Nested inclusive timings overlap and cannot be added as separate savings. Public/borrow/execute spans include observation and first-summary overhead.",
+    "Builder stop time precedes first-summary work. Instrumented timing is not unprofiled or Linux acceptance.",
+    "Vector/seen lengths and unknown type counts are not a proposed proof resource charge, admission proof or authorization.",
+    "A failed original execute provides partial observed work only; public_unwound never authenticates the provisional vector.",
+    "An observer fault during original unwind invalidates metadata and preserves the already-propagating original error; other observer faults propagate.",
+    "Outside-execute release/cleanup is not separately instrumented; test exitstatus remains authoritative and can include cleanup failures."
+  ],
+  "observation_extent": "complete_execute",
+  "routes": {
+    "attempt_proof": 144,
+    "original_fallback": 0
+  },
+  "schema": "aqt-original-daily-identity-observation/1",
+  "source_hashes_after": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_daily_identity_cost.py": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/daily_runtime_risk.py": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+    "test_aqt_daily_identity_cost.py": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "source_hashes_before": {
+    "apps/trader/continuous_simulation_factory.py": "d60324477620f85866eba36a001751101f0c027e44f50ec2aa6206f1e3f56a26",
+    "aqt_daily_identity_cost.py": "8f01789d2b3cd8f9cde5957c82060c274e4093541bbcc2567f7b0fe947641691",
+    "packages/persistence/_factory_attempt_behavior.py": "48b76a5c4d7e0eac6b08c4c3eb5f0d542a94eec0b4a681a6337727195e53108a",
+    "packages/persistence/_factory_attempt_fingerprint.py": "4db8b5e9e41f790a39031f884f0a17a548352059ab824f42f983e2affd1d2e56",
+    "packages/persistence/continuous_integrity.py": "0713cc6c55b35a7cd93eb89cb92cc4639ad9ba249c4d0f4389390ebeff78023d",
+    "packages/persistence/continuous_runtime_attempt_sources.py": "e12577f7fdf5519fb60d963e48da9d3034f5a11e050f5fc7cc4a752565688d1f",
+    "packages/persistence/daily_runtime_risk.py": "cfae83fee7d05ff79dbc3a8e47036870c88d9785247171ba0bcbb4e30f6fee24",
+    "test_aqt_daily_identity_cost.py": "9cb4f7cdbf2ed47cd067ebbb27dcc974b4369dc1209e3ed4a8edc9c67de9cfa8",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e"
+  },
+  "span_count": 313,
+  "spans": {
+    "borrow": {
+      "calls": 24,
+      "returned": 24,
+      "returned_ns": 17428821582,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "builder_first": {
+      "calls": 72,
+      "returned": 72,
+      "returned_ns": 1081981330,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "builder_second": {
+      "calls": 72,
+      "returned": 72,
+      "returned_ns": 1085519000,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "execute": {
+      "calls": 1,
+      "returned": 1,
+      "returned_ns": 44306357708,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "public_first": {
+      "calls": 72,
+      "returned": 72,
+      "returned_ns": 1235327124,
+      "unwound": 0,
+      "unwound_ns": 0
+    },
+    "public_second": {
+      "calls": 72,
+      "returned": 72,
+      "returned_ns": 1229983624,
+      "unwound": 0,
+      "unwound_ns": 0
+    }
+  },
+  "test_exitstatus": 0
+}

@@ -1,0 +1,24 @@
+{
+  "files": {
+    "packages/domain/canonical.py": "b0f5a2a2869242f9ae3e0fc5b27d255435155aba4d4daf6390949980b0ce630e",
+    "packages/domain/personal_contracts.py": "0525ffa5ac23c22c2c266ab7e62efe7d22663f1b572d04f56d6f0ac7160578e6",
+    "tests/integration/test_continuous_simulation_factory_outcome.py": "cd7546f114cffaef3de76f77fbcb9635a09c35a48229b7a9beede4372f0bb75e",
+    "tests/unit/test_personal_canonical_fragment_join.py": "b45d61952972e66dd49d83c9a05d7d0e25224779461054abe2114f46f4670268",
+    "tests/unit/test_personal_semantic_dispatch.py": "39427fdfe7f39bc7b209904ebbc44d9a6cee0e0ab7a1b9559ebd09d2da99621f"
+  },
+  "scope": "Original unprofiled retained test; combined reviewed field/leaf candidate; all limits unchanged; no time-source/profile env override.",
+  "result": "passed",
+  "pytest_passed": 1,
+  "pytest_seconds": 221.29,
+  "fixture_setup_seconds": 176.562,
+  "restore_seconds": 41.963,
+  "lease_seconds_unchanged": 60,
+  "operation_seconds_unchanged": 120,
+  "parent_seconds_unchanged": 150,
+  "preservation_and_cleanup": "All unchanged original assertions passed; process exited0",
+  "command": "env -i with explicit verified Python3.12 runtime, PYTHONPATH, PYTHONDONTWRITEBYTECODE=1, PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, TZ=UTC; python -B -m pytest -q -s -p no:cacheprovider tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease",
+  "log": "retained-after-field-leaf.txt",
+  "log_sha256": "a40bef63576f3c5e87b77b0fd354e11b695be64def15bc16eddd171c3f2f8b9c",
+  "static_validation": "architecture, full Ruff1021files, mypy419source files, API contracts and diff check passed",
+  "limitations": "Local original unprofiled synthetic-history test. Not exact-revision Linux acceptance and not a controlled before/after performance experiment; previous failures remain recorded."
+}

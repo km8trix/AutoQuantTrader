@@ -1,0 +1,29 @@
+{
+  "baselines": {
+    "root": {
+      "failed_records": [],
+      "healthy": true,
+      "present": true
+    },
+    "source": {
+      "failed_records": [],
+      "healthy": true,
+      "present": true
+    },
+    "static": {
+      "failed_records": [],
+      "healthy": true,
+      "present": true
+    }
+  },
+  "collected_node_count": 4948,
+  "diagnostic_only": true,
+  "recorded_node_count": 4948,
+  "runtime": [
+    3,
+    12,
+    13
+  ],
+  "schema": "factory-collection-baseline-health/1",
+  "scope": "After collection only; no fixtures/test calls/source mutations"
+}

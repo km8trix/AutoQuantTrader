@@ -174,8 +174,8 @@ def test_configured_test_postgres_url_is_visible_to_tests(request: pytest.Fixtur
         assert os.environ["AQT_TEST_POSTGRES_URL"] == configured_url
 
 
-def test_ci_workflow_runs_four_explicit_outer_suite_shards() -> None:
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+def test_legacy_ci_workflow_runs_four_explicit_outer_suite_shards() -> None:
+    workflow = (ROOT / ".github/workflows/legacy-native.yml").read_text(encoding="utf-8")
     backend_job = workflow.split("\n  backend:\n", 1)[1].split("\n  native-packaging:\n", 1)[0]
     native_job = workflow.split("\n  native-packaging:\n", 1)[1].split("\n  frontend:\n", 1)[0]
     matrix = """\

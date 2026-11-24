@@ -22,7 +22,6 @@ from packages.domain.research_job_contracts import ResearchJobEvent, ResearchRun
 from packages.domain.walking_thread import WalkingThread
 from packages.persistence import database as database_module
 from packages.persistence.database import (
-    EXPECTED_SCHEMA_REVISION,
     DatabaseSchemaNotReady,
     create_database_engine,
     verify_operational_schema,
@@ -108,8 +107,7 @@ def test_0039_additive_static_ddl_and_empty_downgrade(tmp_path: Path) -> None:
             for constraint in table.constraints
             if isinstance(constraint, sa.UniqueConstraint)
         }
-    assert EXPECTED_SCHEMA_REVISION == REVISION
-    verify_operational_schema(engine, require_phase_zero_facts=False)
+    verify_operational_schema(engine, expected_revision=REVISION, require_phase_zero_facts=False)
     command.downgrade(config, PRIOR)
     assert shapes(engine) == before
     verify_operational_schema(engine, expected_revision=PRIOR, require_phase_zero_facts=False)
@@ -166,13 +164,23 @@ def test_0039_nonempty_schema_probe_requires_injected_codec_and_rechecks_rows(
     request = sample_request()
     SqlResearchWorkflow(engine, codec=personal_codec).launch(request)
     with pytest.raises(DatabaseSchemaNotReady, match="requires a record codec"):
-        verify_operational_schema(engine, require_phase_zero_facts=False)
-    verify_operational_schema(engine, require_phase_zero_facts=False, research_codec=personal_codec)
+        verify_operational_schema(
+            engine, expected_revision=REVISION, require_phase_zero_facts=False
+        )
+    verify_operational_schema(
+        engine,
+        expected_revision=REVISION,
+        require_phase_zero_facts=False,
+        research_codec=personal_codec,
+    )
     with engine.begin() as connection:
         connection.execute(RESEARCH_TABLES_V2[1].update().values(owner_id="other"))
     with pytest.raises(DatabaseSchemaNotReady, match="research SQL integrity"):
         verify_operational_schema(
-            engine, require_phase_zero_facts=False, research_codec=personal_codec
+            engine,
+            expected_revision=REVISION,
+            require_phase_zero_facts=False,
+            research_codec=personal_codec,
         )
     engine.dispose()
 
@@ -226,6 +234,7 @@ def test_0039_readiness_releases_snapshot_before_slow_validation_and_rechecks_co
             reading = pool.submit(
                 verify_operational_schema,
                 engine,
+                expected_revision=REVISION,
                 require_phase_zero_facts=require_phase_zero_facts,
                 research_codec=codec,
             )
@@ -248,6 +257,7 @@ def test_0039_readiness_releases_snapshot_before_slow_validation_and_rechecks_co
         assert workflow.get(request.job_id).status == "running"
         verify_operational_schema(
             engine,
+            expected_revision=REVISION,
             require_phase_zero_facts=require_phase_zero_facts,
             research_codec=personal_codec,
         )
@@ -256,6 +266,7 @@ def test_0039_readiness_releases_snapshot_before_slow_validation_and_rechecks_co
         with pytest.raises(DatabaseSchemaNotReady, match="research SQL integrity"):
             verify_operational_schema(
                 engine,
+                expected_revision=REVISION,
                 require_phase_zero_facts=require_phase_zero_facts,
                 research_codec=personal_codec,
             )
@@ -424,7 +435,9 @@ def test_0038_still_requires_oauth_tables_and_0039_requires_all_new_tables(tmp_p
     with engine.begin() as connection:
         connection.exec_driver_sql("DROP TABLE research_trial_jobs")
     with pytest.raises(DatabaseSchemaNotReady):
-        verify_operational_schema(engine, require_phase_zero_facts=False)
+        verify_operational_schema(
+            engine, expected_revision=REVISION, require_phase_zero_facts=False
+        )
     engine.dispose()
 
 

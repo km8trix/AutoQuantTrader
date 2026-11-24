@@ -1,0 +1,148 @@
+{
+  "schema": "selected-public-validation-summary-v1",
+  "note": "Selected public facts from preserved private local originals. Private paths, raw wire envelopes and command arguments are omitted; this is not a lossless archive. Original failures remain separate. No original worker or retained fixture ran locally for this change.",
+  "architecture": "passed before project imports",
+  "checks": [
+    {
+      "check": "format",
+      "returncode": 0,
+      "elapsed_seconds": 0.07089624996297061,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "selected_pins": 11,
+      "pins_equal": true,
+      "junit": null
+    },
+    {
+      "check": "lint",
+      "returncode": 0,
+      "elapsed_seconds": 0.07528545800596476,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "selected_pins": 11,
+      "pins_equal": true,
+      "junit": null
+    },
+    {
+      "check": "compile",
+      "returncode": 0,
+      "elapsed_seconds": 0.029046208132058382,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "selected_pins": 11,
+      "pins_equal": true,
+      "junit": null
+    },
+    {
+      "check": "diagnostic",
+      "returncode": 0,
+      "elapsed_seconds": 0.6405919168610126,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "selected_pins": 11,
+      "pins_equal": true,
+      "junit": {
+        "cases": 52,
+        "passes": 52,
+        "failures": 0,
+        "errors": 0,
+        "unique_identities": 52,
+        "per_file": {
+          "tests.unit.test_continuous_process_observation_diagnostic": 19,
+          "tests.unit.test_continuous_observation_timeout_site": 33
+        },
+        "sha256": "a63de0746781c9f274e39d724f7a5e3c62148e291c679ba96f5776d50b579adb",
+        "bytes": 9397,
+        "skips": []
+      }
+    },
+    {
+      "check": "process",
+      "returncode": 0,
+      "elapsed_seconds": 13.377203167183325,
+      "pipe_eof": {
+        "stdout": true,
+        "stderr": true
+      },
+      "timeout": false,
+      "overflow": false,
+      "reap_failed": false,
+      "failure_types": [],
+      "selected_pins": 11,
+      "pins_equal": true,
+      "junit": {
+        "cases": 273,
+        "passes": 270,
+        "failures": 0,
+        "errors": 0,
+        "unique_identities": 273,
+        "per_file": {
+          "tests.unit.test_continuous_linux_observation": 191,
+          "tests.unit.test_continuous_process": 82
+        },
+        "sha256": "62a19692d947d6f06b989f5771585a40074fd26eadb4e2e2c5f8a46fdf0e8a3a",
+        "bytes": 49209,
+        "skips": [
+          {
+            "name": "test_actual_linux_live_child_current_rss_does_not_reap_or_launch_ps",
+            "reason": "requires actual Linux procfs for an owned child"
+          },
+          {
+            "name": "test_actual_linux_stopped_child_is_not_exit",
+            "reason": "requires actual Linux procfs for an owned child"
+          },
+          {
+            "name": "test_actual_linux_zombie_is_observed_before_single_original_owner_wait",
+            "reason": "requires actual Linux procfs for an owned child"
+          }
+        ]
+      }
+    }
+  ],
+  "failed_preparation": {
+    "retention_regression": {
+      "before": {
+        "tests": 1,
+        "failures": 1
+      },
+      "after": {
+        "tests": 1,
+        "failures": 0
+      },
+      "repair": "Clear the temporary TimeoutExpired reference in finally; default summary unchanged."
+    },
+    "sandbox_process": {
+      "cases": 273,
+      "passes": 249,
+      "failures": 21,
+      "skips": 3,
+      "reason": "Direct /bin/ps execution denied by macOS sandbox; helper is never invoked by failed process cases. Unchanged tests pass with process inspection permitted. No Linux CI cause established.",
+      "wrapper_failure": "Original wrapper exceeded 16384-byte report limit before saving native child result. Actual JUnit retained; unavailable child return/pipe/elapsed/pin fields not reconstructed. Corrected wrapper saves exact native result separately before bounded report."
+    },
+    "temporary_wrapper_statics": "Formatting/lint preparation failures repaired before permitted process retest; no test/assertion/cap change."
+  }
+}

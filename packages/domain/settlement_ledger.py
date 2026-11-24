@@ -1013,3 +1013,150 @@ def reduce_settlement_ledger(
         obligations=canonical_obligations,
         currency=currency,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedSettlementLedgerState:
+    """Observed executions remain payable/receivable until explicit settlement.
+
+    This version recognizes a trade obligation from the execution itself. A
+    missing instruction has an unknown contractual date, never a guessed date.
+    It is an intermediate projection, not an account/source attestation.
+    """
+
+    account_id: str
+    trade_date_ledger: CanonicalLedgerState
+    settlement_entries: tuple[CanonicalLedgerEntry, ...]
+    missing_instruction_event_ids: tuple[str, ...]
+    instructions: tuple[ExecutionSettlementInstruction, ...]
+    confirmations: tuple[ExecutionSettlementConfirmation, ...]
+    currency: str
+
+    @property
+    def aggregate(self) -> _DerivedSettlementAggregate:
+        return _derive_settlement_aggregate(
+            trade_date_ledger=self.trade_date_ledger,
+            settlement_entries=self.settlement_entries,
+            currency=self.currency,
+        )
+
+    @property
+    def trade_date_cash(self) -> Decimal:
+        return self.aggregate.trade_date_cash
+
+    @property
+    def settled_cash(self) -> Decimal:
+        return self.aggregate.settled_cash
+
+    @property
+    def receivables(self) -> Decimal:
+        return self.aggregate.receivables
+
+    @property
+    def payables(self) -> Decimal:
+        return self.aggregate.payables
+
+    @property
+    def as_of(self) -> datetime | None:
+        return self.aggregate.as_of
+
+
+def reduce_observed_settlement_ledger(
+    *,
+    account_id: str,
+    order_states: Iterable[CanonicalOrderState] = (),
+    cash_flows: Iterable[LedgerCashFlow] = (),
+    instructions: Iterable[ExecutionSettlementInstruction] = (),
+    confirmations: Iterable[ExecutionSettlementConfirmation] = (),
+    currency: str = "USD",
+) -> ObservedSettlementLedgerState:
+    """Use canonical cash deltas/postings without modeling a settlement fact.
+
+    The original strict reducer and its instruction-bound history stay intact.
+    This explicit version binds recognition to the observed execution, so a
+    later instruction cannot replace already committed journal entries.
+    """
+    _require_text(account_id, "settlement account_id")
+    _require_currency(currency)
+    states, flows = tuple(order_states), tuple(cash_flows)
+    ledger = reduce_execution_ledger(
+        order_states=states, cash_flows=flows, execution_currency=currency
+    )
+    deltas = _execution_cash_deltas(states)
+    by_id, by_event = _canonical_instructions(tuple(instructions))
+    by_confirmation = _canonical_confirmations(tuple(confirmations))
+    events = {delta.event.event_id: delta.event for delta in deltas}
+    if set(by_event) - set(events):
+        raise SettlementLedgerError("settlement instruction has no execution cash delta")
+    if set(by_confirmation) - set(by_id):
+        raise SettlementLedgerError("settlement confirmation has no known instruction")
+    entries: list[CanonicalLedgerEntry] = []
+    for delta in deltas:
+        event = delta.event
+        account = _settlement_account(delta.cash_delta)
+        entries.append(
+            _entry(
+                kind=LedgerEntryKind.SETTLEMENT_RECLASSIFICATION,
+                reference_id=canonical_id("observed-trade-obligation-v1", event.event_id),
+                source_sha256=event.semantic_sha256,
+                effective_at=event.occurred_at,
+                recorded_at=event.received_at,
+                postings=(
+                    _posting(
+                        account=f"assets:cash:{currency}",
+                        currency=currency,
+                        amount_delta=delta.cash_delta.copy_negate(),
+                    ),
+                    _posting(account=account, currency=currency, amount_delta=delta.cash_delta),
+                ),
+            )
+        )
+        instruction = by_event.get(event.event_id)
+        if instruction is None:
+            continue
+        if instruction.execution_event_sha256 != event.semantic_sha256:
+            raise SettlementLedgerError("settlement instruction does not bind its execution event")
+        if instruction.contractual_settlement_at < event.occurred_at:
+            raise SettlementLedgerError("contractual settlement cannot precede execution")
+        if instruction.recorded_at < event.received_at:
+            raise SettlementLedgerError("settlement instruction predates execution receipt")
+        confirmation = by_confirmation.get(instruction.instruction_id)
+        if confirmation is None:
+            continue
+        if confirmation.instruction_sha256 != instruction.semantic_sha256:
+            raise SettlementLedgerError("confirmation does not bind its exact instruction")
+        if confirmation.settled_at < instruction.recorded_at:
+            raise SettlementLedgerError("actual settlement predates its instruction")
+        entries.append(
+            _entry(
+                kind=LedgerEntryKind.EXECUTION_SETTLEMENT,
+                reference_id=confirmation.confirmation_id,
+                source_sha256=confirmation.semantic_sha256,
+                effective_at=confirmation.settled_at,
+                recorded_at=confirmation.recorded_at,
+                postings=(
+                    _posting(
+                        account=f"assets:cash:{currency}",
+                        currency=currency,
+                        amount_delta=delta.cash_delta,
+                    ),
+                    _posting(
+                        account=account,
+                        currency=currency,
+                        amount_delta=delta.cash_delta.copy_negate(),
+                    ),
+                ),
+            )
+        )
+    result = ObservedSettlementLedgerState(
+        account_id,
+        ledger,
+        tuple(sorted(entries, key=_entry_key)),
+        tuple(sorted(set(events) - set(by_event))),
+        tuple(by_id[key] for key in sorted(by_id)),
+        tuple(by_confirmation[key] for key in sorted(by_confirmation)),
+        currency,
+    )
+    # Force orientation and duplicate-entry verification before returning.
+    _ = result.aggregate
+    return result

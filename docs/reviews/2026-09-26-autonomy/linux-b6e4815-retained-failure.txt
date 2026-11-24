@@ -1,0 +1,61 @@
+2026-09-26T06:21:46.0892178Z =================================== FAILURES ===================================
+2026-09-26T06:21:46.0892722Z ___ test_actual_signed_retained_outcome_restores_with_original_utc_and_lease ___
+2026-09-26T06:21:46.0893212Z   + Exception Group Traceback (most recent call last):
+2026-09-26T06:21:46.0894315Z   |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py", line 474, in test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+2026-09-26T06:21:46.0895856Z   |     _execute_retained_factory(history, config, monkeypatch)
+2026-09-26T06:21:46.0896839Z   |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py", line 418, in _execute_retained_factory
+2026-09-26T06:21:46.0897977Z   |     raise BaseExceptionGroup("actual restore and cleanup both failed", [error, cleanup_error])
+2026-09-26T06:21:46.0898703Z   | ExceptionGroup: actual restore and cleanup both failed (2 sub-exceptions)
+2026-09-26T06:21:46.0899456Z   +-+---------------- 1 ----------------
+2026-09-26T06:21:46.0899696Z     | Traceback (most recent call last):
+2026-09-26T06:21:46.0900236Z     |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py", line 378, in _execute_retained_factory
+2026-09-26T06:21:46.0900861Z     |     factory.execute(operation_id="restore-original-retained-outcome")
+2026-09-26T06:21:46.0901396Z     |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/apps/trader/continuous_simulation_factory.py", line 633, in execute
+2026-09-26T06:21:46.0901946Z     |     raise ContinuousSimulationFactoryError("OFFLINE_OPERATION_FAILED") from None
+2026-09-26T06:21:46.0902465Z     | apps.trader.continuous_simulation_factory.ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED
+2026-09-26T06:21:46.0902859Z     +---------------- 2 ----------------
+2026-09-26T06:21:46.0903081Z     | Traceback (most recent call last):
+2026-09-26T06:21:46.0903614Z     |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/tests/integration/test_continuous_simulation_factory_outcome.py", line 404, in _execute_retained_factory
+2026-09-26T06:21:46.0904153Z     |     factory.close()
+2026-09-26T06:21:46.0904565Z     |   File "/home/runner/work/AutoQuantTrader/AutoQuantTrader/apps/trader/continuous_simulation_factory.py", line 641, in close
+2026-09-26T06:21:46.0905118Z     |     raise ContinuousSimulationFactoryError("OFFLINE_LEASE_RELEASE_FAILED") from None
+2026-09-26T06:21:46.0905647Z     | apps.trader.continuous_simulation_factory.ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED
+2026-09-26T06:21:46.0906252Z     +------------------------------------
+2026-09-26T06:21:46.0906548Z ----------------------------- Captured stdout call -----------------------------
+2026-09-26T06:21:46.0906868Z genuine signed daily admission retained
+2026-09-26T06:21:46.0907129Z genuine original activation source retained
+2026-09-26T06:21:46.0907370Z genuine outcome C/B publication retained
+2026-09-26T06:21:46.0907617Z genuine retained-outcome fixture setup: 256.106s
+2026-09-26T06:21:46.0907876Z actual factory graph ready: 0.035s
+2026-09-26T06:21:46.0908160Z actual factory restore result: failed; elapsed=61.200s
+2026-09-26T06:21:46.0908539Z actual factory execute error: ContinuousSimulationFactoryError: OFFLINE_OPERATION_FAILED
+2026-09-26T06:21:46.0909247Z actual factory execute frame: tests/integration/test_continuous_simulation_factory_outcome.py:378:_execute_retained_factory
+2026-09-26T06:21:46.0909808Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:633:execute
+2026-09-26T06:21:46.0910305Z actual factory execute error: DatabaseSchemaNotReady: continuous retained integrity verification failed
+2026-09-26T06:21:46.0910794Z actual factory execute frame: apps/trader/continuous_simulation_factory.py:588:execute
+2026-09-26T06:21:46.0911232Z actual factory execute frame: packages/persistence/continuous_integrity.py:256:__enter__
+2026-09-26T06:21:46.0911706Z actual factory execute frame: packages/persistence/continuous_integrity.py:997:_factory_operation
+2026-09-26T06:21:46.0912220Z actual factory execute frame: packages/persistence/database.py:1652:verify_operational_schema
+2026-09-26T06:21:46.0912655Z actual factory execute frame: packages/persistence/database.py:219:validate
+2026-09-26T06:21:46.0913031Z actual factory execute frame: packages/persistence/database.py:381:validate
+2026-09-26T06:21:46.0913578Z actual factory execute error: ContinuousIntegrityError: CONTINUOUS_RETAINED_INTEGRITY_FAILED
+2026-09-26T06:21:46.0914009Z actual factory execute frame: packages/persistence/database.py:379:validate
+2026-09-26T06:21:46.0914451Z actual factory execute frame: packages/persistence/continuous_integrity.py:1480:validate_snapshot
+2026-09-26T06:21:46.0914937Z actual factory execute error: AccountLeaseOwnershipLost: account coordinator lease has expired
+2026-09-26T06:21:46.0915414Z actual factory execute frame: packages/persistence/continuous_integrity.py:1472:validate_snapshot
+2026-09-26T06:21:46.0915879Z actual factory execute frame: packages/persistence/continuous_integrity.py:1514:_validate
+2026-09-26T06:21:46.0916346Z actual factory execute frame: packages/persistence/continuous_integrity.py:1591:_validate_original
+2026-09-26T06:21:46.0916818Z actual factory execute frame: packages/persistence/continuous_integrity.py:1442:_recheck_final
+2026-09-26T06:21:46.0917345Z actual factory execute frame: packages/persistence/account_coordinator.py:1175:revalidate_for_commit_in_transaction
+2026-09-26T06:21:46.0917916Z actual factory execute frame: packages/persistence/account_coordinator.py:1163:_revalidate_in_transaction
+2026-09-26T06:21:46.0918404Z actual factory execute frame: packages/persistence/account_coordinator.py:822:_receipt
+2026-09-26T06:21:46.0918865Z actual factory cleanup error: ContinuousSimulationFactoryError: OFFLINE_LEASE_RELEASE_FAILED
+2026-09-26T06:21:46.0919689Z actual factory cleanup frame: tests/integration/test_continuous_simulation_factory_outcome.py:404:_execute_retained_factory
+2026-09-26T06:21:46.0920221Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:641:close
+2026-09-26T06:21:46.0920674Z actual factory cleanup error: AccountLeaseOwnershipLost: account coordinator lease has expired
+2026-09-26T06:21:46.0921122Z actual factory cleanup frame: apps/trader/continuous_simulation_factory.py:638:close
+2026-09-26T06:21:46.0921545Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1454:release
+2026-09-26T06:21:46.0921972Z actual factory cleanup frame: packages/persistence/account_coordinator.py:1422:release
+2026-09-26T06:21:46.0922505Z actual factory cleanup frame: packages/persistence/account_coordinator.py:822:_receipt
+2026-09-26T06:21:46.9351818Z FAILED tests/integration/test_continuous_simulation_factory_outcome.py::test_actual_signed_retained_outcome_restores_with_original_utc_and_lease
+2026-09-26T06:21:46.9352370Z 1 failed, 280 passed, 4271 deselected, 1 warning in 831.77s (0:13:51)
